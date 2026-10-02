@@ -196,8 +196,6 @@
         var prio  = t.prioridade ? '*' + t.prioridade + '* ' : '';
         var tsk   = t.osNumero || '—';
         var site  = t.siteId || t.enderecoId || '—';
-        var end   = t.enderecoId || '';
-        var fila  = (t.filaAtual || '').replace(/^TLP-T\d+(-\d+)?-?\s*/i, '').slice(0, 30);
         var bgUpd = '';
         if (U.classificarUltimoBloco && t.motivoCancelamento) {
           var resUpd = U.classificarUltimoBloco(t.motivoCancelamento);
@@ -211,11 +209,7 @@
             else if (resUpd.texto)                    bgUpd = ' · ' + resUpd.texto.replace(/^\d[\d\/\-:\s]{5,20}-?\s*/, '').trim().slice(0, 50);
           }
         }
-        if (modo === 'simples') {
-          linhas.push(prio + tsk + ' / ' + site + bgUpd);
-        } else {
-          linhas.push(prio + tsk + ' / ' + site + (end && end !== site ? ' / ' + end : '') + (fila ? ' · ' + fila : '') + bgUpd);
-        }
+        linhas.push(prio + tsk + ' / ' + site + bgUpd);
       });
       linhas.push('');
     });
