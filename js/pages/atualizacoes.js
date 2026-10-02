@@ -107,9 +107,14 @@
     return ('0' + dt.getDate()).slice(-2) + '/' + ('0' + (dt.getMonth() + 1)).slice(-2);
   }
   function fmtGap(hours) {
-    if (hours < 1)  return Math.round(hours * 60) + 'min';
-    if (hours < 24) return hours.toFixed(1) + 'h';
-    return (hours / 24).toFixed(1) + 'd';
+    var totalMin = Math.round(hours * 60);
+    if (totalMin < 60) return totalMin + 'min';
+    var h = Math.floor(totalMin / 60);
+    var m = totalMin % 60;
+    if (h < 24) return m > 0 ? h + 'h' + m + 'min' : h + 'h';
+    var d = Math.floor(h / 24);
+    var rh = h % 24;
+    return rh > 0 ? d + 'd' + rh + 'h' : d + 'd';
   }
   function pct(n, d) { return d > 0 ? Math.round(n / d * 100) : 0; }
 
