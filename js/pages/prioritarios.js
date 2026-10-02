@@ -178,7 +178,9 @@
   }
 
   // ── gerar texto de cópia de uma lista de tarefas (por região) ────────
-  function gerarTextoCopia(rows, titulo) {
+  // modo: 'simples' → só ATUALIZADO/ATUALIZAR; 'completo' → texto completo do update
+  function gerarTextoCopia(rows, titulo, modo) {
+    modo = modo || 'completo';
     if (!rows.length) return titulo + '\n(nenhum resultado)';
     var regioesMapa = {};
     rows.forEach(function (t) {
@@ -199,15 +201,21 @@
         var bgUpd = '';
         if (U.classificarUltimoBloco && t.motivoCancelamento) {
           var resUpd = U.classificarUltimoBloco(t.motivoCancelamento);
-          if (resUpd.estado === 'sem') {
-            bgUpd = ' · SEM UPDATE';
-          } else if (resUpd.estado === 'acionamento') {
-            bgUpd = ' · VERIFICANDO ACIONAMENTO';
-          } else if (resUpd.texto) {
-            bgUpd = ' · ' + resUpd.texto.replace(/^\d[\d\/\-:\s]{5,20}-?\s*/, '').trim().slice(0, 50);
+          if (modo === 'simples') {
+            if (resUpd.estado === 'ok')           bgUpd = ' · ATUALIZADO';
+            else if (resUpd.estado === 'acionamento') bgUpd = ' · VERIFICANDO';
+            else                                  bgUpd = ' · ATUALIZAR';
+          } else {
+            if (resUpd.estado === 'sem')              bgUpd = ' · SEM UPDATE';
+            else if (resUpd.estado === 'acionamento') bgUpd = ' · VERIFICANDO ACIONAMENTO';
+            else if (resUpd.texto)                    bgUpd = ' · ' + resUpd.texto.replace(/^\d[\d\/\-:\s]{5,20}-?\s*/, '').trim().slice(0, 50);
           }
         }
-        linhas.push(prio + tsk + ' / ' + site + (end && end !== site ? ' / ' + end : '') + (fila ? ' · ' + fila : '') + bgUpd);
+        if (modo === 'simples') {
+          linhas.push(prio + tsk + ' / ' + site + bgUpd);
+        } else {
+          linhas.push(prio + tsk + ' / ' + site + (end && end !== site ? ' / ' + end : '') + (fila ? ' · ' + fila : '') + bgUpd);
+        }
       });
       linhas.push('');
     });
@@ -469,23 +477,32 @@
     function renderDrill(cat) {
       var card = U.h('div', { class: 'trj-card p-5', style: { animation: 'fadeIn .18s ease' } });
 
-      // ── Cabeçalho com título + botão copiar ──
-      function headerComCopiar(icon, titulo, cor, onCopiar) {
-        var btnCopy = U.h('button', {
-          class: 'trj-btn trj-btn-ghost clickable',
-          style: { fontSize: '11px', padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: '5px', border: '1px solid rgba(255,255,255,.15)', marginLeft: 'auto' },
-          onclick: function () { copyText(onCopiar()); }
-        }, [U.h('span', { text: '📋' }), U.h('span', { text: 'Copiar' })]);
+      // ── Cabeçalho com título + botão(ões) copiar ──
+      // copias: [{ label, fn }] para múltiplos botões; se omitido usa onCopiar com label 'Copiar'
+      function headerComCopiar(icon, titulo, cor, onCopiar, copias) {
+        var opcoes = copias && copias.length ? copias : [{ label: 'Copiar', fn: onCopiar }];
+        var botoesWrap = U.h('div', { style: { display: 'flex', gap: '4px', marginLeft: 'auto', flexWrap: 'wrap' } },
+          opcoes.map(function (op) {
+            return U.h('button', {
+              class: 'trj-btn trj-btn-ghost clickable',
+              style: { fontSize: '11px', padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: '5px', border: '1px solid rgba(255,255,255,.15)' },
+              onclick: function () { copyText(op.fn()); }
+            }, [U.h('span', { text: '📋' }), U.h('span', { text: op.label })]);
+          })
+        );
         var icoEl = icon ? U.h('span', { style: { display: 'inline-flex', alignItems: 'center', opacity: '0.85' }, html: icon }) : null;
         return U.h('div', { class: 'flex items-center gap-2 mb-4', style: { flexWrap: 'wrap' } }, [
           icoEl,
           U.h('span', { style: { fontWeight: '800', fontSize: '16px', color: cor }, text: titulo }),
-          btnCopy
+          botoesWrap
         ].filter(Boolean));
       }
 
       if (cat === 'b2b') {
-        card.appendChild(headerComCopiar('', 'B2B / Premium — ' + b2bTasks.length + ' caso(s)', '#3498db', function () { return gerarTextoCopia(b2bTasks, 'B2B / PREMIUM'); }));
+        card.appendChild(headerComCopiar('', 'B2B / Premium — ' + b2bTasks.length + ' caso(s)', '#3498db', null, [
+          { label: '📋 Simplificado', fn: function () { return gerarTextoCopia(b2bTasks, 'B2B / PREMIUM', 'simples'); } },
+          { label: '📄 Completo',     fn: function () { return gerarTextoCopia(b2bTasks, 'B2B / PREMIUM', 'completo'); } }
+        ]));
         card.appendChild(tabelaTarefas(b2bTasks, { vazio: 'Nenhum caso B2B / Premium com status Iniciado ou Não Iniciado.' }));
 
       } else if (cat === 'backbone') {
