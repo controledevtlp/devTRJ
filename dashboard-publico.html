@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Controle TRJ · Dashboard (visualização pública)</title>
+<link rel="icon" href="assets/logo-trj.png">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: { colors: { bg: '#0a0a0f', card: '#13131a', popover: '#1a1a24', primary: '#ff8c00', fg: '#f0f0f0', muted: '#8a8a93' } } }
+  };
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+<script src="js/config.js"></script>
+<script src="js/constants.js"></script>
+<script src="js/domain.js"></script>
+<script src="js/compute.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/pages/mapa.js"></script>
+<script src="js/pages/sla.js"></script>
+<style>
+body { min-height: 100vh; }
+#root { max-width: 1800px; margin: 0 auto; padding: 22px 28px; position: relative; z-index: 1; }
+
+/* ---- Tela de boas-vindas ---- */
+.welcome-wrap { min-height: 86vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+.welcome-logo { width: 64px; height: 64px; object-fit: contain; margin-bottom: 18px; filter: drop-shadow(0 0 16px var(--trj-primary)); }
+.welcome-title { font-family: 'Sora', sans-serif; font-size: 30px; font-weight: 800; letter-spacing: -0.01em; margin-bottom: 6px; }
+.welcome-sub { color: var(--trj-muted); font-size: 15px; margin-bottom: 34px; }
+.regiao-grid { display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: center; gap: 12px; width: 100%; margin-bottom: 16px; }
+@media (max-width: 900px) { .regiao-grid { flex-wrap: wrap; } }
+@media (max-width: 640px) { .regiao-grid { grid-template-columns: repeat(2, 1fr); } }
+.regiao-btn {
+  position: relative; overflow: hidden; flex: 0 1 160px; min-width: 140px; max-width: 200px; background: var(--trj-card); border: 1px solid var(--trj-border);
+  border-radius: 14px; padding: 22px 14px; cursor: pointer; transition: transform .22s cubic-bezier(.4,0,.2,1), border-color .22s ease, box-shadow .22s ease;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--trj-fg);
+}
+.regiao-btn::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--trj-primary); opacity: 0; transition: opacity .22s ease; }
+.regiao-btn:hover { transform: translateY(-5px); border-color: rgba(255,140,0,.55); box-shadow: 0 18px 38px rgba(0,0,0,.5), 0 0 26px rgba(255,140,0,.18); }
+.regiao-btn:hover::before { opacity: 1; }
+.regiao-btn .ic { font-size: 26px; transition: transform .22s ease; }
+.regiao-btn:hover .ic { transform: scale(1.18) rotate(-3deg); }
+.regiao-btn .nome { font-size: 14px; font-weight: 700; }
+.regiao-btn .qtd { font-size: 11px; color: var(--trj-muted); }
+.visao-geral-btn {
+  width: 100%; max-width: 760px; background: rgba(255,140,0,.06); border: 1px solid rgba(255,140,0,.3);
+  border-radius: 14px; padding: 16px; cursor: pointer; transition: all .22s ease; color: var(--trj-fg);
+  display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 700; font-size: 14.5px;
+}
+.visao-geral-btn:hover { background: rgba(255,140,0,.12); border-color: var(--trj-primary); box-shadow: 0 10px 28px rgba(255,140,0,.18); transform: translateY(-2px); }
+
+/* ---- barra superior da view de dashboard ---- */
+.pub-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.pub-live { font-size: 11.5px; color: var(--trj-muted); display: flex; align-items: center; gap: 7px; }
+.pub-live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--trj-green); box-shadow: 0 0 7px var(--trj-green); animation: trjPulseLive 2s infinite; }
+@keyframes trjPulseLive { 0%,100%{opacity:1;} 50%{opacity:.35;} }
+</style>
+</head>
+<body>
+<div id="root"><div class="text-center py-20" style="color:var(--trj-muted)">Carregando dados publicados...</div></div>
+<div id="dev-footer-mount" style="max-width:1400px;margin:0 auto;padding:0 22px;position:relative;z-index:1;"></div>
+
+<script>
+(function () {
+  var U = TRJ.ui, C = TRJ.constants, D = TRJ.domain, Comp = TRJ.compute;
+  var URL_API = (TRJ.config && TRJ.config.APPS_SCRIPT_URL) || '';
+  var root = document.getElementById('root');
+
+  var raw = { tasksEnriched: [], incidentsEnriched: [] };
+  var savedAt = null;
+  var view = 'welcome';
+  var state = { regiao: 'TODAS', prioridades: [] };
+
+  var REGIAO_ICONS_SVG = {
+    'INTERIOR': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+    'BAIXADA': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><rect x="3" y="9" width="18" height="13" rx="2"/><path d="M3 9l9-6 9 6"/><path d="M9 22V12h6v10"/></svg>',
+    'GRANDE RJ': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>',
+    'ZONA OESTE': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
+    'ESPIRITO SANTO': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0"/><path d="M3 12h18"/><path d="M12 3c-2.5 2.5-4 5.5-4 9s1.5 6.5 4 9"/><path d="M12 3c2.5 2.5 4 5.5 4 9s-1.5 6.5-4 9"/></svg>',
+    'OTHERS': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 0 0-8 8c0 6 8 14 8 14s8-8 8-14a8 8 0 0 0-8-8z"/></svg>'
+  };
+
+  // ── Carregamento ────────────────────────────────────────────────────────────
+  async function carregarDados(silencioso) {
+    if (!URL_API) { root.innerHTML = '<div class="text-center py-20" style="color:var(--trj-red)">URL do Apps Script não configurada (js/config.js).</div>'; return; }
+    try {
+      var resp = await fetch(URL_API + '?action=getDashboardSnapshot');
+      var json = await resp.json();
+      if (!json || json.ok === false) throw new Error((json && json.error) || 'Erro ao buscar dados.');
+      if (!json.data) {
+        if (!silencioso) root.innerHTML = '<div class="text-center py-20" style="color:var(--trj-muted)">Ainda não há nenhuma publicação.<br>Abra o Dashboard no painel principal pelo menos uma vez.</div>';
+        return;
+      }
+      raw.tasksEnriched = json.data.tasksEnriched || [];
+      raw.incidentsEnriched = json.data.incidentsEnriched || [];
+      raw.prazoMap = json.data.prazoMap || {};   // necessário para SLA/Aderência
+      savedAt = json.savedAt || null;
+
+      // Sincronizar dados do mapa para o localStorage E para o objeto raw
+      // (raw é usado diretamente pelo renderMapaPublico, evitando race condition)
+      function _lsSave(key, val) {
+        try { if (val) localStorage.setItem(key, JSON.stringify(val)); } catch(e){}
+      }
+      if (json.data.mapaCoordMap) {
+        raw._mapaCoordMap = json.data.mapaCoordMap;
+        _lsSave('trj_coordMap', json.data.mapaCoordMap);
+      } else {
+        // Tentar recuperar do localStorage como fallback
+        try { raw._mapaCoordMap = JSON.parse(localStorage.getItem('trj_coordMap') || 'null'); } catch(e){}
+      }
+      if (json.data.mapaMwSlim && json.data.mapaMwSlim.length) {
+        var mwFull = json.data.mapaMwSlim.map(function(l) {
+          return { Enlace2:l.E2, LAT_A:l.LA, LONG_A:l.LO, LAT_B:l.LB, LONG_B:l.LOB, FORNECEDOR:l.F };
+        });
+        raw._mapaMwData = mwFull;
+        _lsSave('trj_mwData', mwFull);
+      } else {
+        try { raw._mapaMwData = JSON.parse(localStorage.getItem('trj_mwData') || 'null'); } catch(e){}
+      }
+      if (json.data.mapaFoSlim && json.data.mapaFoSlim.length) {
+        var foFull = json.data.mapaFoSlim.map(function(h) {
+          return { NEName:h.N, HUB:h.H, LAT_A:h.LA, LONG_A:h.LO, FORNECEDOR:h.F };
+        });
+        raw._mapaFoData = foFull;
+        _lsSave('trj_foData', foFull);
+      } else {
+        try { raw._mapaFoData = JSON.parse(localStorage.getItem('trj_foData') || 'null'); } catch(e){}
+      }
+      renderView();
+      // Se o usuário já estava na aba de mapa, re-renderizar com os dados novos
+      if (view === 'mapa' && root.querySelector('#trj-mapa-leaflet')) {
+        root.innerHTML = '';
+        renderMapaPublico();
+      }
+    } catch (e) {
+      if (!silencioso) root.innerHTML = '<div class="text-center py-20" style="color:var(--trj-red)">Não foi possível carregar: ' + U.esc(e.message || String(e)) + '</div>';
+    }
+  }
+
+  function renderView() {
+    if (view === 'welcome') renderWelcome();
+    else if (view === 'mapa') renderMapaPublico();
+    else if (view === 'sla')  renderSlaPublico();
+    else renderDashboard();
+  }
+
+  // ── Mapa Operacional (versão pública, sem botão de atualização) ────────────
+  function renderMapaPublico() {
+    root.innerHTML = '';
+    var btnVoltarMapa = U.h('button', {
+      class: 'trj-btn trj-btn-ghost clickable', text: '← Dashboard',
+      onclick: function () { view = 'dashboard'; renderView(); }
+    });
+    root.appendChild(U.h('div', { class: 'pub-topbar' }, [btnVoltarMapa, liveElGlobal()]));
+    var mapaContainer = U.h('div');
+    root.appendChild(mapaContainer);
+    if (TRJ.pages && TRJ.pages.mapa) {
+      TRJ.pages.mapa(mapaContainer, {
+        data: raw,
+        readOnly: true,
+        // Passar dados do mapa diretamente pelo contexto (evita depender só do localStorage)
+        mapaCoordMap: raw._mapaCoordMap || null,
+        mapaMwData:   raw._mapaMwData   || null,
+        mapaFoData:   raw._mapaFoData   || null
+      });
+    } else {
+      mapaContainer.appendChild(U.h('p', { style:{color:'var(--trj-muted)',padding:'20px'}, text:'Módulo de mapa não carregado.' }));
+    }
+  }
+  // ── SLA / Aderência (versão pública) ──────────────────────────────────────
+  function renderSlaPublico() {
+    root.innerHTML = '';
+    var btnV = U.h('button', {
+      class:'trj-btn trj-btn-ghost clickable', text:'← Dashboard',
+      onclick: function(){ view='dashboard'; renderView(); }
+    });
+    root.appendChild(U.h('div', { class:'pub-topbar' }, [btnV, liveElGlobal()]));
+    var slaContainer = U.h('div');
+    root.appendChild(slaContainer);
+    if (TRJ.pages && TRJ.pages.sla) {
+      TRJ.pages.sla(slaContainer, {
+        data: raw,
+        app: {
+          openDrillTasks: function(spec, filtros, title, opts, onCopy) {
+            var Comp = TRJ.compute;
+            var rows = Comp.drillTasks(raw.tasksEnriched, spec, filtros||{});
+            U.openModal(title||'Detalhamento', U.taskTable(rows, opts||{}), {
+              onCopy: onCopy || function(){ return U.taskTableCopyText(rows, title); }
+            });
+          }
+        }
+      });
+    }
+  }
+
+  function liveElGlobal() {
+    return U.h('div', { class: 'pub-live' }, [
+      U.h('span', { class: 'dot' }),
+      U.h('span', { text: savedAt ? 'Atualizado em ' + new Date(savedAt).toLocaleString('pt-BR') : 'Dados publicados' })
+    ]);
+  }
+
+  // ── Tela de boas-vindas ─────────────────────────────────────────────────────
+  function renderWelcome() {
+    root.innerHTML = '';
+    // Contar incidentes ativos por região
+    var contagemTotal = {}, contagemComTSK = {};
+    var incAtivos = (raw.incidentsEnriched || []).filter(function (i) {
+      return (i.statusTrat || 'ATIVO').toUpperCase() !== 'RESOLVIDO';
+    });
+    // "Com TSK": somente Não Iniciado + Iniciado, contabilizado por END_ID
+    // (igual ao drilldown — tskAberta pega a TSK mais recente por END_ID;
+    //  múltiplos sites no mesmo END_ID contam como 1 TSK)
+    var tasksAtivas = (raw.tasksEnriched || []).filter(function (t) {
+      var s = (t.status || '').toString().trim().toUpperCase()
+              .replace(/[ÁÀÂÃ]/g,'A').replace(/Ã/g,'A');
+      // aceitar variações: NÃO INICIADO, NAO INICIADO, NÃO INICIADO, INICIADO
+      return s.indexOf('INICIADO') >= 0 && s !== 'CONCLUIDA' && s !== 'CONCLUÍDA' &&
+             s !== 'CANCELADA' && s !== 'CANCELADO';
+    });
+
+    // Contar total de incidentes por região (1 por incidente)
+    incAtivos.forEach(function (i) {
+      var r = i.regiao || 'OTHERS';
+      contagemTotal[r] = (contagemTotal[r] || 0) + 1;
+    });
+
+    // Contar TSKs por END_ID (1 por END_ID, mesmo que tenha múltiplos sites)
+    // Agrupa incidentes por END_ID por região, verifica tskAberta uma vez por END_ID
+    var endIdVisto = {};  // endId → já contado
+    incAtivos.forEach(function (i) {
+      var endId = (i.enderecoId || i.endId || '').toString().trim();
+      if (!endId) return;  // sem END_ID: não conta
+      var r = i.regiao || 'OTHERS';
+      var chave = r + '|' + endId;
+      if (endIdVisto[chave]) return;  // END_ID já contabilizado nesta região
+      endIdVisto[chave] = true;
+      var tsk = U.tskAberta ? U.tskAberta(i, tasksAtivas) : null;
+      if (tsk) contagemComTSK[r] = (contagemComTSK[r] || 0) + 1;
+    });
+
+    // Regiões visíveis: excluir OTHERS (aparece em todas as visualizações mas
+    // não é uma região selecionável — mantida para exibição nos gráficos)
+    var regioesSelecionaveis = C.REGIOES.filter(function (r) { return r !== 'OTHERS'; });
+
+    var wrap = U.h('div', { class: 'welcome-wrap' }, [
+      U.h('img', { src: 'assets/logo-trj.png', alt: '', class: 'welcome-logo' }),
+      U.h('div', { class: 'welcome-title trj-heading', text: 'BEM-VINDO, GESTOR' }),
+      U.h('div', { class: 'welcome-sub', text: 'Escolha sua região para visualização' }),
+      U.h('div', {
+        class: 'regiao-grid',
+        style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '16px', padding: '8px 0' }
+      }, regioesSelecionaveis.map(function (r) {
+        var total  = contagemTotal[r] || 0;
+        var comTSK = contagemComTSK[r] || 0;
+        return U.h('button', {
+          class: 'regiao-btn',
+          style: { minWidth: 'min(130px, calc(50% - 8px))', flex: '0 1 auto' },
+          onclick: function () { escolherRegiao(r); }
+        }, [
+          U.h('div', { class: 'ic', html: REGIAO_ICONS_SVG[r] || REGIAO_ICONS_SVG['OTHERS'] }),
+          U.h('div', { class: 'nome', text: (C.REGIAO_LABELS[r] || r).toUpperCase() }),
+          U.h('div', { class: 'qtd', text: total + ' site(s) fora' }),
+          U.h('div', { class: 'qtd', style: { fontSize: '11px', opacity: '0.85', marginTop: '2px' }, text: comTSK + ' site(s) com TSK' })
+        ]);
+      })),
+      U.h('button', { class: 'visao-geral-btn', onclick: function () { state.regiao = 'TODAS'; view = 'dashboard'; renderDashboard(); } }, [
+        U.h('span', { text: '🌐' }),
+        U.h('span', { text: 'VISÃO GERAL — TODAS AS REGIÕES' })
+      ]),
+      U.h('button', {
+        class: 'visao-geral-btn',
+        style: { marginTop: '8px', background: 'rgba(52,152,219,.08)', borderColor: 'rgba(52,152,219,.3)', color: 'var(--trj-fg)' },
+        onclick: function () { view = 'mapa'; renderView(); }
+      }, [
+        U.h('span', { text: '🗺️' }),
+        U.h('span', { text: 'MAPA OPERACIONAL — SITES FORA' })
+      ]),
+      U.h('button', {
+        class: 'visao-geral-btn',
+        style: { marginTop: '8px', background: 'rgba(46,204,113,.08)', borderColor: 'rgba(46,204,113,.3)', color: 'var(--trj-fg)' },
+        onclick: function () { state.regiao = 'TODAS'; view = 'sla'; renderView(); }
+      }, [
+        U.h('span', { text: '📊' }),
+        U.h('span', { text: 'SLA / ADERÊNCIA' })
+      ])
+    ]);
+    root.appendChild(wrap);
+  }
+
+  function escolherRegiao(r) {
+    state.regiao = r; state.prioridades = []; view = 'dashboard'; renderDashboard();
+  }
+
+  // ── Helpers de cópia ────────────────────────────────────────────────────────
+  function fmtMinutos(min) {
+    if (min <= 0) return 'VENCIDO';
+    if (min < 60) return min + 'min';
+    var h = Math.floor(min / 60), m = min % 60;
+    return h + 'h' + (m > 0 ? m + 'min' : '');
+  }
+
+  function copyText(txt) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt)
+        .then(function () { U.toast('✓ Copiado!', 'ok'); })
+        .catch(function () { fallbackCopy(txt); });
+    } else { fallbackCopy(txt); }
+    function fallbackCopy(s) {
+      var ta = document.createElement('textarea');
+      ta.value = s; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); U.toast('✓ Copiado!', 'ok'); }
+      catch (e) { U.toast('Não foi possível copiar.', 'err'); }
+      document.body.removeChild(ta);
+    }
+  }
+
+  // Calcula tempo desde a última atualização humana válida (delega ao U.classificarUltimoBloco)
+  function calcUpdateStr(bg) {
+    if (!bg) return 'SEM ATUALIZAÇÃO';
+    if (!U.classificarUltimoBloco) return 'SEM ATUALIZAÇÃO';
+    var res = U.classificarUltimoBloco(bg.toString());
+    if (res.estado === 'sem') return 'SEM ATUALIZAÇÃO';
+    if (res.estado === 'acionamento') return 'VERIFICANDO ACIONAMENTO';
+    if (!res.dt) return 'SEM ATUALIZAÇÃO';
+    var diffMin = Math.round((Date.now() - res.dt.getTime()) / 60000);
+    if (diffMin < 0) return 'ATUALIZADO AGORA';
+    if (diffMin < 60) return 'ATUALIZADO A ' + diffMin + 'min';
+    var h = Math.floor(diffMin / 60), mn = diffMin % 60;
+    return 'ATUALIZADO A ' + h + 'h' + (mn > 0 ? mn + 'min' : '');
+  }
+
+  // Geração de texto Sites Fora — respeita filtros ativos, agrupa por END_ID
+  function gerarTextoSitesFora(regiaoFiltro) {
+    var regiaoEfetiva = regiaoFiltro || (state.regiao !== 'TODAS' ? state.regiao : null);
+    var prioFiltros = state.prioridades || [];
+    var incAtivos = (raw.incidentsEnriched || []).filter(function (inc) {
+      return (inc.statusTrat || '').toUpperCase() !== 'RESOLVIDO' &&
+        (!regiaoEfetiva || (inc.regiao || 'OTHERS') === regiaoEfetiva);
+    });
+    var tasks = raw.tasksEnriched || [];
+    var endIdMap = {};
+    incAtivos.forEach(function (inc) {
+      var eid = inc.enderecoId || '_sem_' + inc.site;
+      if (!endIdMap[eid]) endIdMap[eid] = [];
+      endIdMap[eid].push(inc);
+    });
+    var regioesMapa = {};
+    Object.keys(endIdMap).forEach(function (eid) {
+      var incs = endIdMap[eid];
+      incs.sort(function (a, b) { return (a.horario || '').localeCompare(b.horario || ''); });
+      var r = incs[0].regiao || 'OTHERS';
+      if (!regioesMapa[r]) regioesMapa[r] = [];
+      regioesMapa[r].push({ eid: eid, incs: incs, mainInc: incs[0] });
+    });
+    var linhas = [];
+    Object.keys(regioesMapa).sort().forEach(function (r) {
+      var regLabel = (C.REGIAO_LABELS[r] || r).toUpperCase();
+      linhas.push('*' + regLabel + '*');
+      linhas.push('*SITES FORA NA FILA*');
+      var comTSK = [], semTSK = [];
+      regioesMapa[r].forEach(function (grupo) {
+        var tsk = U.tskAberta ? U.tskAberta(grupo.mainInc, tasks) : null;
+        var tf = tsk ? tasks.filter(function (t) { return t.osNumero === tsk.osNumero; })[0] : null;
+        if (prioFiltros.length && tf && prioFiltros.indexOf(tf.prioridade) < 0) return;
+        if (prioFiltros.length && !tf) return;
+        if (tsk) comTSK.push({ grupo: grupo, tsk: tsk, tf: tf });
+        else semTSK.push(grupo);
+      });
+      comTSK.forEach(function (item) {
+        var tf = item.tf, tsk = item.tsk;
+        var prio = tf && tf.prioridade ? '*' + tf.prioridade + '* ' : '';
+        var site = (tf && tf.siteId) || item.grupo.mainInc.site || '—';
+        var upd = calcUpdateStr((tf || {}).motivoCancelamento || (tsk || {}).motivoCancelamento);
+        linhas.push(prio + (tsk.osNumero || 'SEM TSK') + ' / ' + site + ' · ' + upd);
+      });
+      semTSK.forEach(function (grupo) {
+        var hor = grupo.mainInc.horario || '—';
+        var endId = grupo.eid.startsWith('_sem_') ? '' : (' / ' + grupo.eid);
+        var sitesUnicos = [];
+        grupo.incs.forEach(function (i) { if (i.site && sitesUnicos.indexOf(i.site) < 0) sitesUnicos.push(i.site); });
+        linhas.push(hor + ' · SEM TSK · ' + sitesUnicos.join(', ') + endId);
+      });
+      linhas.push('');
+    });
+    return linhas.join('\n').trim();
+  }
+
+  // Geração de texto Prazos a Vencer — respeita filtros
+  function gerarTextoPrazosRegiao(regiaoFiltro) {
+    var now = Date.now();
+    var regiaoEfetiva = regiaoFiltro || (state.regiao !== 'TODAS' ? state.regiao : null);
+    var prioFiltros = state.prioridades || [];
+    var tasksVenc = (raw.tasksEnriched || []).filter(function (t) {
+      return t.statusSla === 'DENTRO DO SLA' && t.vencimentoCalc &&
+        (!regiaoEfetiva || (t.regiao || 'OTHERS') === regiaoEfetiva) &&
+        (!prioFiltros.length || prioFiltros.indexOf(t.prioridade) >= 0);
+    });
+    var regioesMapa = {};
+    tasksVenc.forEach(function (t) {
+      var r = t.regiao || 'OTHERS';
+      if (!regioesMapa[r]) regioesMapa[r] = [];
+      regioesMapa[r].push(t);
+    });
+    var linhas = [];
+    Object.keys(regioesMapa).sort().forEach(function (r) {
+      var regLabel = (C.REGIAO_LABELS[r] || r).toUpperCase();
+      linhas.push('*' + regLabel + '*');
+      var arr = regioesMapa[r].slice().sort(function (a, b) {
+        var pa = parseInt((a.prioridade || 'P9').replace(/\D/g, ''), 10) || 9;
+        var pb = parseInt((b.prioridade || 'P9').replace(/\D/g, ''), 10) || 9;
+        return pa !== pb ? pa - pb : new Date(a.vencimentoCalc).getTime() - new Date(b.vencimentoCalc).getTime();
+      });
+      arr.forEach(function (t) {
+        var prio = t.prioridade ? '*' + t.prioridade + '* ' : '';
+        var rest = Math.round((new Date(t.vencimentoCalc).getTime() - now) / 60000);
+        var falha = (t.tipoFalha || '—').toUpperCase();
+        var tempo = rest <= 0 ? 'VENCIDO' : 'VENCE EM ' + fmtMinutos(rest);
+        linhas.push(prio + [(t.osNumero || '—'), (t.siteId || t.enderecoId || '—'), falha, tempo].join(' · '));
+      });
+      linhas.push('');
+    });
+    return linhas.join('\n').trim();
+  }
+  function gerarTextoPrazosTodasRegioes() { return gerarTextoPrazosRegiao(null); }
+
+  // ── Export Excel (versão simplificada para dashboard público) ──────────
+  function exportarExcelPublico(d, tasksEnriched, incEnriched) {
+    if (typeof XLSX === 'undefined') { U.toast('Biblioteca Excel não carregou.','err'); return; }
+    var wb = XLSX.utils.book_new();
+    function aba(nome, aoa, ws_cols) {
+      var ws = XLSX.utils.aoa_to_sheet(aoa);
+      if (!ws['!freeze']) ws['!freeze'] = { ySplit: 1 };
+      if (ws_cols) ws['!cols'] = ws_cols.map(function(w){ return { wch: w }; });
+      XLSX.utils.book_append_sheet(wb, ws, nome.slice(0,31));
+    }
+    var K = d.kpis || {};
+    aba('DASHBOARD', [
+      ['INDICADOR','VALOR'],
+      ['FORA DO SLA', K.foraSla||0], ['BACKLOG TOTAL', K.backlogTotal||0],
+      ['BACKLOG INDEFINIDO', K.backlogIndef||0], ['PREDITIVA', K.preditiva||0],
+      ['PRODUTIVIDADE', K.produtividade||0], ['SLA GERAL (%)', K.slaGeral||0],
+      ['REGION', state.regiao], ['PRIORIDADE', state.prioridades && state.prioridades.length ? state.prioridades.join(',') : 'TODAS'],
+      ['GERADO EM', new Date().toLocaleString('pt-BR')]
+    ], [40, 20]);
+    var D2 = TRJ.domain;
+    var sep = D2.separarTicketsManuais(tasksEnriched||[]);
+    var tickets = sep.tickets;
+    var backlog = tickets.filter(function(t){
+      var s=(t.status||'').toUpperCase().trim();
+      return (s==='NÃO INICIADO'||s==='NAO INICIADO'||s==='INICIADO')&&!!t.dataCriacaoAS;
+    });
+    var cols = [['TSK',20],['STATUS',14],['PRIORIDADE',12],['REGIÃO',16],['CIDADE',20],['END_ID',16],['SITE',16],['TIPO FALHA',22],['FILA',40],['SLA',16],['CRIAÇÃO NTT',20]];
+    var hdrs = cols.map(function(c){return c[0];});
+    var aoa = [hdrs].concat(backlog.slice(0,2000).map(function(t){
+      return [t.osNumero,t.status,t.prioridade,t.regiao,t.cidade,t.enderecoId,t.siteId,t.tipoFalha,t.filaAtual,t.statusSla,t.dataCriacaoAS];
+    }));
+    var ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!freeze'] = { ySplit:1 };
+    ws['!cols'] = cols.map(function(c){return {wch:c[1]};});
+    XLSX.utils.book_append_sheet(wb, ws, 'BACKLOG');
+    var incAtivos = (incEnriched||[]).filter(function(i){ return (i.statusTrat||'ATIVO').toUpperCase()!=='RESOLVIDO'; });
+    var aoa2 = [['HORÁRIO','DURAÇÃO','SITE','END_ID','CIDADE/UF','REGIÃO','CAUSA','DETALHE','STATUS']]
+      .concat(incAtivos.map(function(i){
+        return [i.horario,i.downtime,i.site,i.enderecoId,i.cidadeUf,i.regiao,i.causa,i.detalhe,i.statusTrat];
+      }));
+    var ws2 = XLSX.utils.aoa_to_sheet(aoa2);
+    ws2['!freeze'] = {ySplit:1};
+    ws2['!cols'] = [12,10,20,16,22,16,30,40,16].map(function(w){return{wch:w};});
+    XLSX.utils.book_append_sheet(wb, ws2, 'SITES FORA');
+    var ts = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+    XLSX.writeFile(wb, 'Dashboard_TRJ_Pub_' + ts + '.xlsx');
+    U.toast('Excel exportado!', 'ok');
+  }
+
+  // ── Dashboard ───────────────────────────────────────────────────────────────
+  function renderDashboard() {
+    root.innerHTML = '';
+    var d = Comp.dashboard(raw.tasksEnriched, raw.incidentsEnriched, state) || {};
+    var f = state;
+    var topCidades = d.topCidades || {};
+    var kpis = [
+      { label: 'FORA DO SLA', value: d.kpis ? d.kpis.foraSla : 0, cor: C.CORES_TRJ.red, spec: { tipo: 'foraSla' }, t: 'Fora do SLA' },
+      { label: 'BACKLOG TOTAL', value: d.kpis ? d.kpis.backlogTotal : 0, cor: C.CORES_TRJ.orange, spec: { tipo: 'backlogTotal' }, t: 'Backlog total' },
+      { label: 'BACKLOG INDEFINIDO', value: d.kpis ? d.kpis.backlogIndef : 0, cor: C.CORES_TRJ.orange2, spec: { tipo: 'backlogIndef' }, t: 'Backlog indefinido' },
+      { label: 'PREDITIVA', value: d.kpis ? d.kpis.preditiva : 0, cor: '#3498db', spec: { tipo: 'preditiva' }, t: 'Preditiva' },
+      { label: 'PRODUTIVIDADE', value: d.kpis ? d.kpis.produtividade : 0, cor: C.CORES_TRJ.green, spec: { tipo: 'produtividade' }, opts: { modoResultado: true }, t: 'TSKs concluídas' },
+      { label: 'SLA GERAL', value: d.kpis ? (d.kpis.slaGeral + '%') : '—', cor: C.CORES_TRJ.green, spec: { tipo: 'produtividade' }, opts: { modoResultado: true }, t: 'TSKs concluídas — % dentro do prazo' }
+    ];
+
+    // Topbar
+    var btnVoltar = U.h('button', { class: 'trj-btn trj-btn-ghost clickable', text: '← Regiões', onclick: function () { view = 'welcome'; renderView(); } });
+    var liveEl = U.h('div', { class: 'pub-live' }, [
+      U.h('span', { class: 'dot' }),
+      U.h('span', { text: savedAt ? 'Atualizado em ' + new Date(savedAt).toLocaleString('pt-BR') : 'Dados publicados' })
+    ]);
+    // Filtro de prioridade — chips multi-select
+    var prioSelect = (function () {
+      var wrap = U.h('div', { style: { display: 'flex', gap: '3px', flexWrap: 'wrap', alignItems: 'center' } });
+      function mkChip(lbl, ativo, onclick) {
+        return U.h('button', {
+          class: 'trj-btn trj-btn-ghost',
+          style: {
+            fontSize: '10px', padding: '2px 7px', borderRadius: '20px',
+            background: ativo ? 'rgba(255,140,0,.25)' : 'rgba(255,255,255,.06)',
+            color: ativo ? 'var(--trj-primary)' : 'var(--trj-muted)',
+            border: '1px solid ' + (ativo ? 'var(--trj-primary)' : 'rgba(255,255,255,.12)'),
+            fontWeight: ativo ? '700' : '400', cursor: 'pointer'
+          },
+          text: lbl, onclick: onclick
+        });
+      }
+      wrap.appendChild(mkChip('Todas', !state.prioridades.length, function () {
+        state.prioridades = []; root.innerHTML = ''; renderDashboard();
+      }));
+      ['P1','P2','P3','P4','P5'].forEach(function (p) {
+        var ativo = state.prioridades.indexOf(p) >= 0;
+        wrap.appendChild(mkChip(p, ativo, function (pp) {
+          return function () {
+            var idx = state.prioridades.indexOf(pp);
+            if (idx >= 0) state.prioridades.splice(idx, 1);
+            else state.prioridades.push(pp);
+            root.innerHTML = ''; renderDashboard();
+          };
+        }(p)));
+      });
+      return wrap;
+    }());
+
+    root.appendChild(U.h('div', { class: 'pub-topbar' }, [
+      btnVoltar,
+      liveEl,
+      U.h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, [
+        prioSelect,
+        U.h('button', {
+          class: 'trj-btn clickable',
+          style: { fontSize: '11px', padding: '3px 8px', background: 'rgba(52,152,219,.15)', color: '#3498db', border: '1px solid rgba(52,152,219,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace:'nowrap' },
+          onclick: function () { view = 'mapa'; renderView(); }
+        }, [U.h('span', {text:'Mapa'})]),
+        U.h('button', {
+          class: 'trj-btn clickable',
+          style: { fontSize: '12px', padding: '4px 12px', background: 'rgba(46,204,113,.15)', color: '#2ecc71', border: '1px solid rgba(46,204,113,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '5px' },
+          onclick: function () { view = 'sla'; renderView(); }
+        }, [U.h('span', {text:'📊'}), U.h('span', {text:'SLA'})]),
+        U.h('button', {
+          class: 'trj-btn clickable',
+          style: { fontSize: '11px', padding: '3px 8px', background: 'rgba(46,204,113,.15)', color: '#2ecc71', border: '1px solid rgba(46,204,113,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace:'nowrap' },
+          onclick: function () { exportarExcelPublico(d, raw.tasksEnriched, raw.incidentsEnriched); }
+        }, [U.h('span', {text:'📊'}), U.h('span', {text:'Excel'})])
+      ])
+    ]));
+    root.appendChild(U.h('div', { class: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4' }, kpis.map(function (k) {
+      return U.kpiCard({ label: k.label, value: k.value, cor: k.cor, onClick: k.spec ? function (kk) { return function () { openDrillTasks(kk.spec, f, kk.t, kk.opts || {}); }; }(k) : null });
+    })));
+
+    // Charts: Aging + Prazos a Vencer (com botão copiar)
+    var aging = U.chartCard('AGING DO BACKLOG');
+    var vencBtnCopiar = U.h('button', {
+      class: 'trj-btn trj-btn-ghost clickable',
+      style: { fontSize: '11px', padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: '5px', border: '1px solid rgba(255,255,255,.15)' },
+      onclick: function () { copyText(gerarTextoPrazosTodasRegioes()); }
+    }, [U.h('span', { text: '📋' }), U.h('span', { text: 'Copiar' })]);
+    var venc = U.chartCard('PRAZOS A VENCER', { rightEl: vencBtnCopiar });
+
+    // Sites Fora: toggle + botão copiar
+    var sfAgrupar = { value: true };
+    var switchSf = U.switch(true, 'AGRUPAR POR END_ID', function (v) { sfAgrupar.value = v; });
+    var btnCopiarSF = U.h('button', {
+      class: 'trj-btn trj-btn-ghost clickable',
+      style: { fontSize: '11px', padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: '5px', border: '1px solid rgba(255,255,255,.15)' },
+      onclick: function () { copyText(gerarTextoSitesFora(null)); }
+    }, [U.h('span', { text: '📋' }), U.h('span', { text: 'Copiar' })]);
+    var sfControls = U.h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } }, [switchSf, btnCopiarSF]);
+    var sites = U.chartCard('SITES FORA POR REGIÃO', { rightEl: sfControls });
+
+    var slaReg = U.chartCard('SLA POR REGIÃO');
+    var manu = U.chartCard('ATIVIDADES MANUAIS', { hint: 'inclui cancelamentos' });
+    var prod = U.chartCard('PRODUTIVIDADE — ENCERRADAS DENTRO/FORA DO SLA');
+    root.appendChild(U.h('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5' }, [aging.card, venc.card, sites.card, slaReg.card, manu.card, prod.card]));
+    root.appendChild(buildTopCidades(topCidades));
+
+    var aData = d.aging || [], vData = d.prazosVencimento || [], sfData = d.sitesForaRegiao || [], srData = d.slaPorRegiao || [], amData = d.atividadesManuais || [], pData = d.produtividade || [];
+
+    U.barChart(aging.canvas, aData, { onBar: function (i) { openDrillTasks({ tipo: 'aging', arg: i }, f, 'AGING: ' + aData[i].label); } });
+    U.hbarChart(venc.canvas, vData, { onBar: function (i) {
+      var bucket = vData[i];
+      var onCopyDrill = function () {
+        var now = Date.now();
+        var b = C.VENCIMENTO_BUCKETS[i];
+        var tasks = (raw.tasksEnriched || []).filter(function (t) {
+          if (t.statusSla !== 'DENTRO DO SLA' || !t.vencimentoCalc) return false;
+          var rest = Math.round((new Date(t.vencimentoCalc).getTime() - now) / 60000);
+          return rest >= 0 && rest >= b.min && rest < b.max;
+        });
+        var linhas = ['*' + ('A VENCER: ' + (bucket.label || '')).toUpperCase() + '*', ''];
+        var rmap = {};
+        tasks.forEach(function (t) { var r = t.regiao || 'OTHERS'; if (!rmap[r]) rmap[r] = []; rmap[r].push(t); });
+        Object.keys(rmap).sort().forEach(function (r) {
+          linhas.push('*' + (C.REGIAO_LABELS[r] || r).toUpperCase() + '*');
+          rmap[r].slice().sort(function (a, b2) {
+            var pa = parseInt((a.prioridade || 'P9').replace(/\D/g, ''), 10) || 9;
+            var pb = parseInt((b2.prioridade || 'P9').replace(/\D/g, ''), 10) || 9;
+            return pa !== pb ? pa - pb : new Date(a.vencimentoCalc).getTime() - new Date(b2.vencimentoCalc).getTime();
+          }).forEach(function (t) {
+            var prio = t.prioridade ? '*' + t.prioridade + '* ' : '';
+            var rest = Math.round((new Date(t.vencimentoCalc).getTime() - now) / 60000);
+            linhas.push(prio + (t.osNumero || '—') + ' · ' + (t.siteId || t.enderecoId || '—') + ' · ' + (t.tipoFalha || '—').toUpperCase() + ' · VENCE EM ' + fmtMinutos(rest));
+          });
+          linhas.push('');
+        });
+        return linhas.join('\n').trim();
+      };
+      openDrillTasks({ tipo: 'vencimento', arg: i }, f, 'A VENCER: ' + (bucket.label || ''), {}, onCopyDrill);
+    }});
+    U.barChart(sites.canvas, sfData.map(function (x) { return { label: x.label.toUpperCase(), total: x.total, cor: C.CORES_TRJ.red }; }), {
+      onBar: function (i) {
+        var tipo = sfAgrupar.value ? 'sitesForaAgrupado' : 'sitesFora';
+        var regiao = sfData[i].regiao;
+        var titulo = 'SITES FORA: ' + (sfData[i].label || '').toUpperCase();
+        openDrillIncidents({ tipo: tipo, arg: regiao }, titulo, {
+          onCopy: function () { return gerarTextoSitesFora(regiao); }
+        });
+      }
+    });
+    U.stackedChart(slaReg.canvas, srData, { onSeg: function (i, ds) { var r = srData[i]; openDrillTasks({ tipo: 'slaRegiao', arg: r.regiao + '|' + (ds === 1 ? 'fora' : 'dentro') }, f, 'SLA ' + r.label); } });
+    U.donutChart(manu.canvas, amData, {
+      cores: C.DONUT_CORES,
+      onSlice: function (i) {
+        var nm = amData[i].name;
+        var ehCancel = nm.indexOf('Cancel.') === 0;
+        var spec = ehCancel ? { tipo: 'cancelCorretiva', arg: nm.indexOf('Associa') >= 0 ? 'assoc' : 'auto' } : { tipo: 'atividades', arg: argAtiv(nm) };
+        openDrillTasks(spec, f, nm, ehCancel ? { modoCancelamento: true } : {});
+      }
+    });
+    U.stackedChart(prod.canvas, pData.map(function (p) { return { label: p.categoria, dentro: p.dentro, fora: p.fora, preditiva: p.preditiva }; }), {
+      onSeg: function (i, ds) {
+        var cat = pData[i].categoria;
+        var lado = ds === 2 ? 'preditiva' : (ds === 1 ? 'fora' : 'dentro');
+        openDrillTasks({ tipo: 'produtividadeCat', arg: cat + '|' + lado }, f, 'Produtividade ' + cat, { modoResultado: true });
+      }
+    });
+  }
+
+  function argAtiv(name) {
+    if (/WO/i.test(name)) return 'wo';
+    if (/Prevent/i.test(name)) return 'prev';
+    if (/Conjunta/i.test(name)) return 'conj';
+    return 'outras';
+  }
+
+  // ── Top Cidades (Total clicável) ────────────────────────────────────────────
+  function buildTopCidades(tc) {
+    var porAnf = tc.porAnf || [], cidades = tc.cidades || [];
+    var anfList = U.h('div', { class: 'flex flex-wrap gap-2 mb-4' }, porAnf.map(function (a) {
+      var chip = U.h('button', {
+        class: 'trj-btn trj-btn-ghost',
+        style: { fontSize: '12px', transition: 'all .2s ease' },
+        onclick: function () { openDrillIncidents({ tipo: 'anf', arg: a.anfRaw }, a.anf); }
+      }, [
+        U.h('span', { class: 'font-bold', text: a.anf }),
+        U.h('span', { style: { color: 'var(--trj-primary)', marginLeft: '6px' }, text: String(a.total) }),
+        U.h('span', { style: { color: 'var(--trj-muted)', marginLeft: '4px', fontSize: '11px' }, text: '(' + a.pct + '%)' })
+      ]);
+      chip.addEventListener('mouseenter', function () { chip.style.transform = 'translateY(-2px)'; chip.style.borderColor = 'rgba(255,140,0,.6)'; chip.style.boxShadow = '0 6px 16px rgba(255,140,0,.2)'; });
+      chip.addEventListener('mouseleave', function () { chip.style.transform = ''; chip.style.borderColor = ''; chip.style.boxShadow = ''; });
+      return chip;
+    }));
+    var bars = U.h('div', { class: 'flex flex-col gap-1' }, cidades.slice(0, 15).map(function (c) {
+      var barra = U.h('div', { style: { width: c.pct + '%', height: '8px', borderRadius: '6px', background: 'var(--trj-primary)', transition: 'all .2s ease' } });
+      var item = U.h('div', { style: { cursor: 'pointer', padding: '5px 8px', borderRadius: '8px', transition: 'background .18s ease' } }, [
+        U.h('div', { class: 'flex justify-between text-xs mb-1' }, [
+          U.h('span', { style: { fontWeight: '600' }, text: c.cidade }),
+          U.h('span', { style: { color: 'var(--trj-primary)', fontWeight: '700' }, text: String(c.total) })
+        ]),
+        U.h('div', { style: { background: 'rgba(255,255,255,.07)', borderRadius: '6px', height: '8px', overflow: 'hidden' } }, barra)
+      ]);
+      item.addEventListener('mouseenter', function () { item.style.background = 'rgba(255,140,0,.1)'; barra.style.background = 'var(--trj-primary2)'; barra.style.boxShadow = '0 0 10px rgba(255,140,0,.5)'; });
+      item.addEventListener('mouseleave', function () { item.style.background = ''; barra.style.background = 'var(--trj-primary)'; barra.style.boxShadow = ''; });
+      item.addEventListener('click', function () { openDrillIncidents({ tipo: 'cidade', arg: c.cidade }, c.cidade); });
+      return item;
+    }));
+    // Total Sites Fora — clicável (todos os incidentes)
+    var total = U.h('div', {
+      class: 'trj-card p-5 flex flex-col items-center justify-center clickable',
+      style: { minWidth: '180px', cursor: 'pointer' },
+      title: 'Clique para ver todos os sites fora',
+      onclick: function () { openDrillIncidents({ tipo: 'sitesFora', arg: null }, 'TODOS OS SITES FORA'); }
+    }, [
+      U.h('div', { class: 'text-xs uppercase', style: { color: 'var(--trj-muted)' }, text: 'TOTAL SITES FORA' }),
+      U.h('div', { class: 'font-extrabold', style: { fontSize: '56px', color: C.CORES_TRJ.red, lineHeight: '1', textShadow: '0 0 20px rgba(231,76,60,.4)' }, text: U.fmtNum(tc.totalSitesFora) }),
+      U.h('div', { style: { fontSize: '10px', color: 'var(--trj-muted)', marginTop: '4px' }, text: '▼ ver incidentes' })
+    ]);
+    return U.h('div', { class: 'trj-card p-4' }, [
+      U.h('div', { class: 'flex items-center gap-2 mb-3' }, [
+        U.h('span', { class: 'trj-chart-dot' }),
+        U.h('h3', { class: 'text-sm font-bold', text: 'TOP CIDADES — SITES FORA' }),
+        U.h('span', { class: 'text-xs font-normal', style: { color: 'var(--trj-muted)' }, text: '(clique em qualquer cidade ou ANF para detalhar)' })
+      ]),
+      U.h('div', { style:{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(min(260px,100%), 1fr))', gap:'14px' } }, [total, U.h('div', null, [anfList, bars])])
+    ]);
+  }
+
+  // ── Drills ──────────────────────────────────────────────────────────────────
+  function openDrillTasks(spec, filtros, title, opts, onCopy) {
+    var rows = Comp.drillTasks(raw.tasksEnriched, spec, filtros || {});
+    U.openModal(title || 'Detalhamento', U.taskTable(rows, opts || {}), {
+      onCopy: onCopy || function () { return U.taskTableCopyText(rows, title); }
+    });
+  }
+  function openDrillIncidents(spec, title, opts) {
+    opts = opts || {};
+    var rows = Comp.drillIncidents(raw.incidentsEnriched, spec);
+    U.openModal(title || 'Detalhamento', U.incidentTable(rows, raw.tasksEnriched), {
+      onCopy: opts.onCopy || function () { return U.incidentTableCopyText(rows, title); }
+    });
+  }
+
+  document.getElementById('dev-footer-mount').appendChild(U.devFooter());
+  carregarDados();
+  setInterval(function () { carregarDados(true); }, 60000);
+})();
+</script>
+
+</body>
+</html>

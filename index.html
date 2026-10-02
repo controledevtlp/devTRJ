@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Controle TRJ — Operacional</title>
+  <link rel="icon" href="assets/logo-trj.png" />
+
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg: '#0a0a0f', card: '#13131a', popover: '#1a1a24',
+            primary: '#ff8c00', fg: '#f0f0f0', muted: '#8a8a93'
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Fonte para títulos: mais executiva/moderna que a sans padrão -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Chart.js (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- Estilos do projeto -->
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+  <!-- ================= TELA DE LOGIN ================= -->
+  <div id="login-screen" style="display:none; min-height:100vh; align-items:center; justify-content:center; padding:16px;">
+    <div class="trj-card" style="width:100%; max-width:400px; padding:32px;">
+      <div style="text-align:center; margin-bottom:24px;">
+        <img src="assets/logo-trj.png" alt="TRJ" style="width:64px; height:64px; object-fit:contain; margin:0 auto 12px;" />
+        <h1 style="font-size:20px; font-weight:800; color:var(--trj-primary);">Controle Operacional TRJ</h1>
+        <p style="font-size:13px; color:var(--trj-muted); margin-top:4px;">Telecom RJ &amp; ES</p>
+      </div>
+      <form id="login-form">
+        <label style="font-size:13px; color:var(--trj-muted);">E-mail</label>
+        <input id="login-email" type="email" class="trj-input" style="margin:6px 0 14px;" autocomplete="username" required />
+        <label style="font-size:13px; color:var(--trj-muted);">Senha</label>
+        <input id="login-pwd" type="password" class="trj-input" style="margin:6px 0 18px;" autocomplete="current-password" required />
+        <button id="login-btn" type="submit" class="trj-btn trj-btn-primary" style="width:100%;">Entrar</button>
+        <p id="login-error" style="color:#e74c3c; font-size:13px; margin-top:12px; text-align:center; min-height:18px;"></p>
+      </form>
+      <p style="font-size:11px; color:var(--trj-muted); text-align:center; margin-top:10px;">Acesso restrito — entre com suas credenciais.</p>
+    </div>
+  </div>
+
+  <!-- ================= PAINEL (SPA) ================= -->
+  <div id="app-shell" style="display:none; min-height:100vh;"></div>
+
+  <!-- ================= SCRIPTS (ordem importa) ================= -->
+  <script src="js/constants.js"></script>
+  <script src="js/domain.js"></script>
+  <script src="js/genesis.js"></script>
+  <script src="js/compute.js"></script>
+  <script src="js/files.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/pages/dashboard.js"></script>
+  <script src="js/pages/sla.js"></script>
+  <script src="js/pages/regional.js"></script>
+  <script src="js/pages/sites-fora.js"></script>
+  <script src="js/pages/prioritarios.js"></script>
+  <script src="js/pages/pesquisa.js"></script>
+  <script src="js/data/mapa-enlaces.js"></script>
+  <script src="js/data/mapa-coords.js"></script>
+  <script src="js/pages/mapa.js"></script>
+  <script src="js/pages/cadastro.js"></script>
+  <script src="js/pages/importar.js"></script>
+  <script src="js/pages/configuracoes.js"></script>
+  <script src="js/pages/produtividade.js"></script>
+  <script src="js/pages/atualizacoes.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
