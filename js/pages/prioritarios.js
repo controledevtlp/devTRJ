@@ -60,12 +60,25 @@
   }
 
   function carregarConc() { return _concCache; }
-  function salvarConc(l) {
+  function salvarConc(l, onSalvo) {
     _concCache = l || [];
     if (TRJ.api && TRJ.api.saveConcentradores) {
-      TRJ.api.saveConcentradores(_concCache).catch(function () {});
+      TRJ.api.saveConcentradores(_concCache)
+        .then(function (res) {
+          if (res && res.offline) {
+            U.toast('Salvo localmente (sem backend configurado).', 'ok');
+          } else {
+            U.toast('Concentrador salvo no servidor.', 'ok');
+          }
+          if (onSalvo) onSalvo();
+        })
+        .catch(function (err) {
+          U.toast('Erro ao salvar no servidor: ' + (err && err.message ? err.message : 'verifique a conexão.'), 'err');
+          if (onSalvo) onSalvo();
+        });
     } else {
       try { localStorage.setItem(LS_CONC, JSON.stringify(_concCache)); } catch (e) {}
+      if (onSalvo) onSalvo();
     }
   }
 
@@ -324,8 +337,8 @@
         if (!s && !e) { U.toast('Informe ao menos o Site ou END_ID.', 'err'); return; }
         var lista = carregarConc();
         lista.push({ id: Date.now(), site: s, endId: e, nota: n });
-        salvarConc(lista); inpSite.value = ''; inpEnd.value = ''; inpNota.value = '';
-        U.toast('Concentrador cadastrado.', 'ok'); onSalvar();
+        inpSite.value = ''; inpEnd.value = ''; inpNota.value = '';
+        salvarConc(lista, onSalvar);
       }
     });
     return U.h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', padding: '12px', background: 'var(--trj-card2)', borderRadius: '8px', marginBottom: '12px' } },
@@ -343,7 +356,7 @@
           class: 'trj-btn trj-btn-ghost clickable',
           style: { fontSize: '10px', padding: '1px 6px', color: '#e74c3c', marginLeft: 'auto' },
           text: '✕ Remover',
-          onclick: function () { salvarConc(carregarConc().filter(function (x) { return x.id !== c.id; })); onRemover(); }
+          onclick: function () { salvarConc(carregarConc().filter(function (x) { return x.id !== c.id; }), onRemover); }
         })
       ]);
     }));
@@ -416,7 +429,7 @@
     var concMatches = calcMatches();
     var catAtiva = { v: null };
 
-    // Sincroniza com o backend ao abrir — atualiza cache e re-renderiza se necessário
+    // Sincroniza com o backend ao abrir — atualiza cache, contagem e drilldown se necessário
     if (TRJ.api && TRJ.api.getConcentradores) {
       TRJ.api.getConcentradores().then(function (res) {
         if (!res || !res.lista) return;
@@ -424,6 +437,9 @@
           _concCache = res.lista;
           try { localStorage.setItem(LS_CONC, JSON.stringify(_concCache)); } catch (e) {}
           concMatches = calcMatches();
+          // Atualiza a contagem no botão (visível para todos ao abrir a página)
+          btnRow.innerHTML = ''; renderBotoes();
+          // Se o drilldown de concentradores já estiver aberto, recarrega
           if (catAtiva.v === 'conc') setCategoria('conc');
         }
       }).catch(function () {});
