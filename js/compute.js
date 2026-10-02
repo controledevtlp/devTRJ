@@ -620,6 +620,15 @@
         agruparIncidentesPorEndId(ativos.filter(function (i) { return (i.regiao || 'OTHERS') === spec.arg; }));
     } else if (spec.tipo === 'anf') filtrado = ativos.filter(function (i) { return (i.anf || '').toString().trim() === spec.arg; });
     else if (spec.tipo === 'cidade') filtrado = ativos.filter(function (i) { return up(i.cidade) === up(spec.arg); });
+    else if (spec.tipo === 'causa') filtrado = ativos.filter(function (i) { return ((i.causa || '').trim() || 'SEM DIAGNÓSTICO') === spec.arg; });
+    else if (spec.tipo === 'subcausa') {
+      var _parts = (spec.arg || '').split('||');
+      var _causa = _parts[0], _sub = _parts[1];
+      filtrado = ativos.filter(function (i) {
+        return ((i.causa || '').trim() || 'SEM DIAGNÓSTICO') === _causa &&
+               ((i.detalhe || '').trim() || 'SEM DETALHE') === _sub;
+      });
+    }
     else filtrado = [];
     return filtrado;
   }

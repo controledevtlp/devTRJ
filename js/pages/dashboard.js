@@ -323,8 +323,8 @@
     var grid = U.h('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5' }, [aging.card, venc.card, sites.card, slaReg.card, manu.card, prod.card]);
     container.appendChild(grid);
 
-    // ---- top cidades ----
-    container.appendChild(buildTopCidades(topCidades, app));
+    // ---- causa / subcausa ----
+    container.appendChild(buildCausaSubcausa(topCidades, data.incidentsEnriched, app));
 
     // ---- desenha charts (canvas já no DOM) ----
 
@@ -450,46 +450,129 @@
     } catch (e) { /* nunca deixa a publicação quebrar o Dashboard */ }
   }
 
-  function buildTopCidades(tc, app) {
-    var porAnf = tc.porAnf || [], cidades = tc.cidades || [];
+  function buildCausaSubcausa(tc, incidentsEnriched, app) {
+    var drillCausa = null;
 
-    var anfList = U.h('div', { class: 'flex flex-wrap gap-2 mb-4' }, porAnf.map(function (a) {
-      var chip = U.h('button', {
+    function getAtivos() {
+      return (incidentsEnriched || []).filter(function (inc) {
+        if ((inc.statusTrat || '').toUpperCase() === 'RESOLVIDO') return false;
+        if (state.regiao !== 'TODAS' && (inc.regiao || 'OTHERS') !== state.regiao) return false;
+        return true;
+      });
+    }
+
+    function groupByCausa(incs) {
+      var map = {};
+      incs.forEach(function (inc) {
+        var causa = ((inc.causa || '').trim()) || 'SEM DIAGNÓSTICO';
+        if (!map[causa]) map[causa] = { causa: causa, total: 0, subs: {} };
+        map[causa].total++;
+        var sub = ((inc.detalhe || '').trim()) || 'SEM DETALHE';
+        map[causa].subs[sub] = (map[causa].subs[sub] || 0) + 1;
+      });
+      return Object.keys(map).map(function (k) { return map[k]; })
+        .sort(function (a, b) { return b.total - a.total; });
+    }
+
+    function mkBarRow(label, count, grandTotal, maxCount, onRowClick, onVerClick) {
+      var pct = grandTotal > 0 ? Math.round(count / grandTotal * 100) : 0;
+      var barW = maxCount > 0 ? (count / maxCount * 100) : 0;
+      var barra = U.h('div', { style: { width: barW + '%', height: '8px', borderRadius: '6px', background: 'var(--trj-primary)', transition: 'width .3s ease, background .2s ease' } });
+
+      var verBtn = U.h('button', {
         class: 'trj-btn trj-btn-ghost',
-        style: { fontSize: '12px', transition: 'all .2s ease' },
-        onclick: function () { app.openDrillIncidents({ tipo: 'anf', arg: a.anfRaw }, a.anf); }
-      }, [
-        U.h('span', { class: 'font-bold', text: a.anf }),
-        U.h('span', { style: { color: 'var(--trj-primary)', marginLeft: '6px' }, text: String(a.total) }),
-        U.h('span', { style: { color: 'var(--trj-muted)', marginLeft: '4px', fontSize: '11px' }, text: '(' + a.pct + '%)' })
-      ]);
-      chip.addEventListener('mouseenter', function () { chip.style.transform = 'translateY(-2px)'; chip.style.borderColor = 'rgba(255,140,0,.6)'; chip.style.boxShadow = '0 6px 16px rgba(255,140,0,.2)'; });
-      chip.addEventListener('mouseleave', function () { chip.style.transform = ''; chip.style.borderColor = ''; chip.style.boxShadow = ''; });
-      return chip;
-    }));
+        style: { fontSize: '10px', padding: '1px 7px', lineHeight: '1.4', flexShrink: '0', transition: 'all .15s ease' },
+        text: 'ver casos',
+        onclick: function (e) { e.stopPropagation(); onVerClick(); }
+      });
 
-    var bars = U.h('div', { class: 'flex flex-col gap-1' }, cidades.slice(0, 15).map(function (c) {
-      var barra = U.h('div', { style: { width: c.pct + '%', height: '8px', borderRadius: '6px', background: 'var(--trj-primary)', transition: 'all .2s ease' } });
-      var item = U.h('div', { style: { cursor: 'pointer', padding: '5px 8px', borderRadius: '8px', transition: 'background .18s ease' } }, [
-        U.h('div', { class: 'flex justify-between text-xs mb-1' }, [
-          U.h('span', { style: { fontWeight: '600' }, text: c.cidade }),
-          U.h('span', { style: { color: 'var(--trj-primary)', fontWeight: '700' }, text: String(c.total) })
+      var metaEl = U.h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexShrink: '0' } }, [
+        verBtn,
+        U.h('span', { style: { color: 'var(--trj-muted)', fontSize: '10px' }, text: pct + '%' }),
+        U.h('span', { style: { color: 'var(--trj-primary)', fontWeight: '700', fontSize: '12px', minWidth: '22px', textAlign: 'right' }, text: String(count) }),
+        onRowClick ? U.h('span', { style: { color: 'var(--trj-muted)', fontSize: '14px', marginLeft: '2px' }, text: '›' }) : U.h('span', { style: { width: '14px' } })
+      ]);
+
+      var row = U.h('div', {
+        style: {
+          cursor: onRowClick ? 'pointer' : 'default',
+          padding: '5px 8px', borderRadius: '8px', transition: 'background .18s ease'
+        }
+      }, [
+        U.h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', gap: '8px' } }, [
+          U.h('span', { style: { fontWeight: '600', fontSize: '12px', flex: '1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, text: label }),
+          metaEl
         ]),
         U.h('div', { style: { background: 'rgba(255,255,255,.07)', borderRadius: '6px', height: '8px', overflow: 'hidden' } }, barra)
       ]);
-      item.addEventListener('mouseenter', function () {
-        item.style.background = 'rgba(255,140,0,.1)';
-        barra.style.background = 'var(--trj-primary2)';
-        barra.style.boxShadow = '0 0 10px rgba(255,140,0,.5)';
-      });
-      item.addEventListener('mouseleave', function () { item.style.background = ''; barra.style.background = 'var(--trj-primary)'; barra.style.boxShadow = ''; });
-      item.addEventListener('click', function () { app.openDrillIncidents({ tipo: 'cidade', arg: c.cidade }, c.cidade); });
-      return item;
-    }));
 
-    var total = U.h('div', {
+      if (onRowClick) {
+        row.addEventListener('mouseenter', function () { row.style.background = 'rgba(255,140,0,.08)'; barra.style.background = 'var(--trj-primary2)'; barra.style.boxShadow = '0 0 8px rgba(255,140,0,.4)'; });
+        row.addEventListener('mouseleave', function () { row.style.background = ''; barra.style.background = 'var(--trj-primary)'; barra.style.boxShadow = ''; });
+        row.addEventListener('click', onRowClick);
+      }
+      return row;
+    }
+
+    var headerEl  = U.h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', minHeight: '26px' } });
+    var barsWrap  = U.h('div', { class: 'flex flex-col gap-1' });
+
+    function render() {
+      headerEl.innerHTML = '';
+      barsWrap.innerHTML = '';
+      var ativos   = getAtivos();
+      var causas   = groupByCausa(ativos);
+      var grandTotal = ativos.length;
+
+      if (!drillCausa) {
+        var maxC = causas.length ? causas[0].total : 1;
+        causas.forEach(function (c) {
+          barsWrap.appendChild(mkBarRow(
+            c.causa, c.total, grandTotal, maxC,
+            function (causa) { return function () { drillCausa = causa; render(); }; }(c.causa),
+            function (causa) { return function () { app.openDrillIncidents({ tipo: 'causa', arg: causa }, 'CAUSA: ' + causa); }; }(c.causa)
+          ));
+        });
+        if (!causas.length) {
+          barsWrap.appendChild(U.h('div', { style: { color: 'var(--trj-muted)', fontSize: '12px', padding: '16px 0' }, text: 'Nenhum incidente ativo.' }));
+        }
+      } else {
+        var causaObj = causas.filter(function (c) { return c.causa === drillCausa; })[0];
+
+        var voltarBtn = U.h('button', {
+          class: 'trj-btn trj-btn-ghost',
+          style: { fontSize: '11px', padding: '2px 8px' },
+          text: '← Voltar',
+          onclick: function () { drillCausa = null; render(); }
+        });
+        headerEl.appendChild(voltarBtn);
+        headerEl.appendChild(U.h('span', { style: { color: 'var(--trj-muted)', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, text: drillCausa }));
+
+        if (!causaObj) {
+          barsWrap.appendChild(U.h('div', { style: { color: 'var(--trj-muted)', fontSize: '12px' }, text: 'Sem dados.' }));
+          return;
+        }
+
+        var subs = Object.keys(causaObj.subs)
+          .map(function (k) { return { label: k, total: causaObj.subs[k] }; })
+          .sort(function (a, b) { return b.total - a.total; });
+        var maxS = subs.length ? subs[0].total : 1;
+
+        subs.forEach(function (s) {
+          barsWrap.appendChild(mkBarRow(
+            s.label, s.total, grandTotal, maxS,
+            null,
+            function (causa, sub) { return function () { app.openDrillIncidents({ tipo: 'subcausa', arg: causa + '||' + sub }, sub + ' (' + causa + ')'); }; }(drillCausa, s.label)
+          ));
+        });
+      }
+    }
+
+    render();
+
+    var totalCard = U.h('div', {
       class: 'trj-card p-5 flex flex-col items-center justify-center clickable',
-      style: { minWidth: '180px', cursor: 'pointer', transition: 'box-shadow .15s', border: '2px solid transparent' },
+      style: { minWidth: '180px', cursor: 'pointer', transition: 'box-shadow .15s, border-color .15s', border: '2px solid transparent' },
       title: 'Clique para ver todos os sites fora',
       onclick: function () { app.openDrillIncidents({ tipo: 'sitesFora', arg: null }, 'TODOS OS SITES FORA'); }
     }, [
@@ -497,15 +580,18 @@
       U.h('div', { class: 'font-extrabold', style: { fontSize: '56px', color: C.CORES_TRJ.red, lineHeight: '1', textShadow: '0 0 20px rgba(231,76,60,.4)' }, text: U.fmtNum(tc.totalSitesFora) }),
       U.h('div', { style: { fontSize: '10px', color: 'var(--trj-muted)', marginTop: '4px' }, text: '▼ ver incidentes' })
     ]);
+    totalCard.addEventListener('mouseenter', function () { totalCard.style.boxShadow = '0 0 20px rgba(231,76,60,.25)'; totalCard.style.borderColor = 'rgba(231,76,60,.5)'; });
+    totalCard.addEventListener('mouseleave', function () { totalCard.style.boxShadow = ''; totalCard.style.borderColor = 'transparent'; });
+
     return U.h('div', { class: 'trj-card p-4' }, [
       U.h('div', { class: 'flex items-center gap-2 mb-3' }, [
         U.h('span', { class: 'trj-chart-dot' }),
-        U.h('h3', { class: 'text-sm font-bold', text: 'TOP CIDADES — SITES FORA' }),
-        U.h('span', { class: 'text-xs font-normal', style: { color: 'var(--trj-muted)' }, text: '(clique em qualquer cidade ou ANF para detalhar)' })
+        U.h('h3', { class: 'text-sm font-bold', text: 'CAUSA / SUBCAUSA — SITES FORA' }),
+        U.h('span', { class: 'text-xs font-normal', style: { color: 'var(--trj-muted)' }, text: '(clique em uma causa para ver subcausas · "ver casos" abre os incidentes)' })
       ]),
       U.h('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4' }, [
-        total,
-        U.h('div', { class: 'lg:col-span-2' }, [anfList, bars])
+        totalCard,
+        U.h('div', { class: 'lg:col-span-2' }, [headerEl, barsWrap])
       ])
     ]);
   }
