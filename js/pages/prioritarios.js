@@ -15,6 +15,12 @@
   var U = TRJ.ui, C = TRJ.constants;
   var LS_CONC = 'trj_concentradores';
 
+  // Cache em memória — inicializado com localStorage para render imediato.
+  // Sincronizado com o backend na abertura da página (assíncrono).
+  var _concCache = (function () {
+    try { return JSON.parse(localStorage.getItem(LS_CONC) || '[]') || []; } catch (e) { return []; }
+  }());
+
   // ── helpers ──────────────────────────────────────────────────────────
   function up(s) { return (s || '').toString().trim().toUpperCase(); }
 
@@ -53,12 +59,14 @@
     return up(t.motivoCancelamento || '').indexOf('LONGA DISTANCIA') >= 0;
   }
 
-  function carregarConc() {
-    try { return JSON.parse(localStorage.getItem(LS_CONC) || '[]') || []; }
-    catch (e) { return []; }
-  }
+  function carregarConc() { return _concCache; }
   function salvarConc(l) {
-    try { localStorage.setItem(LS_CONC, JSON.stringify(l)); } catch (e) {}
+    _concCache = l || [];
+    if (TRJ.api && TRJ.api.saveConcentradores) {
+      TRJ.api.saveConcentradores(_concCache).catch(function () {});
+    } else {
+      try { localStorage.setItem(LS_CONC, JSON.stringify(_concCache)); } catch (e) {}
+    }
   }
 
   // ── ícone folha ──────────────────────────────────────────────────────
@@ -407,6 +415,19 @@
 
     var concMatches = calcMatches();
     var catAtiva = { v: null };
+
+    // Sincroniza com o backend ao abrir — atualiza cache e re-renderiza se necessário
+    if (TRJ.api && TRJ.api.getConcentradores) {
+      TRJ.api.getConcentradores().then(function (res) {
+        if (!res || !res.lista) return;
+        if (JSON.stringify(res.lista) !== JSON.stringify(_concCache)) {
+          _concCache = res.lista;
+          try { localStorage.setItem(LS_CONC, JSON.stringify(_concCache)); } catch (e) {}
+          concMatches = calcMatches();
+          if (catAtiva.v === 'conc') setCategoria('conc');
+        }
+      }).catch(function () {});
+    }
 
     container.appendChild(U.pageHeader('Prioritários', 'Casos especiais em monitoramento — clique em uma categoria para ver os detalhes.'));
 
