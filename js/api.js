@@ -141,6 +141,30 @@
     return call('saveProdutividadeHist', { rows: rows || [] });
   };
 
+  // Concentradores: lista de sites monitorados especialmente.
+  // Persiste no config do backend (chave "concentradores"). localStorage = cache local.
+  A.getConcentradores = function () {
+    if (offline()) {
+      try { return Promise.resolve({ ok: true, lista: JSON.parse(localStorage.getItem('trj_concentradores') || '[]') || [] }); }
+      catch (e) { return Promise.resolve({ ok: true, lista: [] }); }
+    }
+    return call('getConfig').then(function (res) {
+      var raw = res && res.config && res.config.concentradores;
+      var lista = [];
+      if (raw) {
+        try { lista = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { lista = []; }
+      }
+      return { ok: true, lista: Array.isArray(lista) ? lista : [] };
+    });
+  };
+  A.saveConcentradores = function (lista) {
+    // Salva localStorage imediatamente como cache
+    try { localStorage.setItem('trj_concentradores', JSON.stringify(lista || [])); } catch (e) {}
+    if (offline()) return Promise.resolve({ ok: true, offline: true });
+    // A coluna "valor" do CONFIG_SHEET armazena strings — serializa como JSON
+    return call('setConfig', { config: { concentradores: JSON.stringify(lista || []) } });
+  };
+
   A.call = call;
   A.getUrl = getUrl;
   A.isOffline = offline;
