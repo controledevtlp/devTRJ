@@ -303,7 +303,6 @@
       pastaCard.appendChild(U.h('div', { class: 'flex gap-2 flex-wrap mt-1' }, [btnVerificar, btnConectar]));
       pastaCard.appendChild(U.h('p', { class: 'text-xs mt-1', style: { color: 'var(--trj-muted)' }, text: '💡 Pasta de Downloads com muitos arquivos antigos deixa a verificação mais lenta — conectar uma pasta menor e dedicada ajuda.' }));
     }
-    tarefasGrid.appendChild(pastaCard);
     container.appendChild(tarefasGrid);
 
     // =====================================================================
@@ -311,9 +310,9 @@
     // =====================================================================
     container.appendChild(secaoTitulo('🚨 Incidentes (Sites Fora)', C.CORES_TRJ.blue));
 
-    // --- ação primária: busca automática, em destaque ---
+    // --- ação primária + leitura automática da pasta — lado a lado ---
     var autoCard = U.h('div', {
-      class: 'trj-card p-6 mb-3',
+      class: 'trj-card p-6',
       style: { border: '1px solid rgba(46,204,113,.3)', background: 'rgba(46,204,113,.05)' }
     });
     autoCard.appendChild(U.h('div', { class: 'flex items-center gap-2 mb-1' }, [
@@ -325,7 +324,10 @@
       class: 'trj-btn trj-btn-lg clickable', style: { background: C.CORES_TRJ.green, borderColor: C.CORES_TRJ.green, color: '#0a160f' },
       html: '🔄 Buscar incidentes agora', onclick: function () { buscarAutomatico(data, app); }
     }));
-    container.appendChild(autoCard);
+    var incidentGrid = U.h('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 mb-3' });
+    incidentGrid.appendChild(autoCard);
+    incidentGrid.appendChild(pastaCard);
+    container.appendChild(incidentGrid);
 
     // --- opções manuais, escondidas por padrão (<details> nativo: some sem perder o texto digitado) ---
     var details = U.h('details', { class: 'trj-details trj-card p-5' });
