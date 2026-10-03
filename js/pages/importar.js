@@ -44,6 +44,7 @@
         try { var lk = await TRJ.api.lookupCities(ids); validMap = Object.assign({}, validMap, (lk && lk.map) || {}); }
         catch (e) { /* sem backend de cidades: segue sem enriquecimento */ }
       }
+      app.extendValidMap && app.extendValidMap(validMap);
       var incidentes = Comp.genesisToIncidents(genesisRows, validMap);
       FS.setIncidents(incidentes, { origem: origemLabel || 'genesis', em: new Date().toISOString() });
       await app.reloadIncidents();
@@ -117,6 +118,7 @@
         try { var lk = await TRJ.api.lookupCities(ids); validMap = Object.assign({}, validMap, (lk && lk.map) || {}); }
         catch (e) { /* sem backend de cidades: segue sem enriquecimento */ }
       }
+      app.extendValidMap && app.extendValidMap(validMap);
       var incidentes = Comp.genesisToIncidents(genesisRows, validMap);
       FS.setIncidents(incidentes, { origem: 'genesis-auto', em: new Date().toISOString() });
       await app.reloadIncidents();

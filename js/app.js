@@ -218,6 +218,19 @@
   App.invalidateValidMap = function () {
     try { localStorage.removeItem(LS_VMAP); } catch (e) {}
   };
+  // Mescla novos mapeamentos ao validMap em memória e no cache.
+  // Usado após um lookupCities parcial (ex.: bridge/genesis) para que
+  // reloadIncidents() use sempre o mapa mais completo disponível.
+  App.extendValidMap = function (extraMap) {
+    if (!extraMap || !Object.keys(extraMap).length) return;
+    var merged = Object.assign({}, (App.data && App.data.validMap) || {}, extraMap);
+    _vmapSave(merged);
+    if (App.data) {
+      App.data.validMap = merged;
+      App.data.validMapSize = Object.keys(merged).length;
+      App.data.validMapFromCache = false;
+    }
+  };
 
   // ---------------- DADOS ----------------
   function prazoOverride(config) {
