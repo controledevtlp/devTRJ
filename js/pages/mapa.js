@@ -161,6 +161,8 @@
     var _mwVendorVis = { NOKIA: true, HUAWEI: true, CERAGON: true, ERICSSON: true, SIAE: true, ZTE: true };
     var _cityCircle = null;
     var _legEls = [];
+    var _boundaryLayer = null;
+    var _boundaryCache = {}; // cache de polígonos por nome de cidade
 
     // ── Geocodificação TSK (Nominatim) — cache em localStorage ───────────
     var GEO_CACHE_KEY = 'trj_geo_cache';
@@ -276,6 +278,14 @@
       });
       regionBar.appendChild(chip);
     });
+    // Botão de relatório alinhado à direita na mesma barra
+    var btnRelatorio = U.h('button', {
+      class: 'trj-btn trj-btn-ghost clickable',
+      style: { fontSize:'11px', padding:'3px 12px', borderRadius:'999px', border:'1px solid var(--trj-border)', marginLeft:'auto', whiteSpace:'nowrap' },
+      text: '📋 Copiar relatório'
+    });
+    btnRelatorio.addEventListener('click', gerarRelatorio);
+    regionBar.appendChild(btnRelatorio);
     container.appendChild(regionBar);
 
     // ── Painel de rota ────────────────────────────────────────────────────
@@ -624,6 +634,119 @@
         });
     }
 
+    // ── Limite de município via Nominatim ─────────────────────────────────
+    function _buscarLimite(qCity, cb) {
+      var key = qCity.toLowerCase().trim();
+      if (_boundaryCache[key] !== undefined) { cb(_boundaryCache[key]); return; }
+      var url = 'https://nominatim.openstreetmap.org/search?format=json&polygon_geojson=1&limit=1&countrycodes=br&q='
+        + encodeURIComponent(qCity + ' Brasil');
+      fetch(url, { headers: { 'Accept-Language':'pt-BR,pt', 'User-Agent':'ControleTRJ/1.0' } })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var res = (data && data[0]) ? { geojson: data[0].geojson || null, lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) } : null;
+          _boundaryCache[key] = res;
+          cb(res);
+        })
+        .catch(function() { _boundaryCache[key] = null; cb(null); });
+    }
+
+    function _atualizarDestaqueCidade(qCity, matched) {
+      // Remove destaques anteriores
+      if (_boundaryLayer) { _boundaryLayer.remove(); _boundaryLayer = null; }
+      if (_cityCircle) { _cityCircle.remove(); _cityCircle = null; }
+      if (!qCity || !mapInstance) return;
+
+      // Zoom imediato nos marcadores encontrados
+      if (matched.length > 0) {
+        var pts = matched.filter(function(m){ return m.getLatLng; }).map(function(m){ return m.getLatLng(); });
+        if (pts.length > 0) mapInstance.fitBounds(window.L.latLngBounds(pts).pad(0.35), { maxZoom: 13 });
+      }
+
+      // Busca o polígono municipal no Nominatim
+      _buscarLimite(qCity, function(res) {
+        // Verifica se o usuário ainda está buscando a mesma cidade
+        if (!res || (cityInput.value || '').trim().toLowerCase() !== qCity) return;
+        if (res.geojson) {
+          _boundaryLayer = window.L.geoJSON(res.geojson, {
+            style: { color:'#ff8c00', weight:2.5, dashArray:'9,6', fillOpacity:0.04, fillColor:'#ff8c00', lineCap:'round', lineJoin:'round' }
+          }).addTo(mapInstance);
+          // Se não havia marcadores, zoom no limite do município
+          if (matched.length === 0) mapInstance.fitBounds(_boundaryLayer.getBounds().pad(0.1), { maxZoom: 13 });
+        } else if (res.lat && res.lon) {
+          // Sem polígono: fallback para ponto + círculo estimado
+          mapInstance.flyTo([res.lat, res.lon], 12, { duration: 0.8 });
+          _cityCircle = window.L.circle([res.lat, res.lon], { radius:8000, color:'#ff8c00', fillColor:'#ff8c00', fillOpacity:0.04, weight:2, dashArray:'8,7' }).addTo(mapInstance);
+        }
+      });
+    }
+
+    // ── Relatório de rota ─────────────────────────────────────────────────
+    function _nnSort(sites) {
+      if (sites.length <= 1) return sites.slice();
+      var rem = sites.filter(function(s){ return s.lat && s.lon; });
+      if (!rem.length) return sites.slice();
+      var sorted = [rem.splice(0, 1)[0]];
+      while (rem.length) {
+        var last = sorted[sorted.length - 1];
+        var minD = Infinity, minI = 0;
+        rem.forEach(function(s, i) { var d = haversineKm(last.lat, last.lon, s.lat, s.lon); if (d < minD) { minD = d; minI = i; } });
+        sorted.push(rem.splice(minI, 1)[0]);
+      }
+      return sorted;
+    }
+
+    function gerarRelatorio() {
+      if (!layers.flag1) { U.toast && U.toast('Mapa não carregado', 'warn'); return; }
+      var marcadores = Object.values(layers.flag1._layers || {}).filter(function(m) { return m.getOpacity ? m.getOpacity() > 0.5 : true; });
+      if (!marcadores.length) { U.toast && U.toast('Nenhum site visível para gerar relatório', 'warn'); return; }
+
+      var porRegiao = {};
+      marcadores.forEach(function(m) {
+        var d = m._d || {};
+        var r = d.regiao || 'OTHERS';
+        if (!porRegiao[r]) porRegiao[r] = [];
+        porRegiao[r].push(d);
+      });
+
+      var linhas = ['🗺️ SITES FORA — ' + new Date().toLocaleString('pt-BR'), ''];
+      var regioesList = _filtros.regiao ? [_filtros.regiao] : Object.keys(porRegiao).sort();
+
+      regioesList.forEach(function(r) {
+        var sites = porRegiao[r];
+        if (!sites || !sites.length) return;
+        var label = (typeof REGIAO_LABELS !== 'undefined' && REGIAO_LABELS[r]) || r;
+        linhas.push('━━━ ' + label + ' (' + sites.length + ') ━━━');
+        var sorted = _nnSort(sites);
+        var semCoord = sites.filter(function(s){ return !s.lat || !s.lon; });
+        sorted.forEach(function(s, i) {
+          var info = (i + 1) + '. ' + (s.site || s.eid);
+          if (s.eid && s.eid !== s.site) info += ' (' + s.eid + ')';
+          if (s.cidade) info += ' — ' + s.cidade;
+          info += s.tsk ? '  🔵 COM TSK' : '  🔴 SEM TSK';
+          linhas.push(info);
+          if (i < sorted.length - 1 && sorted[i+1] && sorted[i+1].lat && s.lat) {
+            var dist = haversineKm(s.lat, s.lon, sorted[i+1].lat, sorted[i+1].lon);
+            linhas.push('   ↓ ~' + dist.toFixed(0) + ' km' + (dist > 80 ? '  ⚠️ longa distância' : ''));
+          }
+        });
+        if (semCoord.length) linhas.push('   (sem coord: ' + semCoord.map(function(s){ return s.site||s.eid; }).join(', ') + ')');
+        linhas.push('');
+      });
+
+      var texto = linhas.join('\n');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(texto).then(function() { U.toast && U.toast('Relatório copiado!', 'ok'); }).catch(function() { _fallbackCopy(texto); });
+      } else { _fallbackCopy(texto); }
+    }
+
+    function _fallbackCopy(txt) {
+      var ta = document.createElement('textarea');
+      ta.value = txt; ta.style.cssText = 'position:fixed;left:-9999px';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); U.toast && U.toast('Relatório copiado!', 'ok'); } catch(e) { U.toast && U.toast('Não foi possível copiar', 'err'); }
+      document.body.removeChild(ta);
+    }
+
     function applyMarkerFilter() {
       if (!layers.flag1) return;
       var q      = (siteInput.value || '').trim().toLowerCase();
@@ -665,19 +788,12 @@
         });
       });
 
-      // Zoom para busca de cidade
-      if (qCity && matched.length > 0 && mapInstance) {
-        var pts = matched.filter(function(m){ return m.getLatLng; }).map(function(m){ return m.getLatLng(); });
-        if (pts.length > 0) {
-          var bounds = window.L.latLngBounds(pts);
-          mapInstance.fitBounds(bounds.pad(0.35), { maxZoom: 13 });
-          if (_cityCircle) { _cityCircle.remove(); _cityCircle = null; }
-          var ctr = bounds.getCenter();
-          var maxD = 0; pts.forEach(function(ll){ var d=mapInstance.distance(ctr,ll); if(d>maxD) maxD=d; });
-          _cityCircle = window.L.circle(ctr, { radius: Math.max(maxD*1.4, 3000), color:'#ff8c00', fillColor:'#ff8c00', fillOpacity:0.04, weight:2, dashArray:'8,7' }).addTo(mapInstance);
-        }
-      } else if (!qCity && _cityCircle) {
-        _cityCircle.remove(); _cityCircle = null;
+      // Destaque e zoom — cidade (com polígono municipal via Nominatim)
+      if (qCity) {
+        _atualizarDestaqueCidade(qCity, matched.filter(function(m){ return m.getLatLng; }));
+      } else {
+        if (_boundaryLayer) { _boundaryLayer.remove(); _boundaryLayer = null; }
+        if (_cityCircle) { _cityCircle.remove(); _cityCircle = null; }
       }
 
       // Zoom para busca de site/ENDID (sem cidade)
