@@ -911,8 +911,13 @@
       });
 
       // Destaque e zoom — cidade (com polígono municipal via Nominatim)
+      // Usa lista própria por texto para orientar o zoom; opacidade dos marcadores NÃO é alterada por cidade
       if (qCity) {
-        _atualizarDestaqueCidade(qCity, matched.filter(function(m){ return m.getLatLng; }));
+        var _cityMatched = Object.values(layers.flag1._layers || {}).filter(function(m) {
+          var d = m._d || {};
+          return m.getLatLng && (d.cidade||'').toLowerCase().indexOf(qCity) >= 0;
+        });
+        _atualizarDestaqueCidade(qCity, _cityMatched);
       } else {
         if (_boundaryLayer) { _boundaryLayer.remove(); _boundaryLayer = null; }
         if (_cityCircle) { _cityCircle.remove(); _cityCircle = null; }
