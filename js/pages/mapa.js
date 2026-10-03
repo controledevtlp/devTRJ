@@ -462,10 +462,9 @@
       mapInstance = window.L.map('trj-mapa-leaflet', { preferCanvas: true, zoomControl: true })
         .setView([-22.3, -43.1], 8);
 
-      window.L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 19
+      window.L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '&copy; <a href="https://www.esri.com/">Esri</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 16
       }).addTo(mapInstance);
 
       // Garante re-render correto ao exibir em aba SPA (container pode estar oculto no primeiro render)
