@@ -195,6 +195,125 @@
     ]);
   }
 
+  // ---- Card: buscar por END_ID e editar ----
+  function buildEditCard(opts) {
+    var headers = opts.headers || {};
+    var options = opts.options || {};
+
+    var card = U.h('div', { class: 'trj-card p-5 mb-5' });
+    card.appendChild(U.h('h3', { class: 'text-base font-bold mb-1', text: '✏️ Buscar / Editar por END_ID' }));
+    card.appendChild(U.h('p', { class: 'text-xs mb-3', style: { color: 'var(--trj-muted)' }, text: 'Localiza o site pelo END_ID e permite editar os dados. Ao salvar, todas as linhas com o mesmo END_ID serão atualizadas.' }));
+
+    var inBusca = U.h('input', { class: 'trj-input', style: { width: '220px' }, placeholder: 'Digite o END_ID...' });
+    var msgBusca = U.h('span', { class: 'text-xs', style: { color: 'var(--trj-muted)' } });
+    var btnBuscar = U.h('button', { class: 'trj-btn trj-btn-primary clickable', text: '🔍 Buscar' });
+    var formEdit = U.h('div', { style: { display: 'none', marginTop: '16px' } });
+
+    card.appendChild(U.h('div', { class: 'flex items-center gap-2 flex-wrap mb-2' }, [inBusca, btnBuscar, msgBusca]));
+    card.appendChild(formEdit);
+
+    function mostrarForm(rows, endIdBuscado) {
+      formEdit.innerHTML = '';
+      formEdit.style.display = 'block';
+
+      if (!rows || !rows.length) {
+        msgBusca.textContent = 'Nenhum registro encontrado para "' + endIdBuscado + '".';
+        msgBusca.style.color = 'var(--trj-red, #e74c3c)';
+        formEdit.style.display = 'none';
+        return;
+      }
+
+      msgBusca.textContent = rows.length + ' linha(s) encontrada(s) — todas serão atualizadas ao salvar.';
+      msgBusca.style.color = 'var(--trj-muted)';
+
+      var base = rows[0];
+
+      var inCidade = U.h('input', { class: 'trj-input w-full', value: base.cidade || '', placeholder: 'Cidade' });
+      var inEndId  = U.h('input', { class: 'trj-input w-full', value: base.end_id  || '', placeholder: 'END_ID', disabled: true, style: { opacity: '.6', cursor: 'not-allowed' } });
+      var inSite   = U.h('input', { class: 'trj-input w-full', value: base.site   || '', placeholder: 'Site' });
+
+      function selEdit(id, valores, valorAtual) {
+        var opts2 = [U.h('option', { value: '', text: '— em branco —' })].concat(
+          (valores || []).map(function (v) { return U.h('option', { value: v, text: v }); })
+        );
+        var sel = U.h('select', { id: id, class: 'trj-select w-full' }, opts2);
+        sel.value = valorAtual || '';
+        return sel;
+      }
+
+      var selD = selEdit('edit-sel-d', options.D, base.colD);
+      var selE = selEdit('edit-sel-e', options.E, base.colE);
+      var selF = selEdit('edit-sel-f', options.F, base.colF);
+
+      var msgSave = U.h('div', { class: 'text-xs mt-2', style: { minHeight: '18px', color: 'var(--trj-muted)' } });
+
+      var btnSalvar = U.h('button', {
+        class: 'trj-btn trj-btn-primary clickable', text: 'Salvar alterações',
+        onclick: async function () {
+          var row = {
+            cidade: (inCidade.value || '').trim(),
+            site:   (inSite.value   || '').trim(),
+            colD: selD.value,
+            colE: selE.value,
+            colF: selF.value
+          };
+          btnSalvar.disabled = true;
+          try {
+            var res = await TRJ.api.updateSite(endIdBuscado, row);
+            var n = res && res.updated != null ? res.updated : '?';
+            msgSave.textContent = '✓ ' + n + ' linha(s) atualizadas com sucesso.';
+            msgSave.style.color = 'var(--trj-green, #2ecc71)';
+            U.toast(n + ' linha(s) atualizadas.', 'ok');
+          } catch (e) {
+            msgSave.textContent = e && e.message ? e.message : 'Erro ao atualizar.';
+            msgSave.style.color = 'var(--trj-red, #e74c3c)';
+            U.toast('Erro ao atualizar.', 'err');
+          } finally { btnSalvar.disabled = false; }
+        }
+      });
+
+      var btnCancelar = U.h('button', {
+        class: 'trj-btn trj-btn-ghost clickable', text: 'Cancelar',
+        onclick: function () { formEdit.style.display = 'none'; formEdit.innerHTML = ''; inBusca.value = ''; msgBusca.textContent = ''; }
+      });
+
+      formEdit.appendChild(U.h('div', { class: 'trj-card p-4', style: { borderColor: 'rgba(255,140,0,0.25)' } }, [
+        U.h('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-4' }, [
+          campo('CIDADE', inCidade),
+          campo('END_ID', inEndId),
+          campo('SITE', inSite, true),
+          campo(headers.D || 'Coluna D', selD),
+          campo(headers.E || 'Coluna E', selE),
+          campo(headers.F || 'Coluna F', selF)
+        ]),
+        U.h('div', { class: 'flex gap-2 flex-wrap' }, [btnSalvar, btnCancelar]),
+        msgSave
+      ]));
+    }
+
+    async function executarBusca() {
+      var endId = (inBusca.value || '').trim().toUpperCase();
+      if (!endId) { msgBusca.textContent = 'Digite um END_ID para buscar.'; msgBusca.style.color = 'var(--trj-red, #e74c3c)'; return; }
+      msgBusca.textContent = 'Buscando...';
+      msgBusca.style.color = 'var(--trj-muted)';
+      formEdit.style.display = 'none';
+      formEdit.innerHTML = '';
+      btnBuscar.disabled = true;
+      try {
+        var res = await TRJ.api.searchSite(endId);
+        mostrarForm(res && res.rows ? res.rows : [], endId);
+      } catch (e) {
+        msgBusca.textContent = e && e.message ? e.message : 'Erro na busca.';
+        msgBusca.style.color = 'var(--trj-red, #e74c3c)';
+      } finally { btnBuscar.disabled = false; }
+    }
+
+    btnBuscar.addEventListener('click', executarBusca);
+    inBusca.addEventListener('keydown', function (e) { if (e.key === 'Enter') executarBusca(); });
+
+    return card;
+  }
+
   TRJ.pages.cadastro = async function (container, ctx) {
     container.appendChild(U.pageHeader('Cadastro de Cidades',
       'Gerencie os sites encontrados sem região no VALID_CAD.'));
@@ -207,6 +326,7 @@
     loadingEl.remove();
 
     container.appendChild(buildScanCard(ctx, opts));
+    container.appendChild(buildEditCard(opts));
 
     // ---- Formulário de cadastro manual ----
     var headers = opts.headers || {};

@@ -111,6 +111,34 @@
     return call('saveSite', { row: row || {} });
   };
 
+  A.searchSite = function (end_id) {
+    if (offline()) {
+      try {
+        var arr = JSON.parse(localStorage.getItem('trj_sites') || '[]') || [];
+        var key = (end_id || '').trim().toUpperCase();
+        return Promise.resolve({ ok: true, rows: arr.filter(function (r) { return (r.end_id || '').trim().toUpperCase() === key; }) });
+      } catch (e) { return Promise.resolve({ ok: true, rows: [] }); }
+    }
+    return call('searchSite', { end_id: end_id });
+  };
+
+  A.updateSite = function (end_id, row) {
+    if (offline()) {
+      try {
+        var arr = JSON.parse(localStorage.getItem('trj_sites') || '[]') || [];
+        var key = (end_id || '').trim().toUpperCase();
+        var updated = 0;
+        arr = arr.map(function (r) {
+          if ((r.end_id || '').trim().toUpperCase() === key) { updated++; return Object.assign({}, r, row); }
+          return r;
+        });
+        localStorage.setItem('trj_sites', JSON.stringify(arr));
+        return Promise.resolve({ ok: true, updated: updated });
+      } catch (e) { return Promise.resolve({ ok: true, updated: 0 }); }
+    }
+    return call('updateSite', { end_id: end_id, row: row || {} });
+  };
+
   // Publica a "foto" do Dashboard (sem filtros) pro link público de
   // visualização (dashboard-publico.html). Em modo offline não há como
   // publicar (precisa do backend), então só ignora silenciosamente.
