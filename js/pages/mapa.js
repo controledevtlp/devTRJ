@@ -155,6 +155,13 @@
     var mapInstance = null, layers = {};
     var sitesFlag1 = [], sitesFlag0Raw = [];
 
+    // Filtros ativos
+    var _filtros = { regiao: null, soTSK: false, legSemTSK: true, legComTSK: true, legRecente: true };
+    var _lastStats = { total: 0, comTSK: 0, semCoord: 0 };
+    var _mwVendorVis = { NOKIA: true, HUAWEI: true, CERAGON: true, ERICSSON: true, SIAE: true, ZTE: true };
+    var _cityCircle = null;
+    var _legEls = [];
+
     // ── Geocodificação TSK (Nominatim) — cache em localStorage ───────────
     var GEO_CACHE_KEY = 'trj_geo_cache';
     var geoCache = (function() { try { return JSON.parse(localStorage.getItem(GEO_CACHE_KEY)||'{}'); } catch(e){ return {}; } })();
@@ -196,11 +203,17 @@
       'Sites fora georreferenciados, enlaces MW e hubs FO em tempo real.'));
 
     // ── Barra de controles ─────────────────────────────────────
-    var searchInput = U.h('input', {
+    var siteInput = U.h('input', {
       class: 'trj-input',
-      placeholder: 'Buscar por site, END_ID ou cidade...',
-      style: { flex: '1', maxWidth: '340px', fontSize: '13px' }
+      placeholder: 'Site ou END_ID...',
+      style: { flex: '1', maxWidth: '190px', fontSize: '13px' }
     });
+    var cityInput = U.h('input', {
+      class: 'trj-input',
+      placeholder: 'Buscar cidade...',
+      style: { flex: '1', maxWidth: '160px', fontSize: '13px' }
+    });
+    var searchInput = siteInput; // compatibilidade
 
     function mkCheck(label) {
       var chk = U.h('input', { type: 'checkbox' });
@@ -232,11 +245,38 @@
       style: { display:'flex', alignItems:'center', gap:'12px', flexWrap:'wrap', marginBottom:'10px',
                padding:'10px 14px', background:'var(--trj-card)', borderRadius:'10px', border:'1px solid var(--trj-border)',
                position:'relative', zIndex:'1' }
-    }, [searchInput, ckFlag0.el, ckMW.el, ckFO.el]
+    }, [siteInput, cityInput, ckFlag0.el, ckMW.el, ckFO.el]
        .concat(readOnly ? [] : [U.h('div', {style:{marginLeft:'auto',display:'flex',gap:'8px'}}, [btnPonte, btnImport])]));
 
     container.appendChild(ctrlBar);
     container.appendChild(statsEl);
+
+    // ── Barra de filtros por região ────────────────────────────
+    var REGIOES_FILTER = (['INTERIOR','BAIXADA','GRANDE RJ','ZONA OESTE','ESPIRITO SANTO']);
+    var REGIAO_LABELS = { 'INTERIOR':'Interior','BAIXADA':'Baixada','GRANDE RJ':'Grande RJ','ZONA OESTE':'Zona Oeste','ESPIRITO SANTO':'Espírito Santo' };
+    var _regiaoChips = {};
+    var regionBar = U.h('div', { style:{ display:'flex', gap:'6px', flexWrap:'wrap', marginTop:'6px', marginBottom:'2px' } });
+    REGIOES_FILTER.forEach(function(r) {
+      var chip = U.h('button', {
+        class: 'trj-btn trj-btn-ghost clickable',
+        style: { fontSize:'11px', padding:'3px 12px', borderRadius:'999px', transition:'all .15s', border:'1px solid var(--trj-border)' },
+        text: REGIAO_LABELS[r] || r
+      });
+      _regiaoChips[r] = chip;
+      chip.addEventListener('click', function() {
+        if (_filtros.regiao === r) {
+          _filtros.regiao = null;
+          chip.style.background=''; chip.style.color=''; chip.style.borderColor='var(--trj-border)'; chip.style.fontWeight='';
+        } else {
+          _filtros.regiao = r;
+          Object.values(_regiaoChips).forEach(function(c){ c.style.background=''; c.style.color=''; c.style.borderColor='var(--trj-border)'; c.style.fontWeight=''; });
+          chip.style.background='var(--trj-primary)'; chip.style.color='#0a160f'; chip.style.borderColor='var(--trj-primary)'; chip.style.fontWeight='700';
+        }
+        applyMarkerFilter();
+      });
+      regionBar.appendChild(chip);
+    });
+    container.appendChild(regionBar);
 
     // ── Painel de rota ────────────────────────────────────────────────────
     (function buildRotaPanel() {
@@ -414,34 +454,43 @@
         }
         return U.h('div', { style: { display:'flex', alignItems:'center', gap:'5px', opacity: item.noClick ? '0.7' : '1' } }, [ico, U.h('span',{text:item.label})]);
       }));
-    // Associar cliques nas legendas aos toggles de camada
+    // Associar cliques nas legendas — por item, com estado visual
     container.appendChild(legEl);
-    // Usar children diretos para não capturar divs aninhados (causariam retângulos brancos)
+    var MW_VENDOR_BY_LEG_IDX = { 4:'NOKIA', 5:'HUAWEI', 6:'CERAGON', 7:'ERICSSON', 8:'SIAE' };
     Array.prototype.forEach.call(legEl.children, function(el, idx) {
       var item = legItems[idx];
       if (!item || item.noClick) { return; }
+      _legEls[idx] = el;
       el.style.cursor = 'pointer';
       el.style.userSelect = 'none';
+      el.style.padding = '3px 7px';
+      el.style.borderRadius = '6px';
+      el.style.transition = 'all .15s';
       el.title = 'Clique para mostrar/ocultar';
+
+      function setActive(on) {
+        if (on) {
+          el.style.opacity = '1'; el.style.background = ''; el.style.outline = '1.5px solid transparent'; el.style.textDecoration = '';
+        } else {
+          el.style.opacity = '0.3'; el.style.background = ''; el.style.outline = '1.5px solid transparent'; el.style.textDecoration = 'line-through';
+        }
+      }
+      setActive(true);
+
       el.addEventListener('click', function() {
-        if (idx <= 2) {
-          // Sites fora FLAG 1 — toggle mostra/oculta layer
-          if (mapInstance) {
-            if (mapInstance.hasLayer(layers.flag1)) layers.flag1.remove();
-            else layers.flag1.addTo(mapInstance);
-          }
+        if (idx === 0) {
+          _filtros.legSemTSK = !_filtros.legSemTSK; setActive(_filtros.legSemTSK); applyMarkerFilter();
+        } else if (idx === 1) {
+          _filtros.legComTSK = !_filtros.legComTSK; setActive(_filtros.legComTSK); applyMarkerFilter();
+        } else if (idx === 2) {
+          _filtros.legRecente = !_filtros.legRecente; setActive(_filtros.legRecente); applyMarkerFilter();
         } else if (idx === 3) {
-          // FLAG 0
-          ckFlag0.chk.checked = !ckFlag0.chk.checked;
-          ckFlag0.chk.dispatchEvent(new Event('change'));
-        } else if (idx >= 4 && idx <= 8) {
-          // Links MW — toggle geral (afeta mwFlag1 e, se FLAG0 ativo, mwFlag0)
-          ckMW.chk.checked = !ckMW.chk.checked;
-          ckMW.chk.dispatchEvent(new Event('change'));
+          ckFlag0.chk.checked = !ckFlag0.chk.checked; setActive(ckFlag0.chk.checked); ckFlag0.chk.dispatchEvent(new Event('change'));
+        } else if (MW_VENDOR_BY_LEG_IDX[idx]) {
+          var forn = MW_VENDOR_BY_LEG_IDX[idx];
+          _mwVendorVis[forn] = !_mwVendorVis[forn]; setActive(_mwVendorVis[forn]); applyMarkerFilter();
         } else if (idx === 9) {
-          // Hubs FO
-          ckFO.chk.checked = !ckFO.chk.checked;
-          ckFO.chk.dispatchEvent(new Event('change'));
+          ckFO.chk.checked = !ckFO.chk.checked; setActive(ckFO.chk.checked); ckFO.chk.dispatchEvent(new Event('change'));
         }
       });
     });
@@ -498,12 +547,11 @@
       });
       ckFO.chk.addEventListener('change',   function() { if(ckFO.chk.checked)    layers.fo.addTo(mapInstance);    else layers.fo.remove(); });
 
-      // Busca em tempo real
+      // Busca em tempo real — site/ENDID e cidade separados
       var timer = null;
-      searchInput.addEventListener('input', function() {
-        clearTimeout(timer);
-        timer = setTimeout(function() { filtrarMarcadores(searchInput.value.trim().toLowerCase()); }, 200);
-      });
+      function _onSearchInput() { clearTimeout(timer); timer = setTimeout(applyMarkerFilter, 200); }
+      siteInput.addEventListener('input', _onSearchInput);
+      cityInput.addEventListener('input', _onSearchInput);
 
     }
 
@@ -576,39 +624,84 @@
         });
     }
 
-    function filtrarMarcadores(q) {
+    function applyMarkerFilter() {
       if (!layers.flag1) return;
+      var q      = (siteInput.value || '').trim().toLowerCase();
+      var qCity  = (cityInput.value || '').trim().toLowerCase();
       var matched = [];
-      // Filtrar marcadores de incidentes (FLAG 1)
+      var anyFilter = q || qCity || _filtros.regiao || _filtros.soTSK || !_filtros.legSemTSK || !_filtros.legComTSK || !_filtros.legRecente;
+
       Object.values(layers.flag1._layers || {}).forEach(function(m) {
         var d = m._d || {};
-        var ok = !q || (d.eid||'').toLowerCase().indexOf(q)>=0
-               || (d.site||'').toLowerCase().indexOf(q)>=0
-               || (d.cidade||'').toLowerCase().indexOf(q)>=0;
-        m.setOpacity(ok ? 1 : 0.07);
-        if (ok) matched.push(m);
+        var okSite   = !q     || (d.eid||'').toLowerCase().indexOf(q)>=0 || (d.site||'').toLowerCase().indexOf(q)>=0;
+        var okCidade = !qCity || (d.cidade||'').toLowerCase().indexOf(qCity)>=0;
+        var okRegiao = !_filtros.regiao || (d.regiao||'OTHERS') === _filtros.regiao;
+        var okTipo = true;
+        if (d.cor === '#e74c3c' && !_filtros.legSemTSK) okTipo = false;
+        if (d.cor === '#3498db' && !_filtros.legComTSK) okTipo = false;
+        if (d.cor === '#f0b429' && !_filtros.legRecente) okTipo = false;
+        if (_filtros.soTSK && !d.tsk) okTipo = false;
+        var visible = okSite && okCidade && okRegiao && okTipo;
+        m.setOpacity(visible ? 1 : 0.07);
+        if (visible) matched.push(m);
       });
-      // Filtrar Hub FO na busca
+
+      // Filtrar Hub FO na busca de site
       Object.values(layers.fo && layers.fo._layers ? layers.fo._layers : {}).forEach(function(m) {
         var d = m._d || {};
-        var ok = !q || (d.eid||'').toLowerCase().indexOf(q) >= 0
-               || (d.nome||'').toLowerCase().indexOf(q) >= 0;
-        if (m.setOpacity) { m.setOpacity(ok ? 1 : 0.07); }
-        else if (m.setStyle) { m.setStyle({ fillOpacity: ok ? 0.85 : 0.05, opacity: ok ? 1 : 0.05 }); }
-        if (ok && mapInstance && mapInstance.hasLayer(layers.fo)) { matched.push(m); }
+        var ok = !q || (d.eid||'').toLowerCase().indexOf(q)>=0 || (d.nome||'').toLowerCase().indexOf(q)>=0;
+        if (m.setOpacity) m.setOpacity(ok ? 1 : 0.07);
+        else if (m.setStyle) m.setStyle({ fillOpacity: ok ? 0.85 : 0.05, opacity: ok ? 1 : 0.05 });
+        if (ok && mapInstance && mapInstance.hasLayer(layers.fo)) matched.push(m);
       });
-      // Zoom nos resultados
-      if (q && matched.length > 0 && matched.length <= 30 && mapInstance) {
-        var bounds = window.L.latLngBounds(matched.map(function(m){ return m.getLatLng(); }));
-        mapInstance.fitBounds(bounds.pad(0.3), { maxZoom: 14 });
-      } else if (!q) {
+
+      // MW por fornecedor
+      [layers.mwFlag1, layers.mwFlag0].forEach(function(layer) {
+        if (!layer) return;
+        Object.values(layer._layers || {}).forEach(function(line) {
+          var forn = (line._forn || '').toUpperCase();
+          var vis = (_mwVendorVis[forn] !== false);
+          if (line.setStyle) line.setStyle({ opacity: vis ? (line.options._baseOpacity || 0.7) : 0.04 });
+        });
+      });
+
+      // Zoom para busca de cidade
+      if (qCity && matched.length > 0 && mapInstance) {
+        var pts = matched.filter(function(m){ return m.getLatLng; }).map(function(m){ return m.getLatLng(); });
+        if (pts.length > 0) {
+          var bounds = window.L.latLngBounds(pts);
+          mapInstance.fitBounds(bounds.pad(0.35), { maxZoom: 13 });
+          if (_cityCircle) { _cityCircle.remove(); _cityCircle = null; }
+          var ctr = bounds.getCenter();
+          var maxD = 0; pts.forEach(function(ll){ var d=mapInstance.distance(ctr,ll); if(d>maxD) maxD=d; });
+          _cityCircle = window.L.circle(ctr, { radius: Math.max(maxD*1.4, 3000), color:'#ff8c00', fillColor:'#ff8c00', fillOpacity:0.04, weight:2, dashArray:'8,7' }).addTo(mapInstance);
+        }
+      } else if (!qCity && _cityCircle) {
+        _cityCircle.remove(); _cityCircle = null;
+      }
+
+      // Zoom para busca de site/ENDID (sem cidade)
+      if (!qCity && q && matched.length > 0 && matched.length <= 30 && mapInstance) {
+        var pts2 = matched.filter(function(m){ return m.getLatLng; }).map(function(m){ return m.getLatLng(); });
+        if (pts2.length > 0) mapInstance.fitBounds(window.L.latLngBounds(pts2).pad(0.3), { maxZoom: 14 });
+      }
+
+      // Zoom para filtro de região (sem busca de texto)
+      if (!q && !qCity && _filtros.regiao && matched.length > 0 && mapInstance) {
+        var pts3 = matched.filter(function(m){ return m.getLatLng; }).map(function(m){ return m.getLatLng(); });
+        if (pts3.length > 0) mapInstance.fitBounds(window.L.latLngBounds(pts3).pad(0.25), { maxZoom: 12 });
+      }
+
+      // Sem filtros ativos: restaurar opacidade total
+      if (!anyFilter) {
         Object.values(layers.flag1._layers || {}).forEach(function(m){ m.setOpacity(1); });
         Object.values((layers.fo && layers.fo._layers) || {}).forEach(function(m){
           if (m.setOpacity) m.setOpacity(1);
-          else if (m.setStyle) m.setStyle({ fillOpacity: 0.85, opacity: 1 });
+          else if (m.setStyle) m.setStyle({ fillOpacity:0.85, opacity:1 });
         });
       }
     }
+    function filtrarMarcadores(q) { applyMarkerFilter(); } // alias de compatibilidade
 
     // ── Ícone DIV customizado ─────────────────────────────────
     function divIcon(cor, sz, shape) {
@@ -659,7 +752,7 @@
         var cor = tsk ? '#3498db' : (tempo === 0 ? '#f0b429' : '#e74c3c');
 
         var marker = window.L.marker([lat, lon], { icon: divIcon(cor, 14) });
-        marker._d = { eid:eid, site:nome, cidade:cidade, lat:lat, lon:lon };
+        marker._d = { eid:eid, site:nome, cidade:cidade, lat:lat, lon:lon, tsk:!!tsk, cor:cor, regiao:(incMatch && incMatch.regiao)||'OTHERS' };
 
         // Monta endereço TSK se disponível
         var tskEnd = tsk ? ((tsk.enderecoLogradouro||'') + (tsk.bairro ? ', '+tsk.bairro : '') + (tsk.cidade ? ' - '+tsk.cidade : '')) : '';
@@ -743,10 +836,13 @@
         var parts = (link.Enlace2||'').split(' - ').map(function(p){ return p.trim(); });
         var conectaFlag1 = parts.some(function(eid){ return eidsAtivos[eid]; });
 
+        var baseOp = conectaFlag1 ? 0.85 : 0.5;
         var line = window.L.polyline([[latA,lonA],[latB,lonB]], {
-          color:cor, weight: conectaFlag1 ? 6 : 5, opacity: conectaFlag1 ? 0.85 : 0.5,
+          color:cor, weight: conectaFlag1 ? 6 : 5, opacity: baseOp,
           dashArray: forn==='CERAGON'?'6,4':null
         });
+        line._forn = forn;
+        line.options._baseOpacity = baseOp;
         line.bindPopup('<b>Enlace:</b> ' + enlace + '<br><b>Fornecedor:</b> ' + (link.FORNECEDOR||'—')
           + (link.PROJETO ? '<br><b>Projeto:</b> ' + link.PROJETO : '')
           + (conectaFlag1 ? '<br><span style="color:#e74c3c">⬤ Conectado a site fora</span>' : ''), { maxWidth:240 });
@@ -824,7 +920,7 @@
         var tskEnd2 = tsk ? ((tsk.enderecoLogradouro||'') + (tsk.bairro ? ', '+tsk.bairro : '') + (tsk.cidade ? ' - '+tsk.cidade : '')) : '';
         tskEnd2 = tskEnd2.trim().replace(/^[,\s-]+|[,\s-]+$/g,'');
         var popId2 = 'pop2_' + eid.replace(/\W/g,'_');
-        marker._d = { eid:eid, site:nome, cidade:(inc.cidadeUf||'').split('/')[0].trim(), lat:coords[0], lon:coords[1] };
+        marker._d = { eid:eid, site:nome, cidade:(inc.cidadeUf||'').split('/')[0].trim(), lat:coords[0], lon:coords[1], tsk:!!tsk, cor:cor, regiao:inc.regiao||'OTHERS' };
         var popContent = '<div id="' + popId2 + '" style="font:12px ui-monospace,monospace;min-width:210px">'
           + '<b style="color:' + cor + ';font-size:13px">' + nome + '</b><br>'
           + '<span style="color:#888">END_ID:</span> ' + eid + '<br>'
@@ -865,17 +961,28 @@
     }
 
     function updateStats(total, comTSK, semCoord) {
+      _lastStats = { total:total, comTSK:comTSK, semCoord:semCoord };
       statsEl.innerHTML = '';
-      var items = [
-        { text:'Sites fora no mapa: ' + total, cor:'#e74c3c' },
-        { text:'Com TSK aberta: ' + comTSK, cor:'#3498db' },
-        { text:'Sem coordenadas: ' + semCoord, cor:'var(--trj-muted)' },
-        { text:'Enlaces MW: ' + mwData.length, cor:'var(--trj-muted)' },
-        { text:'Hubs FO: ' + foData.length, cor:'#2ecc71' },
-      ];
-      items.forEach(function(item) {
+      [
+        { text:'Sites fora: ' + total, cor:'#e74c3c' },
+        { text:'Sem coord: ' + semCoord, cor:'var(--trj-muted)' },
+        { text:'MW: ' + mwData.length, cor:'var(--trj-muted)' },
+        { text:'FO: ' + foData.length, cor:'#2ecc71' },
+      ].forEach(function(item) {
         statsEl.appendChild(U.h('span', { style:{ fontSize:'12px', color:item.cor } }, item.text));
       });
+      // TSK — toggle clicável
+      var tskEl = document.createElement('span');
+      tskEl.textContent = 'Com TSK: ' + comTSK + (_filtros.soTSK ? ' ✓' : '');
+      tskEl.title = 'Clique para mostrar somente sites com TSK aberta';
+      tskEl.style.cssText = 'font-size:12px;cursor:pointer;padding:2px 8px;border-radius:6px;transition:all .15s;color:#3498db;'
+        + (_filtros.soTSK ? 'font-weight:700;border:1px solid #3498db88;background:rgba(52,152,219,.13);' : 'border:1px solid transparent;');
+      tskEl.addEventListener('click', function() {
+        _filtros.soTSK = !_filtros.soTSK;
+        applyMarkerFilter();
+        updateStats(_lastStats.total, _lastStats.comTSK, _lastStats.semCoord);
+      });
+      statsEl.appendChild(tskEl);
     }
 
     // ── Buscar via ponte ────────────────────────────────────────
