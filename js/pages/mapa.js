@@ -1,5 +1,5 @@
 ﻿/* ============================================================
- * Página: Mapa Operacional TRJ
+ * Página: Mapa Operacional TMG
  * ============================================================
  * Mapa Leaflet com dados de sites vindos da ponte local
  * (http://localhost:5057/api/mapa) que acessa o PHP interno
@@ -12,14 +12,14 @@
  *  • Marcadores Hub FO
  *  • Busca por site, END_ID ou cidade
  * ============================================================ */
-(function (TRJ) {
-  TRJ.pages = TRJ.pages || {};
-  var U = TRJ.ui, C = TRJ.constants;
+(function (TMG) {
+  TMG.pages = TMG.pages || {};
+  var U = TMG.ui, C = TMG.constants;
 
-  var LS_COORDS   = 'trj_coordMap';
-  var LS_MW       = 'trj_mwData';
-  var LS_FO       = 'trj_foData';
-  var LS_MARKERS  = 'trj_mapaMarkers';  // sites fora com coordenadas (markerData do Genesis)
+  var LS_COORDS   = 'tmg_coordMap';
+  var LS_MW       = 'tmg_mwData';
+  var LS_FO       = 'tmg_foData';
+  var LS_MARKERS  = 'tmg_mapaMarkers';  // sites fora com coordenadas (markerData do Genesis)
   var PONTE_URL   = 'http://localhost:5057';
 
   // ── Cores exatas do mapa original ───────────────────────────
@@ -52,7 +52,7 @@
     saveLS(LS_FO, foData);
     if (markers !== undefined) saveLS(LS_MARKERS, markers);
   }
-  TRJ.mapaSetDados = salvarMapaDados;
+  TMG.mapaSetDados = salvarMapaDados;
 
   // ── Parsear Genesis Mapa HTML → markerData + mwData + foData + coordMap ──
   // markerData = sites fora com campos: NEName, Latitude, Longitude, ENDID, tempo, queda …
@@ -112,17 +112,17 @@
       coordCount: Object.keys(coordMap).length, siteCount: markerData.length
     };
   }
-  TRJ.mapaParseGenesis = parseGenesisParaMapa;
+  TMG.mapaParseGenesis = parseGenesisParaMapa;
 
   // ── PÁGINA ─────────────────────────────────────────────────
-  TRJ.pages.mapa = function(container, ctx) {
+  TMG.pages.mapa = function(container, ctx) {
     var data      = ctx.data || {};
     var readOnly  = !!ctx.readOnly;
     var incidents = data.incidentsEnriched || [];
     var tasks     = data.tasksEnriched     || [];
 
     // Dados de mapa: contexto > localStorage > estáticos embutidos > vazio
-    var coordMap = ctx.mapaCoordMap || loadLS(LS_COORDS) || TRJ.defaultCoordMap || {};
+    var coordMap = ctx.mapaCoordMap || loadLS(LS_COORDS) || TMG.defaultCoordMap || {};
     var mapaMarkers = loadLS(LS_MARKERS) || [];
 
     // mwData e foData: formato compacto [la,loa,lb,lob,enlace2,forn] → normalizar para objetos
@@ -134,8 +134,8 @@
       if (!Array.isArray(x)) return x;
       return { LAT_A: x[0], LONG_A: x[1], HUB: x[2], NEName: x[3] };
     }
-    var rawMw = ctx.mapaMwData || loadLS(LS_MW) || TRJ.defaultMwData || [];
-    var rawFo = ctx.mapaFoData || loadLS(LS_FO) || TRJ.defaultFoData || [];
+    var rawMw = ctx.mapaMwData || loadLS(LS_MW) || TMG.defaultMwData || [];
+    var rawFo = ctx.mapaFoData || loadLS(LS_FO) || TMG.defaultFoData || [];
     var mwData = rawMw.map(_normMw);
     var foData = rawFo.map(_normFo);
 
@@ -162,16 +162,16 @@
     var _cityCircle = null;
     var _legEls = [];
     var _boundaryLayer = null;
-    var _boundaryCache = {}; // cache de polígonos por nome de cidade
+    var _boundaryCache = {};
 
     // ── Geocodificação TSK (Nominatim) — cache em localStorage ───────────
-    var GEO_CACHE_KEY = 'trj_geo_cache';
+    var GEO_CACHE_KEY = 'tmg_geo_cache';
     var geoCache = (function() { try { return JSON.parse(localStorage.getItem(GEO_CACHE_KEY)||'{}'); } catch(e){ return {}; } })();
     function geocodificarEndereco(logradouro, cidade, bairro, cb) {
       var q = [logradouro, bairro, cidade, 'Brasil'].filter(Boolean).join(', ');
       if (geoCache[q]) { cb(null, geoCache[q]); return; }
       fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q), {
-        headers: { 'Accept-Language': 'pt-BR,pt', 'User-Agent': 'ControleTRJ/1.0' }
+        headers: { 'Accept-Language': 'pt-BR,pt', 'User-Agent': 'ControleTMG/1.0' }
       })
       .then(function(r){ return r.json(); })
       .then(function(data){
@@ -206,18 +206,17 @@
 
     // ── Barra de controles ─────────────────────────────────────
     var siteInput = U.h('input', {
-      class: 'trj-input',
+      class: 'tmg-input',
       placeholder: 'Site ou END_ID...',
       style: { flex: '1', maxWidth: '190px', fontSize: '13px' }
     });
     var cityInput = U.h('input', {
-      class: 'trj-input',
+      class: 'tmg-input',
       placeholder: 'Buscar cidade...',
       style: { flex: '1', maxWidth: '160px', fontSize: '13px' }
     });
     var searchInput = siteInput; // compatibilidade
-    // Datalist de sugestões de cidades (Nominatim + markers)
-    var _cityDlId = 'trj-city-dl';
+    var _cityDlId = 'tmg-city-dl';
     if (document.getElementById(_cityDlId)) document.getElementById(_cityDlId).remove();
     var _cityDL = document.createElement('datalist');
     _cityDL.id = _cityDlId;
@@ -234,17 +233,17 @@
     var ckMW    = mkCheck('Enlaces MW'); ckMW.chk.checked = true;
     var ckFO    = mkCheck('Hubs FO');
 
-    var statsEl = U.h('div', { style: { fontSize:'12px', color:'var(--trj-muted)', display:'flex', gap:'14px', flexWrap:'wrap', alignItems:'center' } });
+    var statsEl = U.h('div', { style: { fontSize:'12px', color:'var(--tmg-muted)', display:'flex', gap:'14px', flexWrap:'wrap', alignItems:'center' } });
 
     // Botão buscar via ponte
     var btnPonte = U.h('button', {
-      class: 'trj-btn trj-btn-primary clickable',
+      class: 'tmg-btn tmg-btn-primary clickable',
       style: { fontSize:'12px', padding:'4px 14px', display:'inline-flex', alignItems:'center', gap:'6px' }
     }, [U.h('span',{text:'Buscar sites (ponte + VPN)' })]);
 
     // Botão importar HTML (fallback)
     var btnImport = U.h('button', {
-      class: 'trj-btn trj-btn-ghost clickable',
+      class: 'tmg-btn tmg-btn-ghost clickable',
       style: { fontSize:'12px', padding:'4px 12px', display:'inline-flex', alignItems:'center', gap:'6px', opacity:'0.8' }
     }, [U.h('span',{text:'Importar Genesis HTML' })]);
     var fileInput = U.h('input', { type:'file', accept:'.html,.htm', style:{ display:'none' } });
@@ -252,7 +251,7 @@
 
     var ctrlBar = U.h('div', {
       style: { display:'flex', alignItems:'center', gap:'12px', flexWrap:'wrap', marginBottom:'10px',
-               padding:'10px 14px', background:'var(--trj-card)', borderRadius:'10px', border:'1px solid var(--trj-border)',
+               padding:'10px 14px', background:'var(--tmg-card)', borderRadius:'10px', border:'1px solid var(--tmg-border)',
                position:'relative', zIndex:'1' }
     }, [siteInput, cityInput, ckFlag0.el, ckMW.el, ckFO.el]
        .concat(readOnly ? [] : [U.h('div', {style:{marginLeft:'auto',display:'flex',gap:'8px'}}, [btnPonte, btnImport])]));
@@ -261,34 +260,32 @@
     container.appendChild(statsEl);
 
     // ── Barra de filtros por região ────────────────────────────
-    var REGIOES_FILTER = (['INTERIOR','BAIXADA','GRANDE RJ','ZONA OESTE','ESPIRITO SANTO']);
-    var REGIAO_LABELS = { 'INTERIOR':'Interior','BAIXADA':'Baixada','GRANDE RJ':'Grande RJ','ZONA OESTE':'Zona Oeste','ESPIRITO SANTO':'Espírito Santo' };
+    var REGIOES_FILTER = C.REGIOES.filter(function(r){ return r !== 'OTHERS'; });
     var _regiaoChips = {};
     var regionBar = U.h('div', { style:{ display:'flex', gap:'6px', flexWrap:'wrap', marginTop:'6px', marginBottom:'2px' } });
     REGIOES_FILTER.forEach(function(r) {
       var chip = U.h('button', {
-        class: 'trj-btn trj-btn-ghost clickable',
-        style: { fontSize:'11px', padding:'3px 12px', borderRadius:'999px', transition:'all .15s', border:'1px solid var(--trj-border)' },
-        text: REGIAO_LABELS[r] || r
+        class: 'tmg-btn tmg-btn-ghost clickable',
+        style: { fontSize:'11px', padding:'3px 12px', borderRadius:'999px', transition:'all .15s', border:'1px solid var(--tmg-border)' },
+        text: C.REGIAO_LABELS[r] || r
       });
       _regiaoChips[r] = chip;
       chip.addEventListener('click', function() {
         if (_filtros.regiao === r) {
           _filtros.regiao = null;
-          chip.style.background=''; chip.style.color=''; chip.style.borderColor='var(--trj-border)'; chip.style.fontWeight='';
+          chip.style.background=''; chip.style.color=''; chip.style.borderColor='var(--tmg-border)'; chip.style.fontWeight='';
         } else {
           _filtros.regiao = r;
-          Object.values(_regiaoChips).forEach(function(c){ c.style.background=''; c.style.color=''; c.style.borderColor='var(--trj-border)'; c.style.fontWeight=''; });
-          chip.style.background='var(--trj-primary)'; chip.style.color='#0a160f'; chip.style.borderColor='var(--trj-primary)'; chip.style.fontWeight='700';
+          Object.values(_regiaoChips).forEach(function(c){ c.style.background=''; c.style.color=''; c.style.borderColor='var(--tmg-border)'; c.style.fontWeight=''; });
+          chip.style.background='var(--tmg-primary)'; chip.style.color='#0a160f'; chip.style.borderColor='var(--tmg-primary)'; chip.style.fontWeight='700';
         }
         applyMarkerFilter();
       });
       regionBar.appendChild(chip);
     });
-    // Botão de relatório alinhado à direita na mesma barra
     var btnRelatorio = U.h('button', {
-      class: 'trj-btn trj-btn-ghost clickable',
-      style: { fontSize:'11px', padding:'3px 12px', borderRadius:'999px', border:'1px solid var(--trj-border)', marginLeft:'auto', whiteSpace:'nowrap' },
+      class: 'tmg-btn tmg-btn-ghost clickable',
+      style: { fontSize:'11px', padding:'3px 12px', borderRadius:'999px', border:'1px solid var(--tmg-border)', marginLeft:'auto', whiteSpace:'nowrap' },
       text: '📋 Copiar relatório'
     });
     btnRelatorio.addEventListener('click', gerarRelatorio);
@@ -321,16 +318,16 @@
         var inp = U.h('input', {
           type: 'text', list: dlId,
           placeholder: 'ENDID ou nome do site...',
-          style: { flex:'1', background:'var(--trj-card2)', border:'1px solid var(--trj-border)',
-                   borderRadius:'6px', color:'var(--trj-fg)', padding:'4px 8px', fontSize:'12px',
+          style: { flex:'1', background:'var(--tmg-card2)', border:'1px solid var(--tmg-border)',
+                   borderRadius:'6px', color:'var(--tmg-fg)', padding:'4px 8px', fontSize:'12px',
                    outline:'none' }
         });
         var btnX = U.h('button', {
-          style: { background:'none', border:'none', color:'var(--trj-muted)', cursor:'pointer', fontSize:'15px', lineHeight:'1', padding:'0 4px', flexShrink:'0' },
+          style: { background:'none', border:'none', color:'var(--tmg-muted)', cursor:'pointer', fontSize:'15px', lineHeight:'1', padding:'0 4px', flexShrink:'0' },
           text: '×'
         });
         var badge = U.h('span', {
-          style: { fontSize:'11px', fontWeight:'700', color:'var(--trj-primary)', width:'16px', textAlign:'center', flexShrink:'0' },
+          style: { fontSize:'11px', fontWeight:'700', color:'var(--tmg-primary)', width:'16px', textAlign:'center', flexShrink:'0' },
           text: letras[idx] || String(idx+1)
         });
         var linha = U.h('div', { style: { display:'flex', alignItems:'center', gap:'6px' } },
@@ -354,15 +351,15 @@
       pontosWrap.appendChild(criarLinhaPonto(1));
 
       var btnAdd = U.h('button', {
-        class: 'trj-btn trj-btn-ghost clickable',
+        class: 'tmg-btn tmg-btn-ghost clickable',
         style: { fontSize:'11px', padding:'2px 10px' }, text: '+ Adicionar ponto'
       });
       var btnCalc = U.h('button', {
-        class: 'trj-btn trj-btn-primary clickable',
+        class: 'tmg-btn tmg-btn-primary clickable',
         style: { fontSize:'11px', padding:'2px 12px' }, text: 'Calcular Rota'
       });
       var btnLimpar = U.h('button', {
-        class: 'trj-btn trj-btn-ghost clickable',
+        class: 'tmg-btn tmg-btn-ghost clickable',
         style: { fontSize:'11px', padding:'2px 10px' }, text: 'Limpar'
       });
 
@@ -410,14 +407,14 @@
       var bodyEl = U.h('div', { style:{marginTop:'8px',display:'none'} }, [pontosWrap, acoesEl, resultDiv]);
 
       var toggleBtn = U.h('button', {
-        style:{background:'none',border:'none',color:'var(--trj-muted)',cursor:'pointer',fontSize:'12px',padding:'0'},
+        style:{background:'none',border:'none',color:'var(--tmg-muted)',cursor:'pointer',fontSize:'12px',padding:'0'},
         text: '▸'
       });
 
       var headerEl = U.h('div', {
         style:{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer'}
       }, [
-        U.h('span',{style:{fontSize:'12px',fontWeight:'600',color:'var(--trj-fg)'},text:'📏 Calcular Rota de Atendimento'}),
+        U.h('span',{style:{fontSize:'12px',fontWeight:'600',color:'var(--tmg-fg)'},text:'📏 Calcular Rota de Atendimento'}),
         toggleBtn
       ]);
       headerEl.addEventListener('click', function() {
@@ -427,7 +424,7 @@
       });
 
       rotaPainelEl = U.h('div', {
-        style:{background:'var(--trj-card)',border:'1px solid var(--trj-border)',borderRadius:'8px',
+        style:{background:'var(--tmg-card)',border:'1px solid var(--tmg-border)',borderRadius:'8px',
                padding:'10px 14px',marginTop:'6px',marginBottom:'2px',position:'relative',zIndex:'1'}
       }, [headerEl, bodyEl]);
       container.appendChild(rotaPainelEl);
@@ -436,9 +433,9 @@
     // ── Container do mapa ──────────────────────────────────────
     // z-index do mapa menor que a sidebar (a sidebar usa z-index 200+)
     var mapDiv = U.h('div', {
-      id: 'trj-mapa-leaflet',
+      id: 'tmg-mapa-leaflet',
       style: { height:'65vh', borderRadius:'12px', overflow:'hidden',
-               border:'1px solid var(--trj-border)', marginTop:'10px',
+               border:'1px solid var(--tmg-border)', marginTop:'10px',
                position:'relative', zIndex:'0' }
     });
     container.appendChild(mapDiv);
@@ -457,7 +454,7 @@
       { cor:'#2ecc71', shape:'square', label:'Hub FO' },
       { cor:'#aaa', shape:'thickline', label:'Linha grossa = enlace de site fora', noClick:true },
     ];
-    var legEl = U.h('div', { style: { display:'flex', gap:'12px', flexWrap:'wrap', marginTop:'8px', fontSize:'11px', color:'var(--trj-muted)' } },
+    var legEl = U.h('div', { style: { display:'flex', gap:'12px', flexWrap:'wrap', marginTop:'8px', fontSize:'11px', color:'var(--tmg-muted)' } },
       legItems.map(function(item) {
         var ico;
         if (item.shape === 'thickline') {
@@ -525,7 +522,7 @@
 
     function initMap() {
       if (mapInstance) return;
-      mapInstance = window.L.map('trj-mapa-leaflet', { preferCanvas: true, zoomControl: true })
+      mapInstance = window.L.map('tmg-mapa-leaflet', { preferCanvas: true, zoomControl: true })
         .setView([-22.3, -43.1], 8);
 
       window.L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
@@ -569,7 +566,6 @@
       function _onSearchInput() { clearTimeout(timer); timer = setTimeout(applyMarkerFilter, 200); }
       siteInput.addEventListener('input', _onSearchInput);
       cityInput.addEventListener('input', _onSearchInput);
-      // Autocomplete de cidades (Nominatim + markers)
       var _acTimer = null;
       cityInput.addEventListener('input', function() {
         clearTimeout(_acTimer);
@@ -584,7 +580,7 @@
       if (!mapInstance || pts.length < 2) return;
       if (rotaLayer) { rotaLayer.remove(); rotaLayer = null; }
       resultDiv.style.display = 'block';
-      resultDiv.innerHTML = '<span style="color:var(--trj-muted)">⏳ Calculando rota...</span>';
+      resultDiv.innerHTML = '<span style="color:var(--tmg-muted)">⏳ Calculando rota...</span>';
 
       var waypoints = pts.map(function(p){ return p.lon+','+p.lat; }).join(';');
       var url = 'https://router.project-osrm.org/route/v1/driving/'+waypoints+'?overview=full&geometries=geojson&steps=false';
@@ -601,22 +597,22 @@
           mapInstance.fitBounds(rotaLayer.getBounds().pad(0.15), { maxZoom:14 });
 
           var legs = rota.legs || [];
-          var html = '<div style="border-radius:6px;overflow:hidden;border:1px solid var(--trj-border)">';
+          var html = '<div style="border-radius:6px;overflow:hidden;border:1px solid var(--tmg-border)">';
           var totDist=0, totDur=0;
           legs.forEach(function(leg,i){
             var km=(leg.distance/1000).toFixed(1);
             var t=fmtTempo(Math.round(leg.duration));
             totDist+=leg.distance; totDur+=leg.duration;
-            html+='<div style="padding:5px 10px;border-bottom:1px solid var(--trj-border);display:flex;gap:10px;align-items:baseline">'
-              +'<b style="color:var(--trj-primary);white-space:nowrap">'+'ABCDEFGHIJKLMNOP'[i]+' → '+'ABCDEFGHIJKLMNOP'[i+1]+'</b>'
-              +'<span style="color:var(--trj-muted);font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+            html+='<div style="padding:5px 10px;border-bottom:1px solid var(--tmg-border);display:flex;gap:10px;align-items:baseline">'
+              +'<b style="color:var(--tmg-primary);white-space:nowrap">'+'ABCDEFGHIJKLMNOP'[i]+' → '+'ABCDEFGHIJKLMNOP'[i+1]+'</b>'
+              +'<span style="color:var(--tmg-muted);font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
               +pts[i].nome+' → '+pts[i+1].nome+'</span>'
               +'<span style="color:#2ecc71;white-space:nowrap">🚗 '+km+' km</span>'
               +' <span style="color:#3498db;white-space:nowrap">⏱ '+t+'</span>'
               +'</div>';
           });
           if (legs.length>1) {
-            html+='<div style="padding:5px 10px;background:var(--trj-card2);display:flex;gap:14px;font-weight:700">'
+            html+='<div style="padding:5px 10px;background:var(--tmg-card2);display:flex;gap:14px;font-weight:700">'
               +'<span>Total</span>'
               +'<span style="color:#2ecc71">🚗 '+(totDist/1000).toFixed(1)+' km</span>'
               +'<span style="color:#3498db">⏱ '+fmtTempo(Math.round(totDur))+'</span>'
@@ -627,17 +623,17 @@
         })
         .catch(function(){
           // Fallback: linha reta com Haversine
-          var html='<div style="color:var(--trj-muted);font-size:11px;margin-bottom:4px">OSRM indisponível — distância em linha reta:</div>'
-            +'<div style="border-radius:6px;overflow:hidden;border:1px solid var(--trj-border)">';
+          var html='<div style="color:var(--tmg-muted);font-size:11px;margin-bottom:4px">OSRM indisponível — distância em linha reta:</div>'
+            +'<div style="border-radius:6px;overflow:hidden;border:1px solid var(--tmg-border)">';
           var totKm=0;
           var latlngs = pts.map(function(p){ return [p.lat,p.lon]; });
           for (var i=0;i<pts.length-1;i++){
             var km=haversineKm(pts[i].lat,pts[i].lon,pts[i+1].lat,pts[i+1].lon);
             totKm+=km;
-            html+='<div style="padding:5px 10px;border-bottom:1px solid var(--trj-border);display:flex;gap:10px">'
-              +'<b style="color:var(--trj-primary)">'+'ABCDEFGH'[i]+' → '+'ABCDEFGH'[i+1]+'</b>'
-              +'<span style="color:var(--trj-muted);flex:1">'+pts[i].nome+' → '+pts[i+1].nome+'</span>'
-              +'<span style="color:var(--trj-primary)">~'+km.toFixed(1)+' km (reta)</span>'
+            html+='<div style="padding:5px 10px;border-bottom:1px solid var(--tmg-border);display:flex;gap:10px">'
+              +'<b style="color:var(--tmg-primary)">'+'ABCDEFGH'[i]+' → '+'ABCDEFGH'[i+1]+'</b>'
+              +'<span style="color:var(--tmg-muted);flex:1">'+pts[i].nome+' → '+pts[i+1].nome+'</span>'
+              +'<span style="color:var(--tmg-primary)">~'+km.toFixed(1)+' km (reta)</span>'
               +'</div>';
           }
           if (pts.length>2) html+='<div style="padding:5px 10px;font-weight:700">Total reta: ~'+totKm.toFixed(1)+' km</div>';
@@ -665,7 +661,7 @@
       _fill();
       if (!q || q.length < 3) return;
       fetch('https://nominatim.openstreetmap.org/search?format=json&limit=7&countrycodes=br&addressdetails=1&q=' + encodeURIComponent(q), {
-        headers: { 'Accept-Language':'pt-BR,pt', 'User-Agent':'ControleTRJ/1.0' }
+        headers: { 'Accept-Language':'pt-BR,pt', 'User-Agent':'ControleTMG/1.0' }
       }).then(function(r){ return r.json(); }).then(function(data) {
         if (!data || !cityInput.value.trim()) return;
         (data || []).forEach(function(item) {
@@ -683,7 +679,7 @@
       if (_boundaryCache[key] !== undefined) { cb(_boundaryCache[key]); return; }
       var url = 'https://nominatim.openstreetmap.org/search?format=json&polygon_geojson=1&limit=1&countrycodes=br&q='
         + encodeURIComponent(qCity + ' Brasil');
-      fetch(url, { headers: { 'Accept-Language':'pt-BR,pt', 'User-Agent':'ControleTRJ/1.0' } })
+      fetch(url, { headers: { 'Accept-Language':'pt-BR,pt', 'User-Agent':'ControleTMG/1.0' } })
         .then(function(r) { return r.json(); })
         .then(function(data) {
           var res = (data && data[0]) ? { geojson: data[0].geojson || null, lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) } : null;
@@ -694,29 +690,21 @@
     }
 
     function _atualizarDestaqueCidade(qCity, matched) {
-      // Remove destaques anteriores
       if (_boundaryLayer) { _boundaryLayer.remove(); _boundaryLayer = null; }
       if (_cityCircle) { _cityCircle.remove(); _cityCircle = null; }
       if (!qCity || !mapInstance) return;
-
-      // Zoom imediato nos marcadores encontrados
       if (matched.length > 0) {
         var pts = matched.filter(function(m){ return m.getLatLng; }).map(function(m){ return m.getLatLng(); });
         if (pts.length > 0) mapInstance.fitBounds(window.L.latLngBounds(pts).pad(0.35), { maxZoom: 13 });
       }
-
-      // Busca o polígono municipal no Nominatim
       _buscarLimite(qCity, function(res) {
-        // Verifica se o usuário ainda está buscando a mesma cidade
         if (!res || (cityInput.value || '').trim().toLowerCase() !== qCity) return;
         if (res.geojson) {
           _boundaryLayer = window.L.geoJSON(res.geojson, {
             style: { color:'#ff8c00', weight:2.5, dashArray:'9,6', fillOpacity:0.04, fillColor:'#ff8c00', lineCap:'round', lineJoin:'round' }
           }).addTo(mapInstance);
-          // Se não havia marcadores, zoom no limite do município
           if (matched.length === 0) mapInstance.fitBounds(_boundaryLayer.getBounds().pad(0.1), { maxZoom: 13 });
         } else if (res.lat && res.lon) {
-          // Sem polígono: fallback para ponto + círculo estimado
           mapInstance.flyTo([res.lat, res.lon], 12, { duration: 0.8 });
           _cityCircle = window.L.circle([res.lat, res.lon], { radius:8000, color:'#ff8c00', fillColor:'#ff8c00', fillOpacity:0.04, weight:2, dashArray:'8,7' }).addTo(mapInstance);
         }
@@ -743,7 +731,7 @@
       var marcadores = Object.values(layers.flag1._layers || {}).filter(function(m) { return m.getOpacity ? m.getOpacity() > 0.5 : true; });
       if (!marcadores.length) { U.toast && U.toast('Nenhum site visível para gerar relatório', 'warn'); return; }
 
-      // Deduplicar por END_ID para o relatório (preferir SR- > 5G- > outros)
+      // Deduplicar por END_ID (preferir SR- > 5G- > outros)
       var _rp = function(n) { return (n||'').indexOf('SR-')===0 ? 2 : (n||'').indexOf('5G-')===0 ? 1 : 0; };
       var _dedupMap = {};
       marcadores.forEach(function(m) {
@@ -761,36 +749,104 @@
         if (!porRegiao[r]) porRegiao[r] = [];
         porRegiao[r].push(d);
       });
-
-      var linhas = ['🗺️ SITES FORA — ' + new Date().toLocaleString('pt-BR'), ''];
       var regioesList = _filtros.regiao ? [_filtros.regiao] : Object.keys(porRegiao).sort();
 
-      regioesList.forEach(function(r) {
-        var sites = porRegiao[r];
-        if (!sites || !sites.length) return;
-        var label = (typeof REGIAO_LABELS !== 'undefined' && REGIAO_LABELS[r]) || r;
-        linhas.push('━━━ ' + label + ' (' + sites.length + ') ━━━');
-        var sorted = _nnSort(sites);
-        var semCoord = sites.filter(function(s){ return !s.lat || !s.lon; });
-        sorted.forEach(function(s, i) {
-          var info = (i + 1) + '. ' + (s.site || s.eid);
-          if (s.eid && s.eid !== s.site) info += ' (' + s.eid + ')';
-          if (s.cidade) info += ' — ' + s.cidade;
-          info += s.tsk ? '  🔵 COM TSK' : '  🔴 SEM TSK';
-          linhas.push(info);
-          if (i < sorted.length - 1 && sorted[i+1] && sorted[i+1].lat && s.lat) {
-            var dist = haversineKm(s.lat, s.lon, sorted[i+1].lat, sorted[i+1].lon);
-            linhas.push('   ↓ ~' + dist.toFixed(0) + ' km' + (dist > 80 ? '  ⚠️ longa distância' : ''));
-          }
-        });
-        if (semCoord.length) linhas.push('   (sem coord: ' + semCoord.map(function(s){ return s.site||s.eid; }).join(', ') + ')');
-        linhas.push('');
-      });
+      var sitesComCoord = sitesDedup.filter(function(d) { return d.lat && d.lon; });
 
-      var texto = linhas.join('\n');
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(texto).then(function() { U.toast && U.toast('Relatório copiado!', 'ok'); }).catch(function() { _fallbackCopy(texto); });
-      } else { _fallbackCopy(texto); }
+      if (btnRelatorio) { btnRelatorio.textContent = '⏳ Calculando...'; btnRelatorio.disabled = true; }
+      function _resetBtn() {
+        if (btnRelatorio) { btnRelatorio.textContent = '📋 Copiar relatório'; btnRelatorio.disabled = false; }
+      }
+
+      function _emitir(distMatrix, durMatrix) {
+        var _idxMap = {};
+        sitesComCoord.forEach(function(s, i) { if (s.eid) _idxMap[s.eid] = i; });
+
+        function _distEntre(a, b) {
+          if (distMatrix && a.eid && b.eid) {
+            var ia = _idxMap[a.eid], ib = _idxMap[b.eid];
+            if (ia !== undefined && ib !== undefined && distMatrix[ia] && distMatrix[ia][ib] != null)
+              return distMatrix[ia][ib]; // metros
+          }
+          return haversineKm(a.lat, a.lon, b.lat, b.lon) * 1000;
+        }
+
+        function _durEntre(a, b) {
+          if (!durMatrix || !a.eid || !b.eid) return null;
+          var ia = _idxMap[a.eid], ib = _idxMap[b.eid];
+          if (ia !== undefined && ib !== undefined && durMatrix[ia] && durMatrix[ia][ib] != null)
+            return durMatrix[ia][ib]; // segundos
+          return null;
+        }
+
+        function _nnSortM(sites) {
+          if (sites.length <= 1) return sites.slice();
+          var rem = sites.filter(function(s){ return s.lat && s.lon; });
+          if (!rem.length) return sites.slice();
+          var sorted = [rem.splice(0, 1)[0]];
+          while (rem.length) {
+            var last = sorted[sorted.length - 1];
+            var minD = Infinity, minI = 0;
+            rem.forEach(function(s, i) {
+              var d = _distEntre(last, s);
+              if (d < minD) { minD = d; minI = i; }
+            });
+            sorted.push(rem.splice(minI, 1)[0]);
+          }
+          return sorted;
+        }
+
+        var usouOSRM = !!distMatrix;
+        var linhas = ['🗺️ SITES FORA — ' + new Date().toLocaleString('pt-BR')];
+        if (usouOSRM) linhas.push('📍 Distâncias por estrada via OSRM (sem tráfego em tempo real)');
+        linhas.push('');
+
+        regioesList.forEach(function(r) {
+          var sites = porRegiao[r];
+          if (!sites || !sites.length) return;
+          var label = (C && C.REGIAO_LABELS && C.REGIAO_LABELS[r]) || r;
+          linhas.push('━━━ ' + label + ' (' + sites.length + ') ━━━');
+          var sorted = _nnSortM(sites);
+          var semCoord = sites.filter(function(s){ return !s.lat || !s.lon; });
+          sorted.forEach(function(s, i) {
+            var info = (i + 1) + '. ' + (s.site || s.eid);
+            if (s.eid && s.eid !== s.site) info += ' (' + s.eid + ')';
+            if (s.cidade) info += ' — ' + s.cidade;
+            info += s.tsk ? '  🔵 COM TSK' : '  🔴 SEM TSK';
+            linhas.push(info);
+            if (i < sorted.length - 1 && sorted[i+1] && sorted[i+1].lat && s.lat) {
+              var distM = _distEntre(s, sorted[i+1]);
+              var distKm = distM / 1000;
+              var trecho = '   ↓ ~' + distKm.toFixed(1) + ' km';
+              if (usouOSRM) {
+                var dur = _durEntre(s, sorted[i+1]);
+                if (dur != null) trecho += ' · ~' + Math.round(dur / 60) + ' min';
+                trecho += ' (por estrada)';
+              }
+              if (distKm > 80) trecho += '  ⚠️ longa distância';
+              linhas.push(trecho);
+            }
+          });
+          if (semCoord.length) linhas.push('   (sem coord: ' + semCoord.map(function(s){ return s.site||s.eid; }).join(', ') + ')');
+          linhas.push('');
+        });
+
+        var texto = linhas.join('\n');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(texto).then(function() { U.toast && U.toast('Relatório copiado!', 'ok'); }).catch(function() { _fallbackCopy(texto); });
+        } else { _fallbackCopy(texto); }
+        _resetBtn();
+      }
+
+      if (sitesComCoord.length >= 2) {
+        var coords = sitesComCoord.map(function(s) { return s.lon + ',' + s.lat; }).join(';');
+        fetch('https://router.project-osrm.org/table/v1/driving/' + coords + '?annotations=distance,duration')
+          .then(function(r) { return r.json(); })
+          .then(function(data) { _emitir(data.distances || null, data.durations || null); })
+          .catch(function() { _emitir(null, null); });
+      } else {
+        _emitir(null, null);
+      }
     }
 
     function _fallbackCopy(txt) {
@@ -806,24 +862,23 @@
       var q      = (siteInput.value || '').trim().toLowerCase();
       var qCity  = (cityInput.value || '').trim().toLowerCase();
       var matched = [];
-      var anyFilter = q || qCity || _filtros.regiao || _filtros.soTSK || !_filtros.legSemTSK || !_filtros.legComTSK || !_filtros.legRecente;
+      // cidade não filtra marcadores — apenas zoom + contorno municipal (ver _atualizarDestaqueCidade)
+      var anyFilter = q || _filtros.regiao || _filtros.soTSK || !_filtros.legSemTSK || !_filtros.legComTSK || !_filtros.legRecente;
 
       Object.values(layers.flag1._layers || {}).forEach(function(m) {
         var d = m._d || {};
-        var okSite   = !q     || (d.eid||'').toLowerCase().indexOf(q)>=0 || (d.site||'').toLowerCase().indexOf(q)>=0;
-        var okCidade = !qCity || (d.cidade||'').toLowerCase().indexOf(qCity)>=0;
+        var okSite   = !q || (d.eid||'').toLowerCase().indexOf(q)>=0 || (d.site||'').toLowerCase().indexOf(q)>=0;
         var okRegiao = !_filtros.regiao || (d.regiao||'OTHERS') === _filtros.regiao;
         var okTipo = true;
         if (d.cor === '#e74c3c' && !_filtros.legSemTSK) okTipo = false;
         if (d.cor === '#3498db' && !_filtros.legComTSK) okTipo = false;
         if (d.cor === '#f0b429' && !_filtros.legRecente) okTipo = false;
         if (_filtros.soTSK && !d.tsk) okTipo = false;
-        var visible = okSite && okCidade && okRegiao && okTipo;
+        var visible = okSite && okRegiao && okTipo;
         m.setOpacity(visible ? 1 : 0.07);
         if (visible) matched.push(m);
       });
 
-      // Filtrar Hub FO na busca de site
       Object.values(layers.fo && layers.fo._layers ? layers.fo._layers : {}).forEach(function(m) {
         var d = m._d || {};
         var ok = !q || (d.eid||'').toLowerCase().indexOf(q)>=0 || (d.nome||'').toLowerCase().indexOf(q)>=0;
@@ -832,7 +887,6 @@
         if (ok && mapInstance && mapInstance.hasLayer(layers.fo)) matched.push(m);
       });
 
-      // MW por fornecedor
       [layers.mwFlag1, layers.mwFlag0].forEach(function(layer) {
         if (!layer) return;
         Object.values(layer._layers || {}).forEach(function(line) {
@@ -842,7 +896,6 @@
         });
       });
 
-      // Destaque e zoom — cidade (com polígono municipal via Nominatim)
       if (qCity) {
         _atualizarDestaqueCidade(qCity, matched.filter(function(m){ return m.getLatLng; }));
       } else {
@@ -850,19 +903,16 @@
         if (_cityCircle) { _cityCircle.remove(); _cityCircle = null; }
       }
 
-      // Zoom para busca de site/ENDID (sem cidade)
       if (!qCity && q && matched.length > 0 && matched.length <= 30 && mapInstance) {
         var pts2 = matched.filter(function(m){ return m.getLatLng; }).map(function(m){ return m.getLatLng(); });
         if (pts2.length > 0) mapInstance.fitBounds(window.L.latLngBounds(pts2).pad(0.3), { maxZoom: 14 });
       }
 
-      // Zoom para filtro de região (sem busca de texto)
       if (!q && !qCity && _filtros.regiao && matched.length > 0 && mapInstance) {
         var pts3 = matched.filter(function(m){ return m.getLatLng; }).map(function(m){ return m.getLatLng(); });
         if (pts3.length > 0) mapInstance.fitBounds(window.L.latLngBounds(pts3).pad(0.25), { maxZoom: 12 });
       }
 
-      // Sem filtros ativos: restaurar opacidade total
       if (!anyFilter) {
         Object.values(layers.flag1._layers || {}).forEach(function(m){ m.setOpacity(1); });
         Object.values((layers.fo && layers.fo._layers) || {}).forEach(function(m){
@@ -943,7 +993,7 @@
                    + '<br><button onclick="(function(){' +
                      'var el=document.getElementById(\'' + popId + '\');' +
                      'var btn=el.querySelector(\'.geo-btn\');btn.textContent=\'Geocodificando...\';btn.disabled=true;' +
-                     'TRJ._geocodTSK(\'' + eid + '\',' + lat + ',' + lon + ',\'' + encodeURIComponent(tsk.enderecoLogradouro||'') + '\',\'' + encodeURIComponent(tsk.cidade||'') + '\',\'' + encodeURIComponent(tsk.bairro||'') + '\', el);' +
+                     'TMG._geocodTSK(\'' + eid + '\',' + lat + ',' + lon + ',\'' + encodeURIComponent(tsk.enderecoLogradouro||'') + '\',\'' + encodeURIComponent(tsk.cidade||'') + '\',\'' + encodeURIComponent(tsk.bairro||'') + '\', el);' +
                    '})()" class="geo-btn" style="margin-top:4px;font-size:10px;padding:2px 7px;background:rgba(52,152,219,.15);color:#3498db;border:1px solid #3498db;border-radius:4px;cursor:pointer">📍 Ver endereço no mapa</button>'
                    : '')
               : '<span style="color:#e74c3c">Sem TSK aberta</span>')
@@ -1105,7 +1155,7 @@
                    + '<br><button onclick="(function(){' +
                      'var el=document.getElementById(\'' + popId2 + '\');' +
                      'var btn=el.querySelector(\'.geo-btn\');btn.textContent=\'Geocodificando...\';btn.disabled=true;' +
-                     'TRJ._geocodTSK(\'' + eid + '\',' + coords[0] + ',' + coords[1] + ',\'' + encodeURIComponent(tsk.enderecoLogradouro||'') + '\',\'' + encodeURIComponent(tsk.cidade||'') + '\',\'' + encodeURIComponent(tsk.bairro||'') + '\', el);' +
+                     'TMG._geocodTSK(\'' + eid + '\',' + coords[0] + ',' + coords[1] + ',\'' + encodeURIComponent(tsk.enderecoLogradouro||'') + '\',\'' + encodeURIComponent(tsk.cidade||'') + '\',\'' + encodeURIComponent(tsk.bairro||'') + '\', el);' +
                    '})()" class="geo-btn" style="margin-top:4px;font-size:10px;padding:2px 7px;background:rgba(52,152,219,.15);color:#3498db;border:1px solid #3498db;border-radius:4px;cursor:pointer">📍 Ver endereço no mapa</button>'
                    : '')
               : '<span style="color:#e74c3c">Sem TSK aberta</span>')
@@ -1137,13 +1187,12 @@
       statsEl.innerHTML = '';
       [
         { text:'Sites fora: ' + total, cor:'#e74c3c' },
-        { text:'Sem coord: ' + semCoord, cor:'var(--trj-muted)' },
-        { text:'MW: ' + mwData.length, cor:'var(--trj-muted)' },
+        { text:'Sem coord: ' + semCoord, cor:'var(--tmg-muted)' },
+        { text:'MW: ' + mwData.length, cor:'var(--tmg-muted)' },
         { text:'FO: ' + foData.length, cor:'#2ecc71' },
       ].forEach(function(item) {
         statsEl.appendChild(U.h('span', { style:{ fontSize:'12px', color:item.cor } }, item.text));
       });
-      // TSK — toggle clicável
       var tskEl = document.createElement('span');
       tskEl.textContent = 'Com TSK: ' + comTSK + (_filtros.soTSK ? ' ✓' : '');
       tskEl.title = 'Clique para mostrar somente sites com TSK aberta';
@@ -1183,7 +1232,7 @@
           });
         })
         .catch(function(e) {
-          U.toast('Ponte não disponível. Use "Importar Genesis HTML" ou inicie o ponte_trj.py.', 'err');
+          U.toast('Ponte não disponível. Use "Importar Genesis HTML" ou inicie o ponte_tmg.py.', 'err');
         })
         .finally(function() { btnPonte.textContent = 'Buscar sites (ponte + VPN)'; btnPonte.disabled = false; });
     }
@@ -1210,7 +1259,7 @@
     });
 
     // ── Handler global de geocodificação para callbacks nos popups ───────
-    TRJ._geocodTSK = function(eid, latGenesis, lonGenesis, endEnc, cidEnc, bairroEnc, el) {
+    TMG._geocodTSK = function(eid, latGenesis, lonGenesis, endEnc, cidEnc, bairroEnc, el) {
       var log = decodeURIComponent(endEnc), cid = decodeURIComponent(cidEnc), bai = decodeURIComponent(bairroEnc);
       geocodificarEndereco(log, cid, bai, function(err, res) {
         var btn = el && el.querySelector('.geo-btn');
@@ -1264,4 +1313,4 @@
     });
   };
 
-})(window.TRJ = window.TRJ || {});
+})(window.TMG = window.TMG || {});
