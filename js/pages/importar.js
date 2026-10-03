@@ -151,6 +151,39 @@
       U.kpiCard({ label: '🕒 Atualizado em', value: tMeta.em ? new Date(tMeta.em).toLocaleDateString('pt-BR') : '—', sub: tMeta.em ? new Date(tMeta.em).toLocaleTimeString('pt-BR') : null, cor: '#8b5cf6' })
     ]));
 
+    // ---- card de diagnóstico do mapeamento de cidades (VALID_CAD) ----
+    (function () {
+      var vSize  = data.validMapSize  || 0;
+      var vCache = data.validMapFromCache;
+      var vErr   = data.validMapErr   || null;
+
+      var statusColor = vErr ? '#e74c3c' : (vSize > 0 ? C.CORES_TRJ.green : '#f39c12');
+      var statusIcon  = vErr ? '❌' : (vSize > 0 ? '✅' : '⚠️');
+      var statusText  = vErr
+        ? ('Erro ao carregar: ' + vErr)
+        : (vSize > 0
+          ? (vSize + ' site(s) mapeado(s)' + (vCache ? ' · cache local' : ' · atualizado agora'))
+          : 'Nenhum site mapeado — incidentes serão classificados como OUTROS');
+
+      var vmCard = U.h('div', {
+        class: 'trj-card p-4 mb-7 flex items-center justify-between flex-wrap gap-3',
+        style: { border: '1px solid ' + statusColor + '44', background: statusColor + '0d' }
+      });
+      vmCard.appendChild(U.h('div', { class: 'flex items-center gap-3 flex-1 min-w-0' }, [
+        U.h('span', { style: { fontSize: '20px', flexShrink: '0' }, text: statusIcon }),
+        U.h('div', { class: 'flex flex-col gap-0' }, [
+          U.h('span', { style: { fontWeight: '700', fontSize: '13px' }, text: 'Mapeamento de Cidades (VALID_CAD)' }),
+          U.h('span', { style: { fontSize: '12px', color: 'var(--trj-muted)' }, text: statusText })
+        ])
+      ]));
+      vmCard.appendChild(U.h('button', {
+        class: 'trj-btn trj-btn-ghost clickable', style: { fontSize: '12px', flexShrink: '0' },
+        html: '🔄 Atualizar mapeamento',
+        onclick: function () { app.refreshValidMap && app.refreshValidMap(); }
+      }));
+      container.appendChild(vmCard);
+    })();
+
     // =====================================================================
     // SEÇÃO 1 — TAREFAS (ATIVIDADES)
     // =====================================================================
@@ -227,6 +260,7 @@
           try {
             U.loading(true, 'Lendo planilha...');
             var r = await FS.readManualFiles(validos, function (msg) { U.loading(true, msg); });
+            app.invalidateValidMap && app.invalidateValidMap();
             await app.refresh(true);
             U.toast(r.total + ' tarefa(s) total após atualização.', 'ok');
             app.render();
@@ -278,6 +312,7 @@
           try {
             U.loading(true, 'Verificando pasta...');
             var r = await FS.scanFolder(function (msg) { U.loading(true, msg); });
+            app.invalidateValidMap && app.invalidateValidMap();
             await app.refresh(true);
             U.toast(r.unchanged ? 'Sem novidades — já está atualizado.' : (r.total + ' tarefa(s) carregada(s).'), 'ok');
             app.render();

@@ -197,6 +197,28 @@
     setActiveLink();
   }
 
+  // ---------------- CACHE DO VALID_MAP ----------------
+  // O lookupCities bate no GAS (cold start ~1-3s) e é chamado a cada refresh.
+  // Cacheamos o resultado por 30 min: refreshes seguintes reutilizam o cache
+  // e só batem no backend quando ele expira ou o usuário força a atualização.
+  var LS_VMAP = 'trj_validMap_v1';
+  var VMAP_TTL = 30 * 60 * 1000; // 30 minutos
+
+  function _vmapLoad() {
+    try {
+      var c = JSON.parse(localStorage.getItem(LS_VMAP) || 'null');
+      if (!c || !c.map || !c.ts) return null;
+      if (Date.now() - c.ts > VMAP_TTL) return null;
+      return c.map;
+    } catch (e) { return null; }
+  }
+  function _vmapSave(map) {
+    try { localStorage.setItem(LS_VMAP, JSON.stringify({ map: map || {}, ts: Date.now() })); } catch (e) {}
+  }
+  App.invalidateValidMap = function () {
+    try { localStorage.removeItem(LS_VMAP); } catch (e) {}
+  };
+
   // ---------------- DADOS ----------------
   function prazoOverride(config) {
     var o = {};
@@ -204,21 +226,32 @@
     return o;
   }
 
-  App.loadAll = async function () {
+  // forceMapRefresh = true ignora o cache e busca o mapa de cidades do backend.
+  App.loadAll = async function (forceMapRefresh) {
     U.loading(true);
     try {
-      // Config (prazos de SLA): backend se houver URL, senão localStorage (offline).
       var cfgRes = await TRJ.api.getConfig();
       var config = (cfgRes && cfgRes.config) || {};
-      // Tarefas e incidentes vêm dos arquivos lidos no navegador (TRJ.files).
       var rawTasks = (TRJ.files && TRJ.files.getTasks()) || [];
       var rawInc = (TRJ.files && TRJ.files.getIncidents()) || [];
       var prazoMap = D.montarPrazoMap(prazoOverride(config));
       var ids = Comp.collectIds(rawTasks, rawInc);
-      var validMap = {};
-      if (ids.length) {
-        try { var lk = await TRJ.api.lookupCities(ids); validMap = (lk && lk.map) || {}; }
-        catch (e) { validMap = {}; /* sem backend de cidades: segue sem enriquecimento */ }
+      var validMap = (!forceMapRefresh && _vmapLoad()) || null;
+      var validMapFromCache = !!validMap;
+      var validMapErr = null;
+      if (!validMap) {
+        if (ids.length) {
+          try {
+            var lk = await TRJ.api.lookupCities(ids);
+            validMap = (lk && lk.map) || {};
+            _vmapSave(validMap);
+          } catch (e) {
+            validMap = {};
+            validMapErr = e.message || 'Falha ao buscar mapeamento de cidades.';
+          }
+        } else {
+          validMap = {};
+        }
       }
       var now = new Date();
       App.data = {
@@ -226,7 +259,10 @@
         rawTasks: rawTasks, rawInc: rawInc,
         tasksEnriched: Comp.enrichTasks(rawTasks, validMap, prazoMap, now),
         incidentsEnriched: Comp.enrichIncidents(rawInc, validMap),
-        loadedAt: new Date()
+        loadedAt: now,
+        validMapSize: Object.keys(validMap).length,
+        validMapFromCache: validMapFromCache,
+        validMapErr: validMapErr || null
       };
     } finally {
       U.loading(false);
@@ -245,6 +281,16 @@
     } catch (e) {
       U.toast(e.message || 'Erro ao atualizar.', 'err');
     }
+  };
+
+  // Força re-busca do mapa de cidades (ignora cache) e faz refresh completo.
+  App.refreshValidMap = async function () {
+    App.invalidateValidMap();
+    await App.loadAll(true);
+    buildShell();
+    render();
+    var n = App.data && App.data.validMapSize;
+    U.toast(n > 0 ? 'Mapeamento atualizado: ' + n + ' sites.' : 'Mapeamento retornou vazio — verifique o VALID_CAD.', n > 0 ? 'ok' : 'err');
   };
 
   // registra o monitor automático apenas uma vez (idempotente em files.js)
@@ -363,10 +409,20 @@
 
       mostrarProgresso(2);
       var ids      = Comp.collectIds(rawTasks, rawInc);
-      var validMap = {};
-      if (ids.length) {
-        try { var lk = await TRJ.api.lookupCities(ids); validMap = (lk && lk.map) || {}; }
-        catch (e) { validMap = {}; }
+      var validMap = _vmapLoad();
+      var validMapFromCache = !!validMap;
+      var validMapErr = null;
+      if (!validMap) {
+        if (ids.length) {
+          try {
+            var lk = await TRJ.api.lookupCities(ids);
+            validMap = (lk && lk.map) || {};
+            _vmapSave(validMap);
+          } catch (e) {
+            validMap = {};
+            validMapErr = e.message || 'Falha ao buscar mapeamento.';
+          }
+        } else { validMap = {}; }
       }
 
       mostrarProgresso(3);
@@ -376,7 +432,10 @@
         rawTasks: rawTasks, rawInc: rawInc,
         tasksEnriched:    Comp.enrichTasks(rawTasks, validMap, prazoMap, now),
         incidentsEnriched: Comp.enrichIncidents(rawInc, validMap),
-        loadedAt: now
+        loadedAt: now,
+        validMapSize: Object.keys(validMap).length,
+        validMapFromCache: validMapFromCache,
+        validMapErr: validMapErr || null
       };
 
       mostrarProgresso(4);
