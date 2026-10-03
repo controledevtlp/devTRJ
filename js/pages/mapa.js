@@ -216,6 +216,13 @@
       style: { flex: '1', maxWidth: '160px', fontSize: '13px' }
     });
     var searchInput = siteInput; // compatibilidade
+    // Datalist de sugestões de cidades (Nominatim + markers)
+    var _cityDlId = 'trj-city-dl';
+    if (document.getElementById(_cityDlId)) document.getElementById(_cityDlId).remove();
+    var _cityDL = document.createElement('datalist');
+    _cityDL.id = _cityDlId;
+    document.body.appendChild(_cityDL);
+    cityInput.setAttribute('list', _cityDlId);
 
     function mkCheck(label) {
       var chk = U.h('input', { type: 'checkbox' });
@@ -562,6 +569,13 @@
       function _onSearchInput() { clearTimeout(timer); timer = setTimeout(applyMarkerFilter, 200); }
       siteInput.addEventListener('input', _onSearchInput);
       cityInput.addEventListener('input', _onSearchInput);
+      // Autocomplete de cidades (Nominatim + markers)
+      var _acTimer = null;
+      cityInput.addEventListener('input', function() {
+        clearTimeout(_acTimer);
+        var q = (cityInput.value || '').trim();
+        _acTimer = setTimeout(function() { _populateCityDL(q); }, 350);
+      });
 
     }
 
@@ -634,6 +648,35 @@
         });
     }
 
+    // ── Autocomplete de cidades ───────────────────────────────────────────
+    function _populateCityDL(q) {
+      var cities = {};
+      var ql = (q || '').toLowerCase();
+      Object.values(layers.flag1 && layers.flag1._layers || {}).forEach(function(m) {
+        var c = m._d && m._d.cidade ? m._d.cidade.trim() : '';
+        if (c.length > 2 && (!ql || c.toLowerCase().indexOf(ql) >= 0)) cities[c.toLowerCase()] = c;
+      });
+      function _fill() {
+        _cityDL.innerHTML = '';
+        Object.keys(cities).sort().forEach(function(k) {
+          var opt = document.createElement('option'); opt.value = cities[k]; _cityDL.appendChild(opt);
+        });
+      }
+      _fill();
+      if (!q || q.length < 3) return;
+      fetch('https://nominatim.openstreetmap.org/search?format=json&limit=7&countrycodes=br&addressdetails=1&q=' + encodeURIComponent(q), {
+        headers: { 'Accept-Language':'pt-BR,pt', 'User-Agent':'ControleTRJ/1.0' }
+      }).then(function(r){ return r.json(); }).then(function(data) {
+        if (!data || !cityInput.value.trim()) return;
+        (data || []).forEach(function(item) {
+          var addr = item.address || {};
+          var name = addr.city || addr.town || addr.municipality || addr.village || addr.suburb || item.name || '';
+          if (name && name.length > 2) cities[name.toLowerCase()] = name;
+        });
+        _fill();
+      }).catch(function(){});
+    }
+
     // ── Limite de município via Nominatim ─────────────────────────────────
     function _buscarLimite(qCity, cb) {
       var key = qCity.toLowerCase().trim();
@@ -700,9 +743,20 @@
       var marcadores = Object.values(layers.flag1._layers || {}).filter(function(m) { return m.getOpacity ? m.getOpacity() > 0.5 : true; });
       if (!marcadores.length) { U.toast && U.toast('Nenhum site visível para gerar relatório', 'warn'); return; }
 
-      var porRegiao = {};
+      // Deduplicar por END_ID para o relatório (preferir SR- > 5G- > outros)
+      var _rp = function(n) { return (n||'').indexOf('SR-')===0 ? 2 : (n||'').indexOf('5G-')===0 ? 1 : 0; };
+      var _dedupMap = {};
       marcadores.forEach(function(m) {
         var d = m._d || {};
+        var eid = d.eid || '';
+        if (!eid) return;
+        if (!_dedupMap[eid]) { _dedupMap[eid] = d; return; }
+        if (_rp(d.site) > _rp(_dedupMap[eid].site)) _dedupMap[eid] = d;
+      });
+      var sitesDedup = Object.values(_dedupMap);
+
+      var porRegiao = {};
+      sitesDedup.forEach(function(d) {
         var r = d.regiao || 'OTHERS';
         if (!porRegiao[r]) porRegiao[r] = [];
         porRegiao[r].push(d);
@@ -913,6 +967,7 @@
       });
 
       updateStats(sitesFlag1.length, cTSK, cSemCoord);
+      _populateCityDL('');
     }
 
     // ── Renderizar MW + FO (static, from stored data) ──────────
@@ -1074,6 +1129,7 @@
       });
 
       updateStats(incAtivos.length, cTSK, cSemCoord);
+      _populateCityDL('');
     }
 
     function updateStats(total, comTSK, semCoord) {
