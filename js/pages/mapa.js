@@ -887,7 +887,7 @@
         if (d.cor === '#f0b429' && !_filtros.legRecente) okTipo = false;
         if (_filtros.soTSK && !d.tsk) okTipo = false;
         var visible = okSite && okRegiao && okTipo;
-        m.setOpacity(visible ? 1 : 0.07);
+        m.setOpacity(visible ? 1 : 0);
         if (visible) matched.push(m);
       });
 
@@ -895,8 +895,8 @@
       Object.values(layers.fo && layers.fo._layers ? layers.fo._layers : {}).forEach(function(m) {
         var d = m._d || {};
         var ok = !q || (d.eid||'').toLowerCase().indexOf(q)>=0 || (d.nome||'').toLowerCase().indexOf(q)>=0;
-        if (m.setOpacity) m.setOpacity(ok ? 1 : 0.07);
-        else if (m.setStyle) m.setStyle({ fillOpacity: ok ? 0.85 : 0.05, opacity: ok ? 1 : 0.05 });
+        if (m.setOpacity) m.setOpacity(ok ? 1 : 0);
+        else if (m.setStyle) m.setStyle({ fillOpacity: ok ? 0.85 : 0, opacity: ok ? 1 : 0 });
         if (ok && mapInstance && mapInstance.hasLayer(layers.fo)) matched.push(m);
       });
 
