@@ -114,6 +114,9 @@ body { min-height: 100vh; }
         // Tentar recuperar do localStorage como fallback
         try { raw._mapaCoordMap = JSON.parse(localStorage.getItem('trj_coordMap') || 'null'); } catch(e){}
       }
+      if (json.data.mapaMarkersSlim && json.data.mapaMarkersSlim.length) {
+        raw._mapaMarkersSlim = json.data.mapaMarkersSlim;
+      }
       if (json.data.mapaMwSlim && json.data.mapaMwSlim.length) {
         var mwFull = json.data.mapaMwSlim.map(function(l) {
           return { Enlace2:l.E2, LAT_A:l.LA, LONG_A:l.LO, LAT_B:l.LB, LONG_B:l.LOB, FORNECEDOR:l.F };
@@ -165,9 +168,10 @@ body { min-height: 100vh; }
         data: raw,
         readOnly: true,
         // Passar dados do mapa diretamente pelo contexto (evita depender só do localStorage)
-        mapaCoordMap: raw._mapaCoordMap || null,
-        mapaMwData:   raw._mapaMwData   || null,
-        mapaFoData:   raw._mapaFoData   || null
+        mapaCoordMap: raw._mapaCoordMap      || null,
+        mapaMarkers:  raw._mapaMarkersSlim   || null,
+        mapaMwData:   raw._mapaMwData        || null,
+        mapaFoData:   raw._mapaFoData        || null
       });
     } else {
       mapaContainer.appendChild(U.h('p', { style:{color:'var(--trj-muted)',padding:'20px'}, text:'Módulo de mapa não carregado.' }));
