@@ -832,7 +832,11 @@
               var trecho = '   ↓ ~' + distKm.toFixed(1) + ' km';
               if (usouOSRM) {
                 var dur = _durEntre(s, sorted[i+1]);
-                if (dur != null) trecho += ' · ~' + Math.round(dur / 60) + ' min';
+                if (dur != null) {
+                  var _m = Math.round(dur / 60);
+                  var _t = _m < 60 ? _m + 'min' : (Math.floor(_m/60) + 'h' + (_m%60 ? (_m%60) + 'min' : ''));
+                  trecho += ' · ~' + _t;
+                }
                 trecho += ' (por estrada)';
               }
               if (distKm > 80) trecho += '  ⚠️ longa distância';
