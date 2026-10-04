@@ -415,15 +415,24 @@
     };
   }
 
-  function publicarSnapshotPublico(data) {
+  async function publicarSnapshotPublico(data) {
     try {
       // Incluir coordMap no snapshot para que o mapa funcione em qualquer dispositivo.
-      // Publica somente o coordMap (ENDID→[lat,lon]) para manter o payload enxuto.
-      // mwData e foData são grandes demais para o snapshot; ficam no localStorage do usuário.
       function tryLS(key) {
         try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch(e){ return null; }
       }
       var coordMapLS = tryLS('trj_coordMap') || {};
+
+      // Se localStorage não tem coordMap (browser novo, cache limpo), buscar do servidor
+      if (!Object.keys(coordMapLS).length && TRJ.api && TRJ.api.getMapaCoords) {
+        try {
+          var remoto = await TRJ.api.getMapaCoords();
+          if (remoto && remoto.coords && Object.keys(remoto.coords).length) {
+            coordMapLS = remoto.coords;
+            try { localStorage.setItem('trj_coordMap', JSON.stringify(coordMapLS)); } catch(e){}
+          }
+        } catch(e) {}
+      }
       // Slim mwData: só as colunas necessárias para as polylines
       var mwDataLS = tryLS('trj_mwData') || [];
       var mwSlim = mwDataLS.length > 0 ? mwDataLS.map(function(l) {
@@ -448,11 +457,30 @@
         };
       }) : null;
 
+      // Montar coordMap completo: coordMapLS + coords extraídas do mapaMarkersLS
+      var coordMapFull = Object.assign({}, coordMapLS);
+      mapaMarkersLS.forEach(function(s) {
+        var eid = (s.ENDID || s.endId || '').trim();
+        if (!eid || coordMapFull[eid]) return;
+        var lat = parseFloat(String(s.lat || s.Latitude || '').replace(',', '.'));
+        var lon = parseFloat(String(s.lon || s.Longitude || '').replace(',', '.'));
+        if (eid && !isNaN(lat) && !isNaN(lon) && lat && lon) coordMapFull[eid] = [lat, lon];
+      });
+
+      // Embutir coords diretamente em cada incidente para que o dashboard público
+      // possa plotar marcadores sem depender de nenhuma fonte externa de coordenadas
+      var incComCoords = (data.incidentsEnriched || []).map(function(inc) {
+        var eid = (inc.enderecoId || '').trim();
+        var coords = coordMapFull[eid];
+        if (!coords || inc._lat) return inc;
+        return Object.assign({}, inc, { _lat: coords[0], _lon: coords[1] });
+      });
+
       var payload = {
         tasksEnriched:     (data.tasksEnriched || []).map(slimTaskForPublish),
-        incidentsEnriched: data.incidentsEnriched || [],
+        incidentsEnriched: incComCoords,
         prazoMap:          data.prazoMap || {},        // necessário para SLA/Aderência
-        mapaCoordMap:      Object.keys(coordMapLS).length > 0 ? coordMapLS : null,
+        mapaCoordMap:      Object.keys(coordMapFull).length > 0 ? coordMapFull : null,
         mapaMarkersSlim:   mapaMarkersSlim,
         mapaMwSlim:        mwSlim,
         mapaFoSlim:        foSlim

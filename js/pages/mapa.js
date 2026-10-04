@@ -1169,7 +1169,7 @@
       // ── FLAG 1: só incidentes reais ──
       incAtivos.forEach(function(inc) {
         var eid = (inc.enderecoId||'').trim();
-        var coords = coordMap[eid];
+        var coords = coordMap[eid] || (inc._lat && inc._lon ? [inc._lat, inc._lon] : null);
         if (!coords) { cSemCoord++; return; }
         var nome = inc.site || siteByEndId[eid] || eid;
         var tsk = U.tskAberta ? U.tskAberta(inc, tasksAtivas) : null;
@@ -1288,6 +1288,10 @@
         mapaMarkers = result.markerData || [];
         U.toast('Genesis: ' + result.siteCount + ' sites / ' + result.coordCount + ' coords importadas.', 'ok');
         fileInput.value = '';
+        // Persistir coordMap no servidor para que o dashboard público funcione em qualquer dispositivo
+        if (TRJ.api && TRJ.api.saveMapaCoords && result.coordCount > 0) {
+          TRJ.api.saveMapaCoords(result.coordMap).catch(function() {});
+        }
         getLeaflet(function() {
           initMap();
           if (mapaMarkers.length) renderSites(mapaMarkers);
