@@ -381,12 +381,14 @@ body { min-height: 100vh; }
         var upd = calcUpdateStr((tf || {}).motivoCancelamento || (tsk || {}).motivoCancelamento);
         linhas.push(prio + (tsk.osNumero || 'SEM TSK') + ' / ' + site + ' · ' + upd);
       });
+      var _rp = function(n) { return (n||'').indexOf('SR-')===0 ? 2 : (n||'').indexOf('5G-')===0 ? 1 : 0; };
       semTSK.forEach(function (grupo) {
         var hor = grupo.mainInc.horario || '—';
         var endId = grupo.eid.startsWith('_sem_') ? '' : (' / ' + grupo.eid);
         var sitesUnicos = [];
         grupo.incs.forEach(function (i) { if (i.site && sitesUnicos.indexOf(i.site) < 0) sitesUnicos.push(i.site); });
-        linhas.push(hor + ' · SEM TSK · ' + sitesUnicos.join(', ') + endId);
+        sitesUnicos.sort(function(a, b) { return _rp(b) - _rp(a); });
+        linhas.push(hor + ' · SEM TSK · ' + (sitesUnicos[0] || '—') + endId);
       });
       linhas.push('');
     });
