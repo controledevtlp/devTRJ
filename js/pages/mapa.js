@@ -123,7 +123,7 @@
 
     // Dados de mapa: contexto > localStorage > estáticos embutidos > vazio
     var coordMap = ctx.mapaCoordMap || loadLS(LS_COORDS) || TRJ.defaultCoordMap || {};
-    var mapaMarkers = loadLS(LS_MARKERS) || [];
+    var mapaMarkers = ctx.mapaMarkers || loadLS(LS_MARKERS) || [];
 
     // mwData e foData: formato compacto [la,loa,lb,lob,enlace2,forn] → normalizar para objetos
     function _normMw(x) {

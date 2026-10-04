@@ -435,13 +435,27 @@
         return { N:h.NEName||'', H:h.HUB||'', LA:h.LAT_A, LO:h.LONG_A, F:h.FORNECEDOR||'' };
       }) : null;
 
+      var mapaMarkersLS = tryLS('trj_mapaMarkers') || [];
+      var mapaMarkersSlim = mapaMarkersLS.length > 0 ? mapaMarkersLS.map(function(s) {
+        return {
+          lat:   s.lat   || s.Latitude  || null,
+          lon:   s.lon   || s.Longitude || null,
+          endId: s.ENDID || s.endId     || '',
+          nome:  s.NEName || s.nome     || '',
+          cidade: s.municipio || s.cidade || '',
+          flag:  s.flag !== undefined ? s.flag : (s.FLAG !== undefined ? s.FLAG : 1),
+          tempo: s.tempo || 0
+        };
+      }) : null;
+
       var payload = {
         tasksEnriched:     (data.tasksEnriched || []).map(slimTaskForPublish),
         incidentsEnriched: data.incidentsEnriched || [],
         prazoMap:          data.prazoMap || {},        // necessário para SLA/Aderência
-        mapaCoordMap: Object.keys(coordMapLS).length > 0 ? coordMapLS : null,
-        mapaMwSlim:   mwSlim,
-        mapaFoSlim:   foSlim
+        mapaCoordMap:      Object.keys(coordMapLS).length > 0 ? coordMapLS : null,
+        mapaMarkersSlim:   mapaMarkersSlim,
+        mapaMwSlim:        mwSlim,
+        mapaFoSlim:        foSlim
       };
       var jsonStr = JSON.stringify(payload);
       if (jsonStr === _ultimoSnapshotJSON) return;
