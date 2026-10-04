@@ -123,7 +123,19 @@
 
     // Dados de mapa: contexto > localStorage > estáticos embutidos > vazio
     var coordMap = ctx.mapaCoordMap || loadLS(LS_COORDS) || TRJ.defaultCoordMap || {};
-    var mapaMarkers = ctx.mapaMarkers || loadLS(LS_MARKERS) || [];
+    var mapaMarkers = loadLS(LS_MARKERS) || [];
+
+    // Enriquecer coordMap com coords do snapshot slim (para o dashboard público funcionar com incidentes dinâmicos)
+    if (ctx.mapaMarkers && ctx.mapaMarkers.length) {
+      ctx.mapaMarkers.forEach(function(s) {
+        var eid = s.ENDID || s.endId || '';
+        var lat = parseCoord(s.lat || s.Latitude);
+        var lon = parseCoord(s.lon || s.Longitude);
+        if (eid && !isNaN(lat) && !isNaN(lon) && !coordMap[eid]) {
+          coordMap[eid] = [lat, lon];
+        }
+      });
+    }
 
     // mwData e foData: formato compacto [la,loa,lb,lob,enlace2,forn] → normalizar para objetos
     function _normMw(x) {
