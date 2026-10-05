@@ -346,14 +346,22 @@
     var REGIOES_FILTER = (['INTERIOR','BAIXADA','GRANDE RJ','ZONA OESTE','ESPIRITO SANTO']);
     var REGIAO_LABELS = { 'INTERIOR':'Interior','BAIXADA':'Baixada','GRANDE RJ':'Grande RJ','ZONA OESTE':'Zona Oeste','ESPIRITO SANTO':'Espírito Santo' };
     var _regiaoChips = {};
+    var _regiaoCountEls = {};
     var regionBar = U.h('div', { style:{ display:'flex', gap:'6px', flexWrap:'wrap', marginTop:'6px', marginBottom:'2px' } });
     REGIOES_FILTER.forEach(function(r) {
+      var cntEl = U.h('span', {
+        style: { fontSize:'10px', display:'block', fontWeight:'400', opacity:'0.7', marginTop:'2px', lineHeight:'1', letterSpacing:'0.01em' },
+        text: '—'
+      });
       var chip = U.h('button', {
         class: 'trj-btn trj-btn-ghost clickable',
-        style: { fontSize:'11px', padding:'3px 12px', borderRadius:'999px', transition:'all .15s', border:'1px solid var(--trj-border)' },
-        text: REGIAO_LABELS[r] || r
-      });
+        style: { fontSize:'11px', padding:'4px 12px', borderRadius:'10px', transition:'all .15s', border:'1px solid var(--trj-border)', textAlign:'center', lineHeight:'1.35' }
+      }, [
+        U.h('span', { style:{ display:'block', fontWeight:'600' }, text: REGIAO_LABELS[r] || r }),
+        cntEl
+      ]);
       _regiaoChips[r] = chip;
+      _regiaoCountEls[r] = cntEl;
       chip.addEventListener('click', function() {
         if (_filtros.regiao === r) {
           _filtros.regiao = null;
@@ -367,6 +375,32 @@
       });
       regionBar.appendChild(chip);
     });
+    // Preencher contagens por região (dedup por END_id por região)
+    (function() {
+      var tasksAt = tasks.filter(function(t) {
+        var s = (t.status||'').toUpperCase().replace(/[ÁÀÂÃ]/g,'A').replace(/[ÉÈ]/g,'E');
+        return s.indexOf('INICIADO') >= 0 && s !== 'CONCLUIDA' && s !== 'CANCELADA' && s !== 'CANCELADO';
+      });
+      var incAt = incidents.filter(function(i){ return (i.statusTrat||'').toUpperCase() !== 'RESOLVIDO'; });
+      var cnt = {}, seen = {};
+      incAt.forEach(function(inc) {
+        var r = inc.regiao || 'OTHERS';
+        if (REGIOES_FILTER.indexOf(r) < 0) return;
+        var eid = (inc.enderecoId||'').trim();
+        var key = r + '|' + eid;
+        if (seen[key]) return;
+        seen[key] = true;
+        if (!cnt[r]) cnt[r] = { total:0, comTSK:0 };
+        cnt[r].total++;
+        if (U.tskAberta && U.tskAberta(inc, tasksAt)) cnt[r].comTSK++;
+      });
+      REGIOES_FILTER.forEach(function(r) {
+        var el = _regiaoCountEls[r]; if (!el) return;
+        var c = cnt[r] || { total:0, comTSK:0 };
+        if (!c.total) { el.textContent = '—'; return; }
+        el.textContent = c.total + ' · ✓' + c.comTSK + ' · ○' + (c.total - c.comTSK);
+      });
+    })();
     // Botão de relatório alinhado à direita na mesma barra
     var btnRelatorio = U.h('button', {
       class: 'trj-btn trj-btn-ghost clickable',
