@@ -59,15 +59,29 @@
   // Antes só extraía coords de mwData/foData — agora extrai do markerData (fonte principal).
   function parseGenesisParaMapa(htmlText) {
     function cleanJSON(raw) { return raw.replace(/\u00a0/g,'').replace(/\\u00a0/g,''); }
-    function extract(pattern) {
-      var m = htmlText.match(pattern);
-      if (!m) return [];
-      try { return JSON.parse(cleanJSON(m[1])); } catch(e){ return []; }
+    // Tenta extrair array JS pelo nome da vari\u00e1vel \u2014 suporta m\u00faltiplos formatos de fechamento
+    function extractVar(name) {
+      var patterns = [
+        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])\\s*;'),    // termina com ;
+        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])\\s*,'),    // termina com ,
+        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])\\s*\\n'),  // termina com nova linha
+        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])')          // qualquer coisa
+      ];
+      for (var pi = 0; pi < patterns.length; pi++) {
+        var m = htmlText.match(patterns[pi]);
+        if (m) {
+          try { var r = JSON.parse(cleanJSON(m[1])); if (Array.isArray(r) && r.length) return r; } catch(e){}
+        }
+      }
+      return [];
     }
 
-    var markerData = extract(/markerData\s*=\s*(\[[\s\S]*?\]);/);
-    var mwData     = extract(/mwData\s*=\s*(\[[\s\S]*?\]);/);
-    var foData     = extract(/foData\s*=\s*(\[[\s\S]*?\]);/);
+    var markerData = extractVar('markerData');
+    var mwData     = extractVar('mwData');
+    var foData     = extractVar('foData');
+    // Log diagn\u00f3stico no console para verifica\u00e7\u00e3o
+    console.log('[Mapa] parseGenesis: markerData=' + markerData.length + ' mwData=' + mwData.length + ' foData=' + foData.length,
+                markerData.length ? markerData[0] : '(vazio)');
 
     var coordMap = {};
 
