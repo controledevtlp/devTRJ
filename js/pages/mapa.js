@@ -233,7 +233,8 @@
     var mapState = { showFlag0: false, showMW: true, showFO: false, flagFilter: '1' };
     var mapInstance = null, layers = {};
     var sitesFlag1 = [], sitesFlag0Raw = [];
-    var semCoordList = [];   // [{eid, site, cidade}] — populado após cada render
+    var semCoordList = [];   // [{eid, site, cidade}] sem coordenada
+    var comCoordList = [];   // [{eid, site, cidade, coordStr}] com coordenada (editáveis)
     var semCoordPanelEl = null;
 
     // Filtros ativos
@@ -624,8 +625,11 @@
 
     function initMap() {
       if (mapInstance) return;
+      var initCenter = ctx.prevCenter || [-22.3, -43.1];
+      var initZoom   = (ctx.prevZoom  != null) ? ctx.prevZoom : 8;
       mapInstance = window.L.map('trj-mapa-leaflet', { preferCanvas: true, zoomControl: true })
-        .setView([-22.3, -43.1], 8);
+        .setView(initCenter, initZoom);
+      if (readOnly) TRJ._publicMapInstance = mapInstance; // permite salvar estado no refresh silencioso
 
       window.L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
         attribution: '&copy; <a href="https://www.esri.com/">Esri</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -1166,38 +1170,59 @@
 
     // ── Sem Coord: calcular lista e atualizar painel ────────────────────────
     function calcSemCoordList() {
+      var seen = {};
       var incAtivos = incidents.filter(function(i){ return (i.statusTrat||'').toUpperCase() !== 'RESOLVIDO'; });
-      semCoordList = incAtivos.filter(function(inc) {
+      semCoordList = [];
+      comCoordList = [];
+      incAtivos.forEach(function(inc) {
         var eid = (inc.enderecoId||'').trim();
-        return !coordMap[eid] && !(inc._lat && inc._lon);
-      }).map(function(inc) {
-        return { eid: inc.enderecoId||'', site: inc.site||'', cidade: (inc.cidadeUf||'').split('/')[0].trim() };
+        if (!eid || seen[eid]) return;
+        seen[eid] = true;
+        var c = coordMap[eid] || (inc._lat && inc._lon ? [parseFloat(inc._lat), parseFloat(inc._lon)] : null);
+        var item = { eid: eid, site: inc.site||'', cidade: (inc.cidadeUf||'').split('/')[0].trim() };
+        if (c) {
+          item.coordStr = parseFloat(c[0]).toFixed(6) + ', ' + parseFloat(c[1]).toFixed(6);
+          comCoordList.push(item);
+        } else {
+          semCoordList.push(item);
+        }
       });
       updateSemCoordPanel();
     }
 
     function updateSemCoordPanel() {
       if (!semCoordPanelEl) return;
-      if (!semCoordList.length) { semCoordPanelEl.style.display = 'none'; return; }
+      if (!semCoordList.length && !comCoordList.length) { semCoordPanelEl.style.display = 'none'; return; }
       semCoordPanelEl.style.display = '';
       semCoordPanelEl.innerHTML = '';
+      if (semCoordList.length) appendCoordSection(semCoordPanelEl, semCoordList, false);
+      if (comCoordList.length) appendCoordSection(semCoordPanelEl, comCoordList, true);
+    }
 
+    function appendCoordSection(container, items, hasCoords) {
       var expanded = false;
+      var label = hasCoords
+        ? '📍 ' + items.length + ' site(s) com coordenada'
+        : '⚠ ' + items.length + ' site(s) sem coordenada';
+      var color = hasCoords ? 'var(--trj-muted)' : '#e67e22';
+      var sep = container.children.length > 0;
       var toggleBtn = U.h('span', { style:{ marginLeft:'auto', fontSize:'12px', cursor:'pointer', color:'var(--trj-muted)' }, text: '▸' });
       var header = U.h('div', {
         style:{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 14px', cursor:'pointer',
-                borderBottom:'1px solid transparent' }
+                borderBottom:'1px solid transparent',
+                borderTop: sep ? '1px solid var(--trj-border)' : 'none' }
       }, [
-        U.h('span', { style:{ fontSize:'12px', fontWeight:'600', color:'#e67e22' }, text: '⚠ ' + semCoordList.length + ' site(s) sem coordenada' }),
+        U.h('span', { style:{ fontSize:'12px', fontWeight:'600', color: color }, text: label }),
         toggleBtn
       ]);
-
+      var colsHdr = hasCoords
+        ? ['END_id','Site','Cidade','Coordenada','']
+        : ['END_id','Site','Cidade','Latitude','Longitude',''];
       var tbody = U.h('div', { style:{ display:'none', overflowX:'auto', maxHeight:'320px', overflowY:'auto' } });
       var tbl = document.createElement('table');
       tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
-      var thead = tbl.createTHead();
-      var hrow = thead.insertRow();
-      ['END_id','Site','Cidade','Latitude','Longitude',''].forEach(function(h) {
+      var hrow = tbl.createTHead().insertRow();
+      colsHdr.forEach(function(h) {
         var th = document.createElement('th');
         th.textContent = h;
         th.style.cssText = 'text-align:left;padding:5px 10px;color:var(--trj-muted);font-weight:600;position:sticky;top:0;background:var(--trj-card);border-bottom:1px solid var(--trj-border);';
@@ -1205,39 +1230,69 @@
       });
       var tbodyEl = tbl.createTBody();
 
-      semCoordList.forEach(function(item) {
+      items.forEach(function(item) {
         var tr = tbodyEl.insertRow();
         tr.style.borderBottom = '1px solid var(--trj-border)';
-        [item.eid, item.site || '—', item.cidade || '—'].forEach(function(txt) {
+        [item.eid, item.site||'—', item.cidade||'—'].forEach(function(txt) {
           var td = tr.insertCell(); td.style.padding = '5px 10px'; td.style.color = 'var(--trj-muted)';
           td.textContent = txt;
         });
-        var latInp = U.h('input', { type:'text', placeholder:'-22.9071', style:{ width:'95px', background:'var(--trj-card2)', border:'1px solid var(--trj-border)', borderRadius:'4px', color:'var(--trj-fg)', padding:'3px 6px', fontSize:'12px', outline:'none' } });
-        var lonInp = U.h('input', { type:'text', placeholder:'-43.1743', style:{ width:'95px', background:'var(--trj-card2)', border:'1px solid var(--trj-border)', borderRadius:'4px', color:'var(--trj-fg)', padding:'3px 6px', fontSize:'12px', outline:'none' } });
-        var tdLat = tr.insertCell(); tdLat.style.padding = '4px 8px'; tdLat.appendChild(latInp);
-        var tdLon = tr.insertCell(); tdLon.style.padding = '4px 8px'; tdLon.appendChild(lonInp);
-        var btnSave = U.h('button', {
-          class: 'trj-btn trj-btn-primary clickable',
-          style: { fontSize:'11px', padding:'3px 10px' },
-          text: '💾'
-        });
-        btnSave.addEventListener('click', function() {
-          salvarCoordManual(item.eid, latInp.value, lonInp.value, function() {
-            tr.style.opacity = '0.4'; btnSave.disabled = true; btnSave.textContent = '✓';
+        if (hasCoords) {
+          var coordParts = (item.coordStr||'').split(',');
+          var latVal = (coordParts[0]||'').trim();
+          var lonVal = (coordParts[1]||'').trim();
+          var tdCoord = tr.insertCell(); tdCoord.style.padding = '5px 10px';
+          var tdAcao  = tr.insertCell(); tdAcao.style.padding = '4px 8px';
+          var coordDisplay = U.h('span', { style:{ color:'var(--trj-muted)', fontFamily:'monospace', fontSize:'11px' }, text: item.coordStr });
+          var latInp = U.h('input', { type:'text', value: latVal, style:{ width:'90px', background:'var(--trj-card2)', border:'1px solid var(--trj-border)', borderRadius:'4px', color:'var(--trj-fg)', padding:'3px 6px', fontSize:'12px', outline:'none', display:'none' } });
+          var lonInp = U.h('input', { type:'text', value: lonVal, style:{ width:'90px', background:'var(--trj-card2)', border:'1px solid var(--trj-border)', borderRadius:'4px', color:'var(--trj-fg)', padding:'3px 6px', fontSize:'12px', outline:'none', display:'none' } });
+          var editBtn   = U.h('button', { class:'trj-btn trj-btn-ghost clickable', style:{fontSize:'11px',padding:'3px 8px'}, text:'✏ editar' });
+          var saveBtn   = U.h('button', { class:'trj-btn trj-btn-primary clickable', style:{fontSize:'11px',padding:'3px 10px',display:'none'}, text:'💾' });
+          var cancelBtn = U.h('button', { class:'trj-btn trj-btn-ghost clickable', style:{fontSize:'11px',padding:'3px 8px',display:'none',marginLeft:'4px'}, text:'✖' });
+          tdCoord.appendChild(coordDisplay); tdCoord.appendChild(latInp); tdCoord.appendChild(lonInp);
+          tdAcao.appendChild(editBtn); tdAcao.appendChild(saveBtn); tdAcao.appendChild(cancelBtn);
+          editBtn.addEventListener('click', function() {
+            coordDisplay.style.display='none'; latInp.style.display=''; lonInp.style.display='';
+            editBtn.style.display='none'; saveBtn.style.display=''; cancelBtn.style.display='';
           });
-        });
-        var tdAcao = tr.insertCell(); tdAcao.style.padding = '4px 8px'; tdAcao.appendChild(btnSave);
+          cancelBtn.addEventListener('click', function() {
+            latInp.value=latVal; lonInp.value=lonVal;
+            coordDisplay.style.display=''; latInp.style.display='none'; lonInp.style.display='none';
+            editBtn.style.display=''; saveBtn.style.display='none'; cancelBtn.style.display='none';
+          });
+          saveBtn.addEventListener('click', function() {
+            salvarCoordManual(item.eid, latInp.value, lonInp.value, function() {
+              var newCoord = parseFloat(latInp.value.replace(',','.')).toFixed(6) + ', ' + parseFloat(lonInp.value.replace(',','.')).toFixed(6);
+              item.coordStr = newCoord;
+              latVal = newCoord.split(',')[0].trim(); lonVal = newCoord.split(',')[1].trim();
+              coordDisplay.textContent = newCoord;
+              coordDisplay.style.display=''; latInp.style.display='none'; lonInp.style.display='none';
+              editBtn.style.display=''; saveBtn.style.display='none'; cancelBtn.style.display='none';
+            });
+          });
+        } else {
+          var latInp = U.h('input', { type:'text', placeholder:'-22.9071', style:{ width:'95px', background:'var(--trj-card2)', border:'1px solid var(--trj-border)', borderRadius:'4px', color:'var(--trj-fg)', padding:'3px 6px', fontSize:'12px', outline:'none' } });
+          var lonInp = U.h('input', { type:'text', placeholder:'-43.1743', style:{ width:'95px', background:'var(--trj-card2)', border:'1px solid var(--trj-border)', borderRadius:'4px', color:'var(--trj-fg)', padding:'3px 6px', fontSize:'12px', outline:'none' } });
+          var tdLat = tr.insertCell(); tdLat.style.padding = '4px 8px'; tdLat.appendChild(latInp);
+          var tdLon = tr.insertCell(); tdLon.style.padding = '4px 8px'; tdLon.appendChild(lonInp);
+          var btnSave = U.h('button', { class:'trj-btn trj-btn-primary clickable', style:{fontSize:'11px',padding:'3px 10px'}, text:'💾' });
+          btnSave.addEventListener('click', function() {
+            salvarCoordManual(item.eid, latInp.value, lonInp.value, function() {
+              tr.style.opacity='0.4'; btnSave.disabled=true; btnSave.textContent='✓';
+            });
+          });
+          var tdAcao = tr.insertCell(); tdAcao.style.padding = '4px 8px'; tdAcao.appendChild(btnSave);
+        }
       });
       tbody.appendChild(tbl);
-
       header.addEventListener('click', function() {
         expanded = !expanded;
         tbody.style.display = expanded ? '' : 'none';
         toggleBtn.textContent = expanded ? '▾' : '▸';
         header.style.borderBottomColor = expanded ? 'var(--trj-border)' : 'transparent';
       });
-      semCoordPanelEl.appendChild(header);
-      semCoordPanelEl.appendChild(tbody);
+      container.appendChild(header);
+      container.appendChild(tbody);
     }
 
     function salvarCoordManual(eid, latStr, lonStr, onDone) {
@@ -1246,7 +1301,9 @@
       if (isNaN(lat) || isNaN(lon) || !eid) { U.toast && U.toast('Latitude/longitude inválidas', 'err'); return; }
       coordMap[eid] = [lat, lon];
       saveLS(LS_COORDS, coordMap);
+      var coordStr = lat.toFixed(6) + ', ' + lon.toFixed(6);
       if (TRJ.api && TRJ.api.saveMapaCoords) TRJ.api.saveMapaCoords(coordMap).catch(function(){});
+      if (TRJ.api && TRJ.api.saveCoordVALID_CAD) TRJ.api.saveCoordVALID_CAD([{ endId: eid, coord: coordStr }]).catch(function(){});
       if (mapaMarkers.length) renderSites(mapaMarkers);
       else renderComCoordMap();
       renderEstaticos();

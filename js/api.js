@@ -152,6 +152,11 @@
     return call('saveMapaCoords', { coords: coords || {} });
   };
 
+  A.saveCoordVALID_CAD = function (entries) {
+    if (offline()) return Promise.resolve({ ok: true, offline: true });
+    return call('saveCoordVALID_CAD', { entries: entries || [] });
+  };
+
   A.getMapaCoords = function () {
     if (offline()) return Promise.resolve({ ok: true, coords: null });
     return call('getMapaCoords', {});
