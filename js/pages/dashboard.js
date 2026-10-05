@@ -568,27 +568,40 @@
       return row;
     }
 
-    var headerEl  = U.h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', minHeight: '26px' } });
+    var headerEl  = U.h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', minHeight: '26px' } });
+    var searchEl  = U.h('input', {
+      type: 'text', placeholder: '🔍 Pesquisar...',
+      style: {
+        width: '100%', padding: '4px 10px', borderRadius: '8px', boxSizing: 'border-box',
+        background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)',
+        color: 'var(--trj-fg)', fontSize: '12px', outline: 'none', marginBottom: '6px'
+      }
+    });
+    searchEl.addEventListener('input', function () { render(); });
     var barsWrap  = U.h('div', { class: 'flex flex-col gap-1' });
 
     function render() {
       headerEl.innerHTML = '';
       barsWrap.innerHTML = '';
-      var ativos   = getAtivos();
-      var causas   = groupByCausa(ativos);
+      var ativos     = getAtivos();
+      var causas     = groupByCausa(ativos);
       var grandTotal = ativos.length;
+      var filtro     = (searchEl.value || '').trim().toLowerCase();
 
       if (!drillCausa) {
+        var visiveis = filtro
+          ? causas.filter(function (c) { return c.causa.toLowerCase().indexOf(filtro) >= 0; })
+          : causas;
         var maxC = causas.length ? causas[0].total : 1;
-        causas.forEach(function (c) {
+        visiveis.forEach(function (c) {
           barsWrap.appendChild(mkBarRow(
             c.causa, c.total, grandTotal, maxC,
-            function (causa) { return function () { drillCausa = causa; render(); }; }(c.causa),
+            function (causa) { return function () { drillCausa = causa; searchEl.value = ''; render(); }; }(c.causa),
             function (causa) { return function () { app.openDrillIncidents({ tipo: 'causa', arg: causa }, 'CAUSA: ' + causa); }; }(c.causa)
           ));
         });
-        if (!causas.length) {
-          barsWrap.appendChild(U.h('div', { style: { color: 'var(--trj-muted)', fontSize: '12px', padding: '16px 0' }, text: 'Nenhum incidente ativo.' }));
+        if (!visiveis.length) {
+          barsWrap.appendChild(U.h('div', { style: { color: 'var(--trj-muted)', fontSize: '12px', padding: '16px 0' }, text: filtro ? 'Nenhuma causa encontrada.' : 'Nenhum incidente ativo.' }));
         }
       } else {
         var causaObj = causas.filter(function (c) { return c.causa === drillCausa; })[0];
@@ -597,7 +610,7 @@
           class: 'trj-btn trj-btn-ghost',
           style: { fontSize: '11px', padding: '2px 8px' },
           text: '← Voltar',
-          onclick: function () { drillCausa = null; render(); }
+          onclick: function () { drillCausa = null; searchEl.value = ''; render(); }
         });
         headerEl.appendChild(voltarBtn);
         headerEl.appendChild(U.h('span', { style: { color: 'var(--trj-muted)', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, text: drillCausa }));
@@ -610,15 +623,21 @@
         var subs = Object.keys(causaObj.subs)
           .map(function (k) { return { label: k, total: causaObj.subs[k] }; })
           .sort(function (a, b) { return b.total - a.total; });
+        var visiveis = filtro
+          ? subs.filter(function (s) { return s.label.toLowerCase().indexOf(filtro) >= 0; })
+          : subs;
         var maxS = subs.length ? subs[0].total : 1;
 
-        subs.forEach(function (s) {
+        visiveis.forEach(function (s) {
           barsWrap.appendChild(mkBarRow(
             s.label, s.total, grandTotal, maxS,
             null,
             function (causa, sub) { return function () { app.openDrillIncidents({ tipo: 'subcausa', arg: causa + '||' + sub }, sub + ' (' + causa + ')'); }; }(drillCausa, s.label)
           ));
         });
+        if (!visiveis.length) {
+          barsWrap.appendChild(U.h('div', { style: { color: 'var(--trj-muted)', fontSize: '12px', padding: '8px 0' }, text: 'Nenhuma subcausa encontrada.' }));
+        }
       }
     }
 
@@ -645,7 +664,7 @@
       ]),
       U.h('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4' }, [
         totalCard,
-        U.h('div', { class: 'lg:col-span-2' }, [headerEl, barsWrap])
+        U.h('div', { class: 'lg:col-span-2' }, [headerEl, searchEl, barsWrap])
       ])
     ]);
   }
