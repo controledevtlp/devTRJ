@@ -459,20 +459,28 @@
 
       // Montar coordMap completo: coordMapLS + coords extraídas do mapaMarkersLS
       var coordMapFull = Object.assign({}, coordMapLS);
+      // Índice por NEName como fallback quando ENDID não bate com enderecoId do incidente
+      var coordByName = {};
       mapaMarkersLS.forEach(function(s) {
         var eid = (s.ENDID || s.endId || '').trim();
-        if (!eid || coordMapFull[eid]) return;
         var lat = parseFloat(String(s.lat || s.Latitude || '').replace(',', '.'));
         var lon = parseFloat(String(s.lon || s.Longitude || '').replace(',', '.'));
-        if (eid && !isNaN(lat) && !isNaN(lon) && lat && lon) coordMapFull[eid] = [lat, lon];
+        if (!isNaN(lat) && !isNaN(lon) && lat && lon) {
+          if (eid && !coordMapFull[eid]) coordMapFull[eid] = [lat, lon];
+          var name = (s.NEName || s.nome || '').trim().toUpperCase();
+          if (name && !coordByName[name]) coordByName[name] = [lat, lon];
+        }
       });
 
       // Embutir coords diretamente em cada incidente para que o dashboard público
-      // possa plotar marcadores sem depender de nenhuma fonte externa de coordenadas
+      // possa plotar marcadores sem depender de nenhuma fonte externa de coordenadas.
+      // Tenta: 1) lookup por enderecoId (ENDID), 2) lookup por nome do site (NEName)
       var incComCoords = (data.incidentsEnriched || []).map(function(inc) {
+        if (inc._lat) return inc;
         var eid = (inc.enderecoId || '').trim();
-        var coords = coordMapFull[eid];
-        if (!coords || inc._lat) return inc;
+        var siteName = (inc.site || '').trim().toUpperCase();
+        var coords = coordMapFull[eid] || coordByName[siteName] || null;
+        if (!coords) return inc;
         return Object.assign({}, inc, { _lat: coords[0], _lon: coords[1] });
       });
 
