@@ -447,6 +447,7 @@
       var mapaMarkersLS = tryLS('trj_mapaMarkers') || [];
       console.log('[Dashboard] snapshot coords — coordMapLS:', Object.keys(coordMapLS).length,
                   'mapaMarkersLS:', mapaMarkersLS.length,
+                  'mwLS:', mwDataLS.length, 'foLS:', foDataLS.length,
                   'incidentsEnriched:', (data.incidentsEnriched||[]).length);
       var mapaMarkersSlim = mapaMarkersLS.length > 0 ? mapaMarkersLS.map(function(s) {
         return {

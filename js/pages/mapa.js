@@ -48,9 +48,15 @@
 
   function salvarMapaDados(coordMap, mwData, foData, markers) {
     saveLS(LS_COORDS, coordMap);
-    saveLS(LS_MW, mwData);
-    saveLS(LS_FO, foData);
-    if (markers !== undefined) saveLS(LS_MARKERS, markers);
+    // Slim para evitar estouro do localStorage com o JSON completo do Genesis
+    var mwSave = (mwData||[]).map(function(l){ return { Enlace2:l.Enlace2||'', LAT_A:l.LAT_A, LONG_A:l.LONG_A, LAT_B:l.LAT_B, LONG_B:l.LONG_B, FORNECEDOR:l.FORNECEDOR||'' }; });
+    var foSave = (foData||[]).map(function(h){ return { NEName:h.NEName||'', HUB:h.HUB||'', LAT_A:h.LAT_A, LONG_A:h.LONG_A, FORNECEDOR:h.FORNECEDOR||'' }; });
+    saveLS(LS_MW, mwSave);
+    saveLS(LS_FO, foSave);
+    if (markers !== undefined) {
+      var mSave = markers.map(function(m){ return { NEName:m.NEName||'', Latitude:m.Latitude||m.lat||'', Longitude:m.Longitude||m.lon||'', ENDID:m.ENDID||'', municipio:m.municipio||'', flag:m.flag, tempo:m.tempo||0 }; });
+      saveLS(LS_MARKERS, mSave);
+    }
   }
   TRJ.mapaSetDados = salvarMapaDados;
 
@@ -224,6 +230,8 @@
     var mapState = { showFlag0: false, showMW: true, showFO: false, flagFilter: '1' };
     var mapInstance = null, layers = {};
     var sitesFlag1 = [], sitesFlag0Raw = [];
+    var semCoordList = [];   // [{eid, site, cidade}] — populado após cada render
+    var semCoordPanelEl = null;
 
     // Filtros ativos
     var _filtros = { regiao: null, soTSK: false, legSemTSK: true, legComTSK: true, legRecente: true };
@@ -363,6 +371,15 @@
     });
     btnRelatorio.addEventListener('click', gerarRelatorio);
     regionBar.appendChild(btnRelatorio);
+
+    var btnXlsx = U.h('button', {
+      class: 'trj-btn trj-btn-ghost clickable',
+      style: { fontSize:'11px', padding:'3px 10px', borderRadius:'999px', border:'1px solid var(--trj-border)', whiteSpace:'nowrap', opacity:'0.75' },
+      text: '⬇ coords.xlsx'
+    });
+    btnXlsx.addEventListener('click', exportarCoordXlsx);
+    if (!readOnly) regionBar.appendChild(btnXlsx);
+
     container.appendChild(regionBar);
 
     // ── Painel de rota ────────────────────────────────────────────────────
@@ -543,6 +560,15 @@
       }));
     // Associar cliques nas legendas — por item, com estado visual
     container.appendChild(legEl);
+
+    // ── Painel "Sem Coordenada" (somente operadores) ──────────────────────
+    if (!readOnly) {
+      semCoordPanelEl = U.h('div', {
+        style: { marginTop:'8px', background:'var(--trj-card)', border:'1px solid var(--trj-border)',
+                 borderRadius:'8px', overflow:'hidden', display:'none' }
+      });
+      container.appendChild(semCoordPanelEl);
+    }
     var MW_VENDOR_BY_LEG_IDX = { 4:'NOKIA', 5:'HUAWEI', 6:'CERAGON', 7:'ERICSSON', 8:'SIAE' };
     Array.prototype.forEach.call(legEl.children, function(el, idx) {
       var item = legItems[idx];
@@ -1115,6 +1141,7 @@
 
       updateStats(sitesFlag1.length, cTSK, cSemCoord);
       _populateCityDL('');
+      calcSemCoordList();
     }
 
     // ── Renderizar MW + FO (static, from stored data) ──────────
@@ -1132,6 +1159,127 @@
         if (eid) eidsAtivos[eid] = true;
       });
       return eidsAtivos;
+    }
+
+    // ── Sem Coord: calcular lista e atualizar painel ────────────────────────
+    function calcSemCoordList() {
+      var incAtivos = incidents.filter(function(i){ return (i.statusTrat||'').toUpperCase() !== 'RESOLVIDO'; });
+      semCoordList = incAtivos.filter(function(inc) {
+        var eid = (inc.enderecoId||'').trim();
+        return !coordMap[eid] && !(inc._lat && inc._lon);
+      }).map(function(inc) {
+        return { eid: inc.enderecoId||'', site: inc.site||'', cidade: (inc.cidadeUf||'').split('/')[0].trim() };
+      });
+      updateSemCoordPanel();
+    }
+
+    function updateSemCoordPanel() {
+      if (!semCoordPanelEl) return;
+      if (!semCoordList.length) { semCoordPanelEl.style.display = 'none'; return; }
+      semCoordPanelEl.style.display = '';
+      semCoordPanelEl.innerHTML = '';
+
+      var expanded = false;
+      var toggleBtn = U.h('span', { style:{ marginLeft:'auto', fontSize:'12px', cursor:'pointer', color:'var(--trj-muted)' }, text: '▸' });
+      var header = U.h('div', {
+        style:{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 14px', cursor:'pointer',
+                borderBottom:'1px solid transparent' }
+      }, [
+        U.h('span', { style:{ fontSize:'12px', fontWeight:'600', color:'#e67e22' }, text: '⚠ ' + semCoordList.length + ' site(s) sem coordenada' }),
+        toggleBtn
+      ]);
+
+      var tbody = U.h('div', { style:{ display:'none', overflowX:'auto', maxHeight:'320px', overflowY:'auto' } });
+      var tbl = document.createElement('table');
+      tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+      var thead = tbl.createTHead();
+      var hrow = thead.insertRow();
+      ['END_id','Site','Cidade','Latitude','Longitude',''].forEach(function(h) {
+        var th = document.createElement('th');
+        th.textContent = h;
+        th.style.cssText = 'text-align:left;padding:5px 10px;color:var(--trj-muted);font-weight:600;position:sticky;top:0;background:var(--trj-card);border-bottom:1px solid var(--trj-border);';
+        hrow.appendChild(th);
+      });
+      var tbodyEl = tbl.createTBody();
+
+      semCoordList.forEach(function(item) {
+        var tr = tbodyEl.insertRow();
+        tr.style.borderBottom = '1px solid var(--trj-border)';
+        [item.eid, item.site || '—', item.cidade || '—'].forEach(function(txt) {
+          var td = tr.insertCell(); td.style.padding = '5px 10px'; td.style.color = 'var(--trj-muted)';
+          td.textContent = txt;
+        });
+        var latInp = U.h('input', { type:'text', placeholder:'-22.9071', style:{ width:'95px', background:'var(--trj-card2)', border:'1px solid var(--trj-border)', borderRadius:'4px', color:'var(--trj-fg)', padding:'3px 6px', fontSize:'12px', outline:'none' } });
+        var lonInp = U.h('input', { type:'text', placeholder:'-43.1743', style:{ width:'95px', background:'var(--trj-card2)', border:'1px solid var(--trj-border)', borderRadius:'4px', color:'var(--trj-fg)', padding:'3px 6px', fontSize:'12px', outline:'none' } });
+        var tdLat = tr.insertCell(); tdLat.style.padding = '4px 8px'; tdLat.appendChild(latInp);
+        var tdLon = tr.insertCell(); tdLon.style.padding = '4px 8px'; tdLon.appendChild(lonInp);
+        var btnSave = U.h('button', {
+          class: 'trj-btn trj-btn-primary clickable',
+          style: { fontSize:'11px', padding:'3px 10px' },
+          text: '💾'
+        });
+        btnSave.addEventListener('click', function() {
+          salvarCoordManual(item.eid, latInp.value, lonInp.value, function() {
+            tr.style.opacity = '0.4'; btnSave.disabled = true; btnSave.textContent = '✓';
+          });
+        });
+        var tdAcao = tr.insertCell(); tdAcao.style.padding = '4px 8px'; tdAcao.appendChild(btnSave);
+      });
+      tbody.appendChild(tbl);
+
+      header.addEventListener('click', function() {
+        expanded = !expanded;
+        tbody.style.display = expanded ? '' : 'none';
+        toggleBtn.textContent = expanded ? '▾' : '▸';
+        header.style.borderBottomColor = expanded ? 'var(--trj-border)' : 'transparent';
+      });
+      semCoordPanelEl.appendChild(header);
+      semCoordPanelEl.appendChild(tbody);
+    }
+
+    function salvarCoordManual(eid, latStr, lonStr, onDone) {
+      var lat = parseFloat(String(latStr).replace(',', '.'));
+      var lon = parseFloat(String(lonStr).replace(',', '.'));
+      if (isNaN(lat) || isNaN(lon) || !eid) { U.toast && U.toast('Latitude/longitude inválidas', 'err'); return; }
+      coordMap[eid] = [lat, lon];
+      saveLS(LS_COORDS, coordMap);
+      if (TRJ.api && TRJ.api.saveMapaCoords) TRJ.api.saveMapaCoords(coordMap).catch(function(){});
+      if (mapaMarkers.length) renderSites(mapaMarkers);
+      else renderComCoordMap();
+      renderEstaticos();
+      U.toast && U.toast('Coord salva: ' + eid, 'ok');
+      onDone && onDone();
+    }
+
+    function exportarCoordXlsx() {
+      function doExport(XLSX) {
+        var rows = [];
+        var seen = {};
+        (mapaMarkers.length ? mapaMarkers : []).forEach(function(m) {
+          var eid = (m.ENDID || m.endId || '').trim();
+          var lat = parseCoord(m.Latitude || m.lat);
+          var lon = parseCoord(m.Longitude || m.lon);
+          if (!eid || isNaN(lat) || !lat) return;
+          seen[eid] = true;
+          rows.push({ 'Cidade': m.municipio || m.cidade || '', 'END_id': eid, 'NEid': m.NEName || '', 'Coordenada': lat.toFixed(6) + ', ' + lon.toFixed(6) });
+        });
+        Object.keys(coordMap).forEach(function(eid) {
+          if (seen[eid]) return;
+          var c = coordMap[eid];
+          rows.push({ 'Cidade': '', 'END_id': eid, 'NEid': siteByEndId[eid] || '', 'Coordenada': c[0].toFixed(6) + ', ' + c[1].toFixed(6) });
+        });
+        if (!rows.length) { U.toast && U.toast('Nenhuma coordenada disponível', 'warn'); return; }
+        var wb = XLSX.utils.book_new();
+        var ws = XLSX.utils.json_to_sheet(rows, { header: ['Cidade','END_id','NEid','Coordenada'] });
+        ws['!cols'] = [{wch:20},{wch:18},{wch:18},{wch:22}];
+        XLSX.utils.book_append_sheet(wb, ws, 'Coordenadas');
+        XLSX.writeFile(wb, 'coordenadas_trj.xlsx');
+      }
+      if (window.XLSX) { doExport(window.XLSX); return; }
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = function() { doExport(window.XLSX); };
+      document.head.appendChild(s);
     }
 
     function renderEstaticos() {
@@ -1277,6 +1425,7 @@
 
       updateStats(incAtivos.length, cTSK, cSemCoord);
       _populateCityDL('');
+      calcSemCoordList();
     }
 
     function updateStats(total, comTSK, semCoord) {
