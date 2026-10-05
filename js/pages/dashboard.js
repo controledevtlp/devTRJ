@@ -433,13 +433,13 @@
           }
         } catch(e) {}
       }
-      // Slim mwData: só as colunas necessárias para as polylines
-      var mwDataLS = tryLS('trj_mwData') || [];
+      // Slim mwData: localStorage primeiro, fallback para cache em memória do mapa.js
+      var mwDataLS = tryLS('trj_mwData') || (TRJ._mwDataCache && TRJ._mwDataCache.length ? TRJ._mwDataCache : []);
       var mwSlim = mwDataLS.length > 0 ? mwDataLS.map(function(l) {
         return { E2:l.Enlace2||'', LA:l.LAT_A, LO:l.LONG_A, LB:l.LAT_B, LOB:l.LONG_B, F:l.FORNECEDOR||'' };
       }) : null;
-      // Slim foData: só as colunas necessárias para os marcadores
-      var foDataLS = tryLS('trj_foData') || [];
+      // Slim foData: localStorage primeiro, fallback para cache em memória do mapa.js
+      var foDataLS = tryLS('trj_foData') || (TRJ._foDataCache && TRJ._foDataCache.length ? TRJ._foDataCache : []);
       var foSlim = foDataLS.length > 0 ? foDataLS.map(function(h) {
         return { N:h.NEName||'', H:h.HUB||'', LA:h.LAT_A, LO:h.LONG_A, F:h.FORNECEDOR||'' };
       }) : null;

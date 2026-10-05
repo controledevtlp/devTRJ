@@ -48,7 +48,10 @@
 
   function salvarMapaDados(coordMap, mwData, foData, markers) {
     saveLS(LS_COORDS, coordMap);
-    // Slim para evitar estouro do localStorage com o JSON completo do Genesis
+    // Cache em memória: garante que dashboard.js acesse os dados mesmo se localStorage falhar
+    TRJ._mwDataCache = mwData || [];
+    TRJ._foDataCache = foData || [];
+    // Slim para localStorage (evita estouro com o JSON completo do Genesis)
     var mwSave = (mwData||[]).map(function(l){ return { Enlace2:l.Enlace2||'', LAT_A:l.LAT_A, LONG_A:l.LONG_A, LAT_B:l.LAT_B, LONG_B:l.LONG_B, FORNECEDOR:l.FORNECEDOR||'' }; });
     var foSave = (foData||[]).map(function(h){ return { NEName:h.NEName||'', HUB:h.HUB||'', LAT_A:h.LAT_A, LONG_A:h.LONG_A, FORNECEDOR:h.FORNECEDOR||'' }; });
     saveLS(LS_MW, mwSave);
