@@ -74,6 +74,7 @@ body { min-height: 100vh; }
 
   var raw = { tasksEnriched: [], incidentsEnriched: [] };
   var savedAt = null;
+  var lastSavedAt = null; // controla re-render silencioso
   var view = 'welcome';
   var state = { regiao: 'TODAS', prioridades: [] };
 
@@ -97,13 +98,18 @@ body { min-height: 100vh; }
         if (!silencioso) root.innerHTML = '<div class="text-center py-20" style="color:var(--trj-muted)">Ainda não há nenhuma publicação.<br>Abra o Dashboard no painel principal pelo menos uma vez.</div>';
         return;
       }
+
+      var newSavedAt = json.savedAt || null;
+      var dadosMudaram = newSavedAt !== lastSavedAt;
+      lastSavedAt = newSavedAt;
+      savedAt = newSavedAt;
+
+      // Sempre atualizar raw (usado em drilldowns que podem abrir sob demanda)
       raw.tasksEnriched = json.data.tasksEnriched || [];
       raw.incidentsEnriched = json.data.incidentsEnriched || [];
-      raw.prazoMap = json.data.prazoMap || {};   // necessário para SLA/Aderência
-      savedAt = json.savedAt || null;
+      raw.prazoMap = json.data.prazoMap || {};
 
       // Sincronizar dados do mapa para o localStorage E para o objeto raw
-      // (raw é usado diretamente pelo renderMapaPublico, evitando race condition)
       function _lsSave(key, val) {
         try { if (val) localStorage.setItem(key, JSON.stringify(val)); } catch(e){}
       }
@@ -111,7 +117,6 @@ body { min-height: 100vh; }
         raw._mapaCoordMap = json.data.mapaCoordMap;
         _lsSave('trj_coordMap', json.data.mapaCoordMap);
       } else {
-        // Tentar recuperar do localStorage como fallback
         try { raw._mapaCoordMap = JSON.parse(localStorage.getItem('trj_coordMap') || 'null'); } catch(e){}
       }
       if (json.data.mapaMarkersSlim && json.data.mapaMarkersSlim.length) {
@@ -135,11 +140,18 @@ body { min-height: 100vh; }
       } else {
         try { raw._mapaFoData = JSON.parse(localStorage.getItem('trj_foData') || 'null'); } catch(e){}
       }
-      renderView();
-      // Se o usuário já estava na aba de mapa, re-renderizar com os dados novos
-      if (view === 'mapa' && root.querySelector('#trj-mapa-leaflet')) {
+
+      // Só re-renderizar se os dados mudaram de fato
+      if (!dadosMudaram && silencioso) return;
+
+      if (view === 'mapa') {
+        // Salvar posição/zoom antes de recriar o mapa
+        var prevCenter = TRJ._publicMapInstance ? TRJ._publicMapInstance.getCenter() : null;
+        var prevZoom   = TRJ._publicMapInstance ? TRJ._publicMapInstance.getZoom()   : null;
         root.innerHTML = '';
-        renderMapaPublico();
+        renderMapaPublico(prevCenter, prevZoom);
+      } else {
+        renderView();
       }
     } catch (e) {
       if (!silencioso) root.innerHTML = '<div class="text-center py-20" style="color:var(--trj-red)">Não foi possível carregar: ' + U.esc(e.message || String(e)) + '</div>';
@@ -154,8 +166,9 @@ body { min-height: 100vh; }
   }
 
   // ── Mapa Operacional (versão pública, sem botão de atualização) ────────────
-  function renderMapaPublico() {
+  function renderMapaPublico(prevCenter, prevZoom) {
     root.innerHTML = '';
+    TRJ._publicMapInstance = null; // limpa ref antiga
     var btnVoltarMapa = U.h('button', {
       class: 'trj-btn trj-btn-ghost clickable', text: '← Dashboard',
       onclick: function () { view = 'dashboard'; renderView(); }
@@ -167,7 +180,8 @@ body { min-height: 100vh; }
       TRJ.pages.mapa(mapaContainer, {
         data: raw,
         readOnly: true,
-        // Passar dados do mapa diretamente pelo contexto (evita depender só do localStorage)
+        prevCenter: prevCenter || null,
+        prevZoom:   prevZoom   || null,
         mapaCoordMap: raw._mapaCoordMap      || null,
         mapaMarkers:  raw._mapaMarkersSlim   || null,
         mapaMwData:   raw._mapaMwData        || null,
