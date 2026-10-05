@@ -62,15 +62,21 @@
     // Tenta extrair array JS pelo nome da vari\u00e1vel \u2014 suporta m\u00faltiplos formatos de fechamento
     function extractVar(name) {
       var patterns = [
-        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])\\s*;'),    // termina com ;
-        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])\\s*,'),    // termina com ,
-        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])\\s*\\n'),  // termina com nova linha
-        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])')          // qualquer coisa
+        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])\\s*;'),
+        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])\\s*,'),
+        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])\\s*\\n'),
+        new RegExp(name + '\\s*=\\s*(\\[[\\s\\S]*?\\])')
       ];
       for (var pi = 0; pi < patterns.length; pi++) {
         var m = htmlText.match(patterns[pi]);
         if (m) {
-          try { var r = JSON.parse(cleanJSON(m[1])); if (Array.isArray(r) && r.length) return r; } catch(e){}
+          try {
+            var r = JSON.parse(cleanJSON(m[1]));
+            if (Array.isArray(r) && r.length) return r;
+          } catch(e) {
+            console.warn('[Mapa] extractVar(' + name + ') pattern ' + pi + ' parse error:', e.message,
+                         'snippet:', cleanJSON(m[1]).slice(0, 100));
+          }
         }
       }
       return [];
@@ -79,9 +85,46 @@
     var markerData = extractVar('markerData');
     var mwData     = extractVar('mwData');
     var foData     = extractVar('foData');
-    // Log diagn\u00f3stico no console para verifica\u00e7\u00e3o
-    console.log('[Mapa] parseGenesis: markerData=' + markerData.length + ' mwData=' + mwData.length + ' foData=' + foData.length,
-                markerData.length ? markerData[0] : '(vazio)');
+
+    // \u2500\u2500 Fallback DOM-based: extrai todos arrays JSON de todas as <script> tags \u2500\u2500
+    // Usado quando as vari\u00e1veis t\u00eam nomes diferentes dos esperados
+    if (!markerData.length && !mwData.length) {
+      try {
+        var doc2 = new DOMParser().parseFromString(htmlText, 'text/html');
+        var scripts = doc2.querySelectorAll('script');
+        scripts.forEach(function(s) {
+          var src = s.textContent || '';
+          // Procura qualquer array de objetos que tenha NEName/Latitude/Longitude
+          var allArrays = src.match(/\[[\s\S]{20,}\]/g) || [];
+          allArrays.forEach(function(raw) {
+            if (markerData.length) return;
+            try {
+              var arr = JSON.parse(cleanJSON(raw));
+              if (!Array.isArray(arr) || !arr.length) return;
+              var first = arr[0];
+              if (first && (first.NEName || first.neName) && (first.Latitude || first.latitude || first.LAT_A)) {
+                markerData = arr;
+              }
+            } catch(e){}
+          });
+        });
+      } catch(e2) {}
+    }
+
+    // Diagn\u00f3stico \u2014 mostra no console e retorna no resultado para o handler exibir
+    var debugVars = [];
+    if (/markerData/.test(htmlText)) debugVars.push('markerData');
+    if (/mwData/.test(htmlText))     debugVars.push('mwData');
+    if (/foData/.test(htmlText))     debugVars.push('foData');
+    var debugInfo = {
+      varsFound: debugVars,
+      markerLen: markerData.length,
+      mwLen: mwData.length,
+      foLen: foData.length,
+      htmlLen: htmlText.length,
+      snippet: htmlText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
+    };
+    console.log('[Mapa] parseGenesis:', debugInfo, markerData.length ? markerData[0] : null);
 
     var coordMap = {};
 
@@ -123,7 +166,8 @@
     salvarMapaDados(coordMap, mwData, foData, markerData);
     return {
       coordMap: coordMap, mwData: mwData, foData: foData, markerData: markerData,
-      coordCount: Object.keys(coordMap).length, siteCount: markerData.length
+      coordCount: Object.keys(coordMap).length, siteCount: markerData.length,
+      debugInfo: debugInfo
     };
   }
   TRJ.mapaParseGenesis = parseGenesisParaMapa;
@@ -1300,11 +1344,23 @@
         var result = parseGenesisParaMapa(ev.target.result);
         coordMap = result.coordMap; mwData = result.mwData; foData = result.foData;
         mapaMarkers = result.markerData || [];
-        U.toast('Genesis: ' + result.siteCount + ' sites / ' + result.coordCount + ' coords importadas.', 'ok');
         fileInput.value = '';
-        // Persistir coordMap no servidor para que o dashboard público funcione em qualquer dispositivo
-        if (TRJ.api && TRJ.api.saveMapaCoords && result.coordCount > 0) {
-          TRJ.api.saveMapaCoords(result.coordMap).catch(function() {});
+        if (result.coordCount > 0) {
+          U.toast('Genesis: ' + result.siteCount + ' sites / ' + result.coordCount + ' coords importadas.', 'ok');
+          // Persistir coordMap no servidor
+          if (TRJ.api && TRJ.api.saveMapaCoords) {
+            TRJ.api.saveMapaCoords(result.coordMap).catch(function() {});
+          }
+        } else {
+          // Nenhuma coordenada encontrada — mostrar diagnóstico claro
+          var di = result.debugInfo || {};
+          var msg = 'ATENÇÃO: 0 coordenadas encontradas neste HTML.\n\n'
+            + 'Variáveis JS detectadas no arquivo: ' + (di.varsFound && di.varsFound.length ? di.varsFound.join(', ') : 'nenhuma') + '\n'
+            + 'Tamanho do arquivo: ' + (di.htmlLen || 0) + ' chars\n\n'
+            + 'Verifique se este é o HTML do MAPA do Genesis (não o de incidentes).\n'
+            + 'Primeiros caracteres do arquivo:\n' + (di.snippet || '');
+          alert(msg);
+          U.toast('Formato não reconhecido — 0 coords. Verifique se é o HTML correto.', 'err');
         }
         getLeaflet(function() {
           initMap();
