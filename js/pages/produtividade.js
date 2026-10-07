@@ -50,6 +50,13 @@
     return p.length >= 3 ? p[2] + '/' + p[1] : isoDate;
   }
 
+  // Converte qualquer valor de data/hora para timestamp ms (null se inválido)
+  function toTs(v) {
+    if (!v) return null;
+    var dt = (v instanceof Date) ? v : new Date(v);
+    return isNaN(dt.getTime()) ? null : dt.getTime();
+  }
+
   function isConcluida(t) {
     var s = (t.status || '').toUpperCase();
     return s === 'CONCLUÍDA' || s === 'CONCLUIDA';
@@ -150,13 +157,17 @@
       var list = endClosures[eid].slice().sort(function (a, b) {
         return a.dia < b.dia ? -1 : 1;
       });
+      // Tipo 1: compara fimCalc do encerramento anterior com createdAt da nova TSK.
+      // Regra: nova TSK aberta em ≤72h do último encerramento = reincidência.
       for (var i = 1; i < list.length; i++) {
-        var gapMs  = new Date(list[i].dia).getTime() - new Date(list[i - 1].dia).getTime();
-        var gapDia = Math.round(gapMs / 864e5);
-        if (gapDia >= 1 && gapDia <= 7) {
+        var prevCloseTs  = toTs(list[i - 1].task.fimCalc);
+        var nextCreateTs = toTs(list[i].task.createdAt);
+        if (!prevCloseTs || !nextCreateTs) continue;
+        var gapH = (nextCreateTs - prevCloseTs) / 3600000;
+        if (gapH > 0 && gapH <= 72) {
           var d = list[i].dia;
           if (!reinciByDay[d]) reinciByDay[d] = [];
-          reinciByDay[d].push({ eid: eid, task: list[i].task, prevTask: list[i - 1].task, gap: gapDia });
+          reinciByDay[d].push({ eid: eid, task: list[i].task, prevTask: list[i - 1].task, gap: Math.round(gapH) });
         }
       }
     });
@@ -171,19 +182,26 @@
       eidsAbertos[eid].push(t);
     });
 
+    // Tipo 2: TSK aberta no backlog atual cujo createdAt é ≤72h após o último fimCalc do mesmo END_ID.
     Object.keys(eidsAbertos).forEach(function (eid) {
       if (!endClosures[eid]) return;
       var lastClosure = endClosures[eid].reduce(function (best, c) {
         return (!best || c.dia > best.dia) ? c : best;
       }, null);
-      if (!lastClosure || lastClosure.dia >= hoje) return; // ignora: sem fechamento anterior
-      var gapMs  = new Date(hoje).getTime() - new Date(lastClosure.dia).getTime();
-      var gapDia = Math.round(gapMs / 864e5);
-      if (gapDia >= 1 && gapDia <= 7) {
-        if (!reinciByDay[hoje]) reinciByDay[hoje] = [];
-        var jaEsta = reinciByDay[hoje].some(function (r) { return r.eid === eid; });
-        if (!jaEsta) {
-          reinciByDay[hoje].push({ eid: eid, task: eidsAbertos[eid][0], prevTask: lastClosure.task, gap: gapDia });
+      if (!lastClosure || lastClosure.dia >= hoje) return;
+      var prevCloseTs = toTs(lastClosure.task.fimCalc);
+      if (!prevCloseTs) return;
+      var jaEsta = (reinciByDay[hoje] || []).some(function (r) { return r.eid === eid; });
+      if (jaEsta) return;
+      for (var j = 0; j < eidsAbertos[eid].length; j++) {
+        var openT = eidsAbertos[eid][j];
+        var openCreateTs = toTs(openT.createdAt);
+        if (!openCreateTs) continue;
+        var gapH = (openCreateTs - prevCloseTs) / 3600000;
+        if (gapH > 0 && gapH <= 72) {
+          if (!reinciByDay[hoje]) reinciByDay[hoje] = [];
+          reinciByDay[hoje].push({ eid: eid, task: openT, prevTask: lastClosure.task, gap: Math.round(gapH) });
+          break;
         }
       }
     });
@@ -210,6 +228,33 @@
       };
     });
     return rows;
+  }
+
+  // ── Perda de prazo por hora do dia × prioridade ───────────────────
+  // Analisa todos os tasks (ativos FORA DO SLA + concluídos que excederam vencimento)
+  // e distribui por hora do vencimentoCalc, agrupando por prioridade.
+  function computarPerdaPorHora(tasks) {
+    var PRIOS = ['P1', 'P2', 'P3', 'P4', 'P5'];
+    var uniqueTasks = maisRecentePorTSK(tasks);
+    var byHourPrio = {};
+    PRIOS.forEach(function (p) { byHourPrio[p] = new Array(24).fill(0); });
+    byHourPrio['S/PRIO'] = new Array(24).fill(0);
+
+    var total = 0;
+    uniqueTasks.forEach(function (t) {
+      var isForaConcluida = isConcluida(t) && t.fimCalc && t.vencimentoCalc
+        && toTs(t.fimCalc) > toTs(t.vencimentoCalc);
+      var isForaAtivo = !isConcluida(t) && t.statusSla === 'FORA DO SLA' && t.vencimentoCalc;
+      if (!isForaConcluida && !isForaAtivo) return;
+      var dt = new Date(t.vencimentoCalc);
+      if (isNaN(dt.getTime())) return;
+      var hr  = dt.getHours();
+      var p   = ((t.prioridade || '').toUpperCase().trim()) || 'S/PRIO';
+      if (!byHourPrio[p]) byHourPrio[p] = new Array(24).fill(0);
+      byHourPrio[p][hr]++;
+      total++;
+    });
+    return { byHourPrio: byHourPrio, total: total };
   }
 
   // ── Hoje: backlog + encerramentos parciais ─────────────────────────
@@ -700,6 +745,61 @@
     _charts.push(c); return c;
   }
 
+  // ── Gráfico stacked bar: perda de prazo por hora × prioridade ─────
+  function chartPerdaPorHora(canvas, data) {
+    var PRIOS = ['P1', 'P2', 'P3', 'P4', 'P5', 'S/PRIO'];
+    var CORES  = { P1: '#e74c3c', P2: '#ff8c00', P3: '#f1c40f', P4: '#3498db', P5: '#9aa5b1', 'S/PRIO': '#7f8c8d' };
+    var labels = [];
+    for (var hr = 0; hr < 24; hr++) labels.push(('0' + hr).slice(-2) + 'h');
+
+    var datasets = PRIOS
+      .filter(function (p) {
+        return data.byHourPrio[p] && data.byHourPrio[p].some(function (v) { return v > 0; });
+      })
+      .map(function (p) {
+        return {
+          label: p,
+          data: data.byHourPrio[p] || new Array(24).fill(0),
+          backgroundColor: CORES[p] || '#9aa5b1',
+          borderColor: 'transparent',
+          borderRadius: 3,
+          maxBarThickness: 32
+        };
+      });
+
+    var c = new Chart(canvas, {
+      type: 'bar',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { stacked: true, ticks: { color: tickClr(), font: { size: 10 } }, grid: { color: gridClr() } },
+          y: { stacked: true, beginAtZero: true,
+               ticks: { color: tickClr(), font: { size: 11 }, stepSize: 1 },
+               grid: { color: gridClr() } }
+        },
+        plugins: {
+          legend: {
+            display: true,
+            labels: { color: tickClr(), font: { size: 11 }, boxWidth: 10, padding: 10 }
+          },
+          tooltip: Object.assign({}, TOOLTIP_STYLE, {
+            callbacks: {
+              title: function (ctx) { return 'Horário: ' + ctx[0].label; },
+              afterBody: function (ctx) {
+                var i = ctx[0].dataIndex;
+                var tot = datasets.reduce(function (s, ds) { return s + (ds.data[i] || 0); }, 0);
+                return ['Total neste horário: ' + tot + ' vencimento(s) perdido(s)'];
+              }
+            }
+          })
+        }
+      }
+    });
+    _charts.push(c);
+    return c;
+  }
+
   // ── Drills ────────────────────────────────────────────────────────
   function drillDia(dayData) {
     var tasks = dayData.tasks || [];
@@ -726,7 +826,7 @@
         ]),
         h('div', { style: { fontSize: '12px', color: 'var(--trj-muted)', lineHeight: '1.7' } }, [
           h('div', { text: 'Encerrado: ' + fmtDia(it.prevTask ? toIsoDay(it.prevTask.fimCalc) : '?') + '  (OS: ' + (it.prevTask && it.prevTask.osNumero || '—') + ')' }),
-          h('div', { text: 'Reincidência: ' + fmtDia(toIsoDay(it.task.fimCalc)) + '  (OS: ' + (it.task.osNumero || '—') + ')  — gap: ' + it.gap + ' dia(s)' })
+          h('div', { text: 'Reincidência: ' + fmtDia(toIsoDay(it.task.fimCalc || it.task.createdAt)) + '  (OS: ' + (it.task.osNumero || '—') + ')  — gap: ' + it.gap + 'h desde o encerramento anterior' })
         ])
       ]));
     });
@@ -943,6 +1043,36 @@
       rowEnc.appendChild(ccDon.card);
       areaEl.appendChild(rowEnc);
 
+      // Seção análise de prazos
+      var perdaData = computarPerdaPorHora(filteredTasks);
+      var hrCritico = '—';
+      var maxCount  = 0;
+      var hrTotais  = new Array(24).fill(0);
+      Object.keys(perdaData.byHourPrio).forEach(function (p) {
+        perdaData.byHourPrio[p].forEach(function (c, hr) { hrTotais[hr] += c; });
+      });
+      hrTotais.forEach(function (c, hr) {
+        if (c > maxCount) { maxCount = c; hrCritico = hr + 'h'; }
+      });
+      var prioMaisAfetada = '—';
+      var maxPrioTotal = 0;
+      Object.keys(perdaData.byHourPrio).forEach(function (p) {
+        var tot = perdaData.byHourPrio[p].reduce(function (a, b) { return a + b; }, 0);
+        if (tot > maxPrioTotal) { maxPrioTotal = tot; prioMaisAfetada = p; }
+      });
+      areaEl.appendChild(secTitle('ANÁLISE DE PRAZOS', '#e67e22'));
+      areaEl.appendChild(h('div', { class: 'grid gap-3 mb-4', style: { gridTemplateColumns: 'repeat(3,1fr)' } }, [
+        U.kpiCard({ label: 'Total Fora do Prazo', value: perdaData.total,
+          cor: perdaData.total > 0 ? '#e74c3c' : '#2ecc71', sub: 'tarefas com perda de SLA' }),
+        U.kpiCard({ label: 'Horário Crítico', value: hrCritico,
+          cor: '#e67e22', sub: maxCount > 0 ? maxCount + ' perdas nesse horário' : 'sem dados' }),
+        U.kpiCard({ label: 'Prioridade Mais Afetada', value: prioMaisAfetada,
+          cor: '#c0392b', sub: maxPrioTotal > 0 ? maxPrioTotal + ' perdas de SLA' : 'sem dados' })
+      ]));
+      var ccPerda = U.chartCard('PERDAS DE PRAZO POR HORÁRIO E PRIORIDADE', { hint: 'hora do vencimentoCalc das TSKs fora do SLA' });
+      ccPerda.card.style.minHeight = '300px';
+      areaEl.appendChild(ccPerda.card);
+
       // Seção diário de trabalho (substitui CCI × Campo)
       var diarioData = computarDiarioP(filteredTasks);
       areaEl.appendChild(secTitle('DIÁRIO DE TRABALHO', '#9b59b6'));
@@ -992,7 +1122,7 @@
 
       areaEl.appendChild(h('div', { class: 'grid gap-3 mb-4', style: { gridTemplateColumns: 'repeat(4,1fr)' } }, [
         U.kpiCard({ label: 'Reincidentes', value: totReinci,
-          cor: totReinci > 0 ? '#e74c3c' : '#2ecc71', sub: 'END_IDs voltaram em ≤7d' }),
+          cor: totReinci > 0 ? '#e74c3c' : '#2ecc71', sub: 'END_IDs voltaram em ≤72h' }),
         U.kpiCard({ label: 'Taxa de Reincidência', value: taxaReinci + '%',
           cor: parseFloat(taxaReinci) > 15 ? '#e74c3c' : '#ff8c00', sub: 'sobre o total encerrado' }),
         U.kpiCard({ label: 'Dias c/ Reincid.', value: diasComReinci, cor: '#3498db', sub: 'dias com ocorrência' }),
@@ -1050,6 +1180,7 @@
         if (diarioData.stats.length) chartMediaOsDiario(ccDonDiario.canvas, diarioData.stats);
         chartReinci(ccRei.canvas, diasData, drillReinci);
         if (prioDonutData.length) U.donutChart(ccPrio.canvas, prioDonutData);
+        if (perdaData.total > 0) chartPerdaPorHora(ccPerda.canvas, perdaData);
       }, 0);
     }
 
