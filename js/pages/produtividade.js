@@ -13,8 +13,9 @@
   var h    = U.h;
 
   var LS_KEY = 'trj_prod_hist_v1'; // localStorage key para histórico diário
-  var _charts = [];
-  var _state  = { periodo: 30, regiao: 'TODAS', prioridade: 'TODAS' };
+  var _charts    = [];
+  var _state     = { periodo: 30, regiao: 'TODAS', prioridade: 'TODAS' };
+  var _diarioData = null;  // referência viva ao último computarDiarioP — usada nos drills
 
   function destroyLocalCharts() {
     _charts.forEach(function (c) { try { c.destroy(); } catch (e) {} });
@@ -239,6 +240,7 @@
     var byHourPrio = {};
     PRIOS.forEach(function (p) { byHourPrio[p] = new Array(24).fill(0); });
     byHourPrio['S/PRIO'] = new Array(24).fill(0);
+    var tasksByHour = {};
 
     var total = 0;
     uniqueTasks.forEach(function (t) {
@@ -252,9 +254,11 @@
       var p   = ((t.prioridade || '').toUpperCase().trim()) || 'S/PRIO';
       if (!byHourPrio[p]) byHourPrio[p] = new Array(24).fill(0);
       byHourPrio[p][hr]++;
+      if (!tasksByHour[hr]) tasksByHour[hr] = [];
+      tasksByHour[hr].push(t);
       total++;
     });
-    return { byHourPrio: byHourPrio, total: total };
+    return { byHourPrio: byHourPrio, total: total, tasksByHour: tasksByHour };
   }
 
   // ── Hoje: backlog + encerramentos parciais ─────────────────────────
@@ -521,6 +525,12 @@
     if (hours < 24) return hours.toFixed(1) + 'h';
     return (hours / 24).toFixed(1) + 'd';
   }
+  function fmtHMP(dt) {
+    return ('0' + dt.getHours()).slice(-2) + ':' + ('0' + dt.getMinutes()).slice(-2);
+  }
+  function fmtDDMMP(dt) {
+    return ('0' + dt.getDate()).slice(-2) + '/' + ('0' + (dt.getMonth() + 1)).slice(-2);
+  }
 
   function computarDiarioP(tasks) {
     var stats = [], semDiario = 0, allGaps = [], totalEntradas = 0, authorCount = {};
@@ -539,7 +549,7 @@
       var avgGapH = gaps.length ? gaps.reduce(function (a, b) { return a + b; }, 0) / gaps.length : null;
       var lastDt = entries[entries.length - 1].dt;
       var horasSemUpd = Math.max(0, (Date.now() - lastDt.getTime()) / 3600000);
-      stats.push({ task: t, nEntries: entries.length, avgGapH: avgGapH, lastDt: lastDt, horasSemUpd: horasSemUpd });
+      stats.push({ task: t, entries: entries, nEntries: entries.length, avgGapH: avgGapH, lastDt: lastDt, horasSemUpd: horasSemUpd });
     });
     var avgGapGlobal = allGaps.length ? allGaps.reduce(function (a, b) { return a + b; }, 0) / allGaps.length : 0;
     var topAuthors = Object.keys(authorCount)
@@ -548,7 +558,7 @@
     return { stats: stats, semDiario: semDiario, totalEntradas: totalEntradas, allGaps: allGaps, avgGapH: avgGapGlobal, topAuthors: topAuthors };
   }
 
-  function chartHistoDiario(canvas, allGaps) {
+  function chartHistoDiario(canvas, allGaps, stats) {
     var buckets = [
       { label: '< 30min',  min: 0,   max: 0.5,      cor: '#2ecc71' },
       { label: '30min–1h', min: 0.5, max: 1,         cor: '#27ae60' },
@@ -577,7 +587,38 @@
           x: { ticks: { color: tickClr(), font: { size: 10 } }, grid: { color: gridClr() } },
           y: { ticks: { color: tickClr(), font: { size: 11 } }, grid: { color: gridClr() }, beginAtZero: true }
         },
-        plugins: { legend: { display: false }, tooltip: TOOLTIP_STYLE }
+        plugins: {
+          legend: { display: false },
+          tooltip: Object.assign({}, TOOLTIP_STYLE, {
+            callbacks: { afterLabel: function () { return 'Clique para ver as OSs'; } }
+          })
+        },
+        onClick: function (ev, els) {
+          if (!els || !els.length || !stats) return;
+          var bk = buckets[els[0].index];
+          var osInBucket = stats.filter(function (s) {
+            if (s.avgGapH === null) return false;
+            return s.avgGapH >= bk.min && s.avgGapH < bk.max;
+          });
+          if (!osInBucket.length) { U.toast('Sem OSs nesta faixa.', 'info'); return; }
+          var content = h('div', { style: { maxHeight: '65vh', overflowY: 'auto' } });
+          osInBucket.sort(function (a, b) { return b.avgGapH - a.avgGapH; }).forEach(function (s) {
+            var row = h('div', {
+              class: 'trj-card p-3 mb-2',
+              style: { display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' },
+              onclick: function () { abrirTimeline(s); }
+            }, [
+              h('span', { style: { color: '#ff8c00', fontWeight: '700', fontSize: '12px', minWidth: '120px' }, text: s.task.osNumero || '—' }),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px', flex: '1' }, text: s.task.status || '—' }),
+              h('span', { style: { fontSize: '11px', color: bk.cor, fontWeight: '600', minWidth: '50px', textAlign: 'right' }, text: fmtGapP(s.avgGapH) }),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: s.nEntries + ' entr.' })
+            ]);
+            row.addEventListener('mouseenter', function () { row.style.background = 'rgba(255,140,0,0.06)'; });
+            row.addEventListener('mouseleave', function () { row.style.background = ''; });
+            content.appendChild(row);
+          });
+          U.openModal('Intervalo ' + bk.label + ' — ' + osInBucket.length + ' OS(s)', content);
+        }
       }
     });
     _charts.push(c); return c;
@@ -585,22 +626,22 @@
 
   function chartMediaOsDiario(canvas, stats) {
     var b = [
-      { label: '< 1h',      count: 0, cor: '#2ecc71' },
-      { label: '1–2h',      count: 0, cor: '#3498db' },
-      { label: '2–4h',      count: 0, cor: '#f39c12' },
-      { label: '4–8h',      count: 0, cor: '#e67e22' },
-      { label: '8–24h',     count: 0, cor: '#e74c3c' },
-      { label: '> 24h',     count: 0, cor: '#c0392b' },
-      { label: '1 entrada', count: 0, cor: '#7f8c8d' }
+      { label: '< 1h',      count: 0, min: 0,   max: 1,        cor: '#2ecc71',  statsArr: [] },
+      { label: '1–2h',      count: 0, min: 1,   max: 2,        cor: '#3498db',  statsArr: [] },
+      { label: '2–4h',      count: 0, min: 2,   max: 4,        cor: '#f39c12',  statsArr: [] },
+      { label: '4–8h',      count: 0, min: 4,   max: 8,        cor: '#e67e22',  statsArr: [] },
+      { label: '8–24h',     count: 0, min: 8,   max: 24,       cor: '#e74c3c',  statsArr: [] },
+      { label: '> 24h',     count: 0, min: 24,  max: Infinity, cor: '#c0392b',  statsArr: [] },
+      { label: '1 entrada', count: 0, min: null, max: null,    cor: '#7f8c8d',  statsArr: [] }
     ];
     stats.forEach(function (s) {
-      if (s.avgGapH === null) { b[6].count++; return; }
-      if (s.avgGapH < 1)       b[0].count++;
-      else if (s.avgGapH < 2)  b[1].count++;
-      else if (s.avgGapH < 4)  b[2].count++;
-      else if (s.avgGapH < 8)  b[3].count++;
-      else if (s.avgGapH < 24) b[4].count++;
-      else                      b[5].count++;
+      if (s.avgGapH === null) { b[6].count++; b[6].statsArr.push(s); return; }
+      if (s.avgGapH < 1)       { b[0].count++; b[0].statsArr.push(s); }
+      else if (s.avgGapH < 2)  { b[1].count++; b[1].statsArr.push(s); }
+      else if (s.avgGapH < 4)  { b[2].count++; b[2].statsArr.push(s); }
+      else if (s.avgGapH < 8)  { b[3].count++; b[3].statsArr.push(s); }
+      else if (s.avgGapH < 24) { b[4].count++; b[4].statsArr.push(s); }
+      else                      { b[5].count++; b[5].statsArr.push(s); }
     });
     var c = new Chart(canvas, {
       type: 'doughnut',
@@ -613,7 +654,32 @@
         responsive: true, maintainAspectRatio: false, cutout: '62%',
         plugins: {
           legend: { position: 'bottom', labels: { color: tickClr(), font: { size: 10 }, boxWidth: 10, padding: 8 } },
-          tooltip: TOOLTIP_STYLE
+          tooltip: Object.assign({}, TOOLTIP_STYLE, {
+            callbacks: { afterLabel: function () { return 'Clique para ver as OSs'; } }
+          })
+        },
+        onClick: function (ev, els) {
+          if (!els || !els.length) return;
+          var seg = b[els[0].index];
+          if (!seg.statsArr.length) { U.toast('Sem OSs nesta faixa.', 'info'); return; }
+          var content = h('div', { style: { maxHeight: '65vh', overflowY: 'auto' } });
+          seg.statsArr.sort(function (a, b2) { return (b2.avgGapH || 0) - (a.avgGapH || 0); }).forEach(function (s) {
+            var row = h('div', {
+              class: 'trj-card p-3 mb-2',
+              style: { display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' },
+              onclick: function () { abrirTimeline(s); }
+            }, [
+              h('span', { style: { color: '#ff8c00', fontWeight: '700', fontSize: '12px', minWidth: '120px' }, text: s.task.osNumero || '—' }),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px', flex: '1' }, text: s.task.status || '—' }),
+              h('span', { style: { fontSize: '11px', color: seg.cor, fontWeight: '600', minWidth: '50px', textAlign: 'right' },
+                text: s.avgGapH != null ? fmtGapP(s.avgGapH) : '1 entr.' }),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: s.nEntries + ' entr.' })
+            ]);
+            row.addEventListener('mouseenter', function () { row.style.background = 'rgba(255,140,0,0.06)'; });
+            row.addEventListener('mouseleave', function () { row.style.background = ''; });
+            content.appendChild(row);
+          });
+          U.openModal('Intervalo médio ' + seg.label + ' — ' + seg.statsArr.length + ' OS(s)', content);
         }
       }
     });
@@ -682,7 +748,7 @@
   }
 
   // ── Gráfico horizontal: Top END_IDs reincidentes ───────────────────
-  function chartTopEids(canvas, topEids) {
+  function chartTopEids(canvas, topEids, eidItemsMap) {
     var c = new Chart(canvas, {
       type: 'bar',
       data: {
@@ -706,8 +772,42 @@
         plugins: {
           legend: { display: false },
           tooltip: Object.assign({}, TOOLTIP_STYLE, {
-            callbacks: { label: function (ctx) { return ' ' + ctx.parsed.x + ' ocorrência(s)'; } }
+            callbacks: {
+              label: function (ctx) { return ' ' + ctx.parsed.x + ' ocorrência(s) — clique para detalhar'; }
+            }
           })
+        },
+        onClick: function (ev, els) {
+          if (!els || !els.length || !eidItemsMap) return;
+          var eid = topEids[els[0].index].eid;
+          var items = eidItemsMap[eid] || [];
+          if (!items.length) return;
+          var content = h('div', { style: { maxHeight: '65vh', overflowY: 'auto' } });
+          items.forEach(function (it) {
+            var stat = _diarioData && _diarioData.stats.find(function (s) {
+              return s.task.osNumero && (s.task.osNumero === it.task.osNumero);
+            });
+            content.appendChild(h('div', {
+              class: 'trj-card p-3 mb-2',
+              style: { borderLeft: '3px solid ' + (it.task.prioridade === 'P1' ? '#e74c3c' : '#ff8c00') }
+            }, [
+              h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' } }, [
+                h('span', { style: { color: '#ff8c00', fontWeight: '700', fontSize: '12px' }, text: it.task.osNumero || '—' }),
+                it.task.prioridade ? h('span', { class: 'trj-badge', style: { background: 'rgba(231,76,60,.18)', color: '#e74c3c', fontSize: '11px' }, text: it.task.prioridade }) : null,
+                h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px', flex: '1' }, text: it.task.status || '—' }),
+                stat ? h('button', {
+                  class: 'trj-btn trj-btn-ghost',
+                  style: { fontSize: '10px', padding: '2px 8px' },
+                  text: 'Timeline',
+                  onclick: function () { abrirTimeline(stat); }
+                }) : null
+              ]),
+              h('div', { style: { fontSize: '11px', color: 'var(--trj-muted)' }, text:
+                'Encerrado: ' + fmtDia(it.prevTask ? toIsoDay(it.prevTask.fimCalc) : '?') +
+                '  →  Retornou em ' + it.gap + 'h' })
+            ]));
+          });
+          U.openModal('Reincidências — END_ID ' + eid + ' (' + items.length + 'x)', content);
         }
       }
     });
@@ -746,7 +846,7 @@
   }
 
   // ── Gráfico stacked bar: perda de prazo por hora × prioridade ─────
-  function chartPerdaPorHora(canvas, data) {
+  function chartPerdaPorHora(canvas, data, tasksByHour) {
     var PRIOS = ['P1', 'P2', 'P3', 'P4', 'P5', 'S/PRIO'];
     var CORES  = { P1: '#e74c3c', P2: '#ff8c00', P3: '#f1c40f', P4: '#3498db', P5: '#9aa5b1', 'S/PRIO': '#7f8c8d' };
     var labels = [];
@@ -789,10 +889,43 @@
               afterBody: function (ctx) {
                 var i = ctx[0].dataIndex;
                 var tot = datasets.reduce(function (s, ds) { return s + (ds.data[i] || 0); }, 0);
-                return ['Total neste horário: ' + tot + ' vencimento(s) perdido(s)'];
+                return ['Total: ' + tot + ' vencimento(s) perdido(s)', 'Clique para ver as OSs'];
               }
             }
           })
+        },
+        onClick: function (ev, els) {
+          if (!els || !els.length || !tasksByHour) return;
+          var hr = els[0].dataIndex;
+          var tasks = tasksByHour[hr] || [];
+          if (!tasks.length) { U.toast('Sem OSs com perda de prazo neste horário.', 'info'); return; }
+          var content = h('div', { style: { maxHeight: '65vh', overflowY: 'auto' } });
+          content.appendChild(h('div', { style: { padding: '8px 12px 10px', fontSize: '12px', color: 'var(--trj-muted)', borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: '8px' } }, [
+            h('span', { text: tasks.length + ' OS(s) com vencimento entre ' + ('0' + hr).slice(-2) + ':00 e ' + ('0' + hr).slice(-2) + ':59' })
+          ]));
+          tasks.forEach(function (t) {
+            var stat = _diarioData && _diarioData.stats.find(function (s) { return s.task.osNumero === t.osNumero; });
+            var isForaConcluida = isConcluida(t) && t.fimCalc && t.vencimentoCalc && toTs(t.fimCalc) > toTs(t.vencimentoCalc);
+            var cor = isForaConcluida ? '#9aa5b1' : '#e74c3c';
+            var row = h('div', {
+              class: 'trj-card p-3 mb-2',
+              style: { display: 'flex', alignItems: 'center', gap: '10px', cursor: stat ? 'pointer' : 'default' },
+              onclick: stat ? function (s) { return function () { abrirTimeline(s); }; }(stat) : null
+            }, [
+              h('span', { style: { color: '#ff8c00', fontWeight: '700', fontSize: '12px', minWidth: '120px' }, text: t.osNumero || '—' }),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px', flex: '1' }, text: t.status || '—' }),
+              t.prioridade ? h('span', { class: 'trj-badge', style: { background: 'rgba(231,76,60,.15)', color: cor, fontSize: '10px' }, text: t.prioridade }) : null,
+              h('span', { style: { fontSize: '11px', color: cor, fontWeight: '600', whiteSpace: 'nowrap' },
+                text: isForaConcluida ? 'Concluída fora' : 'Ativa fora' }),
+              stat ? h('span', { style: { color: 'var(--trj-muted)', fontSize: '12px', paddingLeft: '4px' }, text: '›' }) : null
+            ]);
+            if (stat) {
+              row.addEventListener('mouseenter', function () { row.style.background = 'rgba(255,140,0,0.06)'; });
+              row.addEventListener('mouseleave', function () { row.style.background = ''; });
+            }
+            content.appendChild(row);
+          });
+          U.openModal(('0' + hr).slice(-2) + 'h — Perdas de Prazo (' + tasks.length + ')', content);
         }
       }
     });
@@ -800,12 +933,104 @@
     return c;
   }
 
+  // ── Timeline de atualização de uma OS ────────────────────────────
+  function abrirTimeline(stat) {
+    if (!stat || !stat.entries || !stat.entries.length) {
+      U.toast('Sem entradas de diário para esta OS.', 'info'); return;
+    }
+    var entries = stat.entries;
+    var wrap = h('div', { style: { maxHeight: '68vh', overflowY: 'auto', padding: '6px 4px' } });
+
+    wrap.appendChild(h('div', { class: 'trj-card p-3 mb-4', style: { display: 'flex', gap: '24px', flexWrap: 'wrap', fontSize: '12px' } }, [
+      h('div', {}, [
+        h('div', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: 'ENTRADAS' }),
+        h('div', { style: { fontWeight: '700', fontSize: '14px' }, text: String(entries.length) })
+      ]),
+      h('div', {}, [
+        h('div', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: 'INTERVALO MÉDIO' }),
+        h('div', { style: { fontWeight: '700', fontSize: '14px' }, text: stat.avgGapH != null ? fmtGapP(stat.avgGapH) : '—' })
+      ]),
+      h('div', {}, [
+        h('div', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: 'ÚLTIMA ATUALIZ.' }),
+        h('div', { style: { fontWeight: '700', fontSize: '14px' }, text: fmtDDMMP(stat.lastDt) + ' ' + fmtHMP(stat.lastDt) })
+      ]),
+      h('div', {}, [
+        h('div', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: 'STATUS' }),
+        h('div', { style: { fontWeight: '700', fontSize: '14px' }, text: stat.task.status || '—' })
+      ])
+    ]));
+
+    entries.forEach(function (entry, i) {
+      var isFirst = i === 0, isLast = i === entries.length - 1;
+      var gapH = i > 0 ? (entry.dt - entries[i - 1].dt) / 3600000 : null;
+      var dotCor = isLast ? '#ff8c00' : isFirst ? '#2ecc71' : '#3498db';
+
+      if (gapH !== null && gapH >= 0 && gapH < 720) {
+        var gapCor = gapH > 8 ? '#e74c3c' : gapH > 4 ? '#f39c12' : 'var(--trj-muted)';
+        wrap.appendChild(h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 0 3px 18px' } }, [
+          h('div', { style: { width: '2px', height: '18px', background: 'rgba(255,140,0,0.25)', marginLeft: '5px' } }),
+          h('span', { style: { color: gapCor, fontSize: '11px', marginLeft: '10px', fontWeight: gapH > 4 ? '600' : '400' }, text: '+ ' + fmtGapP(gapH) })
+        ]));
+      }
+
+      var preview = entry.content.length > 300 ? entry.content.substring(0, 300) + '…' : entry.content;
+      preview = preview.replace(/<[^>]+>/g, '').replace(/\[code\][\s\S]*?\[\/code\]/g, '[...]').trim();
+
+      wrap.appendChild(h('div', { style: { display: 'flex', gap: '10px', alignItems: 'flex-start' } }, [
+        h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: '0' } }, [
+          h('div', { style: { width: '11px', height: '11px', borderRadius: '50%', background: dotCor, marginTop: '4px', flexShrink: '0', boxShadow: '0 0 0 2px ' + dotCor + '30' } })
+        ]),
+        h('div', { class: 'trj-card p-3', style: { flex: '1', fontSize: '12px', marginBottom: '0' } }, [
+          h('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: '5px', gap: '8px', flexWrap: 'wrap' } }, [
+            h('span', { style: { color: dotCor, fontWeight: '700' }, text: fmtDDMMP(entry.dt) + ' ' + fmtHMP(entry.dt) }),
+            h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px', textAlign: 'right' }, text: entry.author })
+          ]),
+          h('div', { style: { color: 'var(--trj-fg)', lineHeight: '1.55', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }, text: preview })
+        ])
+      ]));
+    });
+
+    U.openModal('Timeline — OS ' + (stat.task.osNumero || '?'), wrap);
+  }
+
   // ── Drills ────────────────────────────────────────────────────────
   function drillDia(dayData) {
     var tasks = dayData.tasks || [];
     if (!tasks.length) { U.toast('Sem detalhe de tasks disponível para este dia.', 'info'); return; }
-    var content = h('div', { style: { maxHeight: '65vh', overflowY: 'auto' } });
+    var content = h('div', { style: { maxHeight: '70vh', overflowY: 'auto' } });
     content.appendChild(U.taskTable(tasks, { modoResultado: true }));
+
+    // Se houver diário registrado para alguma das OSs do dia, exibir lista de timelines
+    var statsComDiario = !_diarioData ? [] : tasks.reduce(function (acc, t) {
+      var stat = _diarioData.stats.find(function (s) { return s.task.osNumero && s.task.osNumero === t.osNumero; });
+      if (stat && stat.entries && stat.entries.length) acc.push(stat);
+      return acc;
+    }, []);
+
+    if (statsComDiario.length) {
+      content.appendChild(h('div', { style: { padding: '12px 0 6px', fontSize: '12px', color: 'var(--trj-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' },
+        text: 'Timelines de Atualização (' + statsComDiario.length + ')' }));
+      statsComDiario.forEach(function (stat) {
+        var row = h('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px',
+                   background: 'rgba(255,140,0,0.04)', borderRadius: '6px', marginBottom: '4px', cursor: 'pointer' },
+          onclick: function () { abrirTimeline(stat); }
+        }, [
+          h('span', { style: { color: '#ff8c00', fontWeight: '700', fontSize: '12px', minWidth: '120px' }, text: stat.task.osNumero || '—' }),
+          h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px', flex: '1' }, text: stat.nEntries + ' entradas · última: ' + fmtDDMMP(stat.lastDt) + ' ' + fmtHMP(stat.lastDt) }),
+          h('button', {
+            class: 'trj-btn trj-btn-ghost',
+            style: { fontSize: '10px', padding: '2px 8px', flexShrink: '0' },
+            text: 'Ver timeline',
+            onclick: function (e) { e.stopPropagation(); abrirTimeline(stat); }
+          })
+        ]);
+        row.addEventListener('mouseenter', function () { row.style.background = 'rgba(255,140,0,0.09)'; });
+        row.addEventListener('mouseleave', function () { row.style.background = 'rgba(255,140,0,0.04)'; });
+        content.appendChild(row);
+      });
+    }
+
     U.openModal('Encerramentos em ' + dayData.label + ' (' + dayData.dia + ')', content, {
       onCopy: function () { return U.taskTableCopyText(tasks, 'Encerramentos ' + dayData.dia); }
     });
@@ -816,13 +1041,22 @@
     if (!items.length) { U.toast('Sem detalhe de reincidentes para este dia.', 'info'); return; }
     var content = h('div', { style: { maxHeight: '65vh', overflowY: 'auto' } });
     items.forEach(function (it) {
+      var stat = _diarioData && _diarioData.stats.find(function (s) {
+        return s.task.osNumero && (s.task.osNumero === it.task.osNumero || s.task.osNumero === (it.prevTask && it.prevTask.osNumero));
+      });
       content.appendChild(h('div', {
         class: 'trj-card p-3 mb-2',
         style: { borderLeft: '3px solid #ff8c00' }
       }, [
-        h('div', { class: 'flex items-center gap-3 mb-1' }, [
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' } }, [
           h('span', { class: 'font-bold text-sm', text: 'END_ID: ' + it.eid }),
-          it.task.prioridade ? h('span', { class: 'trj-badge', style: { background: 'rgba(231,76,60,.18)', color: '#e74c3c', fontSize: '11px' }, text: it.task.prioridade }) : null
+          it.task.prioridade ? h('span', { class: 'trj-badge', style: { background: 'rgba(231,76,60,.18)', color: '#e74c3c', fontSize: '11px' }, text: it.task.prioridade }) : null,
+          stat ? h('button', {
+            class: 'trj-btn trj-btn-ghost',
+            style: { fontSize: '10px', padding: '2px 8px', marginLeft: 'auto' },
+            text: 'Ver timeline',
+            onclick: function () { abrirTimeline(stat); }
+          }) : null
         ]),
         h('div', { style: { fontSize: '12px', color: 'var(--trj-muted)', lineHeight: '1.7' } }, [
           h('div', { text: 'Encerrado: ' + fmtDia(it.prevTask ? toIsoDay(it.prevTask.fimCalc) : '?') + '  (OS: ' + (it.prevTask && it.prevTask.osNumero || '—') + ')' }),
@@ -1075,6 +1309,7 @@
 
       // Seção diário de trabalho (substitui CCI × Campo)
       var diarioData = computarDiarioP(filteredTasks);
+      _diarioData = diarioData;
       areaEl.appendChild(secTitle('DIÁRIO DE TRABALHO', '#9b59b6'));
       var semUpdRisco = diarioData.stats.filter(function (s) { return s.horasSemUpd > 24; }).length;
       areaEl.appendChild(h('div', { class: 'grid gap-3 mb-4', style: { gridTemplateColumns: 'repeat(4,1fr)' } }, [
@@ -1130,15 +1365,17 @@
       ]));
 
       var rowRei = h('div', { class: 'grid gap-4 mb-4', style: { gridTemplateColumns: '1fr 260px' } });
-      var ccRei  = U.chartCard('REINCIDENTES POR DIA', { hint: 'END_ID normalizado → retornou em até 7 dias' });
+      var ccRei  = U.chartCard('REINCIDENTES POR DIA', { hint: 'END_ID retornou com nova TSK em ≤72h do último encerramento' });
       ccRei.card.style.minHeight = '260px';
 
       // Calcular top END_IDs e prioridades
-      var eidMap = {}, prioAgg = {};
+      var eidMap = {}, eidItemsMap = {}, prioAgg = {};
       var PRIO_COR = { P1: '#e74c3c', P2: '#ff8c00', P3: '#f1c40f', P4: '#3498db', P5: '#9aa5b1' };
       diasData.forEach(function (d) {
         (d.reinciItems || []).forEach(function (it) {
           eidMap[it.eid] = (eidMap[it.eid] || 0) + 1;
+          if (!eidItemsMap[it.eid]) eidItemsMap[it.eid] = [];
+          eidItemsMap[it.eid].push(it);
           var p = it.task.prioridade || 'S/PRIO';
           prioAgg[p] = (prioAgg[p] || 0) + 1;
         });
@@ -1161,7 +1398,7 @@
         rowTop.appendChild(ccTx.card);
         areaEl.appendChild(rowTop);
         setTimeout(function () {
-          chartTopEids(ccTop.canvas, topEids);
+          chartTopEids(ccTop.canvas, topEids, eidItemsMap);
           chartTaxaReinci(ccTx.canvas, diasData);
         }, 0);
       }
@@ -1176,11 +1413,11 @@
           { label: 'Dentro SLA', value: totDentro, cor: '#2ecc71' },
           { label: 'Fora SLA',   value: totFora,   cor: '#e74c3c' }
         ]);
-        if (diarioData.allGaps.length) chartHistoDiario(ccHistoDiario.canvas, diarioData.allGaps);
+        if (diarioData.allGaps.length) chartHistoDiario(ccHistoDiario.canvas, diarioData.allGaps, diarioData.stats);
         if (diarioData.stats.length) chartMediaOsDiario(ccDonDiario.canvas, diarioData.stats);
         chartReinci(ccRei.canvas, diasData, drillReinci);
         if (prioDonutData.length) U.donutChart(ccPrio.canvas, prioDonutData);
-        if (perdaData.total > 0) chartPerdaPorHora(ccPerda.canvas, perdaData);
+        if (perdaData.total > 0) chartPerdaPorHora(ccPerda.canvas, perdaData, perdaData.tasksByHour);
       }, 0);
     }
 
