@@ -268,15 +268,20 @@
     var hoje = toIsoDay(new Date());
     var backlogTotal = 0, backlogVencendo = 0;
     var encHoje = 0, dentroHoje = 0, foraHoje = 0, cciHoje = 0, campoHoje = 0;
-    var tasksHoje = [];
+    var tasksHoje = [], backlogTasks = [], vencendoTasks = [];
     var now = Date.now();
 
     uniqueTasks.forEach(function (t) {
-      if (isBacklog(t)) {
+      // Backlog: mesma lógica do dashboard — apenas corretivas com dataCriacaoAS
+      if (isBacklog(t) && D.isTicketCorretiva(t.tipoAtividade) && !!t.dataCriacaoAS) {
         backlogTotal++;
+        backlogTasks.push(t);
         if (t.vencimentoCalc) {
           var ms = new Date(t.vencimentoCalc).getTime() - now;
-          if (ms > 0 && ms <= 390 * 60000) backlogVencendo++;
+          if (ms > 0 && ms <= 390 * 60000) {
+            backlogVencendo++;
+            vencendoTasks.push(t);
+          }
         }
       }
       if (isConcluida(t) && toIsoDay(t.fimCalc) === hoje) {
@@ -292,8 +297,8 @@
       total: encHoje, dentro: dentroHoje, fora: foraHoje,
       cci: cciHoje, campo: campoHoje, reinci: 0,
       backlog: backlogTotal, backlogVencendo: backlogVencendo,
-      tasks: tasksHoje, reinciItems: [],
-      tipo: 'HOJE'
+      tasks: tasksHoje, backlogTasks: backlogTasks, vencendoTasks: vencendoTasks,
+      reinciItems: [], tipo: 'HOJE'
     };
   }
 
@@ -356,6 +361,21 @@
 
   // ── Gráfico stacked: encerramentos por dia ─────────────────────────
   function chartEnc(canvas, diasData, onClickDia) {
+    var _lineActive = false;
+    // overlay semi-transparente para efeito de foco na linha SLA
+    var _overlayEl = null;
+    var _wrap = canvas.parentElement;
+    if (_wrap) {
+      _wrap.style.position = 'relative';
+      _overlayEl = document.createElement('div');
+      _overlayEl.style.cssText = [
+        'position:absolute', 'inset:0', 'border-radius:inherit',
+        'background:rgba(0,0,0,0.35)', 'backdrop-filter:blur(2px)',
+        '-webkit-backdrop-filter:blur(2px)', 'pointer-events:none',
+        'opacity:0', 'transition:opacity .25s'
+      ].join(';');
+      _wrap.appendChild(_overlayEl);
+    }
     // % dentro SLA por dia (linha pontilhada)
     var pctsDia = diasData.map(function (d) {
       return d.total > 0 ? parseFloat((d.dentro / d.total * 100).toFixed(1)) : null;
@@ -447,12 +467,36 @@
                   '🏢 CCI: ' + d.cci + '    🔧 Campo: ' + d.campo];
                 if (pct !== null) lines.push('SLA do dia: ' + pct + '%');
                 if (d.tipo === 'HOJE') lines.push('📋 Backlog: ' + (d.backlog || 0));
+                lines.push('');
+                lines.push(ctx[0].dataset.type === 'line' ? 'Clique para destacar a linha' : 'Clique para ver detalhes');
                 return lines;
               }
             }
           })
         },
-        onClick: function (ev, els) { if (els && els.length && onClickDia) onClickDia(diasData[els[0].dataIndex]); }
+        onHover: function (ev, els) {
+          var lineEl = els && els.find(function (el) { return el.datasetIndex === 2; });
+          ev.native.target.style.cursor = (els && els.length) ? 'pointer' : 'default';
+          if (lineEl) ev.native.target.style.cursor = 'pointer';
+        },
+        onClick: function (ev, els) {
+          if (!els || !els.length) return;
+          var lineEl = els.find(function (el) { return el.datasetIndex === 2; });
+          if (lineEl) {
+            // Linha % SLA clicada: toggle destaque
+            _lineActive = !_lineActive;
+            c.data.datasets[0].backgroundColor = _lineActive ? 'rgba(46,204,113,0.2)' : '#2ecc71';
+            c.data.datasets[1].backgroundColor = _lineActive ? 'rgba(231,76,60,0.2)'  : '#e74c3c';
+            c.data.datasets[2].borderWidth      = _lineActive ? 3    : 1.5;
+            c.data.datasets[2].borderColor      = _lineActive ? 'rgba(241,196,15,1)' : 'rgba(241,196,15,0.75)';
+            c.data.datasets[2].pointRadius      = _lineActive ? 6    : 4;
+            c.data.datasets[2].pointHoverRadius = _lineActive ? 8    : 6;
+            if (_overlayEl) _overlayEl.style.opacity = _lineActive ? '1' : '0';
+            c.update('none');
+          } else if (onClickDia) {
+            onClickDia(diasData[els[0].dataIndex]);
+          }
+        }
       }
     });
     _charts.push(c); return c;
@@ -1307,6 +1351,46 @@
       ccPerda.card.style.minHeight = '300px';
       areaEl.appendChild(ccPerda.card);
 
+      // Análise textual de perdas por bloco de horário (só quando filtrado por uma prioridade)
+      if (_state.prioridade !== 'TODAS' && perdaData.total > 0) {
+        var BLOCOS = [
+          { label: 'Madrugada (00–05h)', hrs: [0,1,2,3,4,5] },
+          { label: 'Manhã (06–11h)',     hrs: [6,7,8,9,10,11] },
+          { label: 'Tarde (12–17h)',     hrs: [12,13,14,15,16,17] },
+          { label: 'Noite (18–23h)',     hrs: [18,19,20,21,22,23] }
+        ];
+        var blocoTotals = BLOCOS.map(function (b) {
+          return { label: b.label, count: b.hrs.reduce(function (s, hr) { return s + (hrTotais[hr] || 0); }, 0) };
+        });
+        blocoTotals.sort(function (a, b) { return b.count - a.count; });
+        var textoLinhas = blocoTotals.map(function (b) {
+          var pct = (b.count / perdaData.total * 100).toFixed(0);
+          return b.label + ': ' + pct + '% (' + b.count + ' perda' + (b.count !== 1 ? 's' : '') + ')';
+        });
+        var hrPico = '';
+        var hrPicoCount = 0;
+        hrTotais.forEach(function (c, hr) { if (c > hrPicoCount) { hrPicoCount = c; hrPico = hr + 'h'; } });
+
+        var textCard = h('div', { class: 'trj-card p-4 mb-4', style: { borderLeft: '3px solid #e67e22' } }, [
+          h('div', { style: { fontWeight: '700', fontSize: '12px', color: '#e67e22', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' },
+            text: 'Análise de perdas — ' + _state.prioridade }),
+          h('div', { style: { fontSize: '13px', color: 'var(--trj-fg)', lineHeight: '2', display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: '2px 24px' } },
+            blocoTotals.map(function (b, i) {
+              var pct = (b.count / perdaData.total * 100).toFixed(0);
+              var cor = i === 0 ? '#e74c3c' : i === 1 ? '#ff8c00' : 'var(--trj-muted)';
+              return h('div', { style: { color: cor } },
+                [h('span', { style: { fontWeight: i === 0 ? '700' : '400' }, text: b.label + ':  ' }),
+                 h('span', { style: { fontWeight: '700' }, text: pct + '%' }),
+                 h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: '  (' + b.count + ')' })
+                ]);
+            })
+          ),
+          hrPicoCount > 0 ? h('div', { style: { marginTop: '8px', fontSize: '12px', color: 'var(--trj-muted)' },
+            text: 'Pico pontual às ' + hrPico + ' (' + hrPicoCount + ' perda' + (hrPicoCount !== 1 ? 's' : '') + ' nesse horário).' }) : null
+        ]);
+        areaEl.appendChild(textCard);
+      }
+
       // Seção diário de trabalho (substitui CCI × Campo)
       var diarioData = computarDiarioP(filteredTasks);
       _diarioData = diarioData;
@@ -1331,11 +1415,42 @@
       // Seção hoje (destaque)
       areaEl.appendChild(secTitle('HOJE (PARCIAL — ' + hoje.label + ')', '#3498db'));
       areaEl.appendChild(h('div', { class: 'grid gap-3 mb-5', style: { gridTemplateColumns: 'repeat(4,1fr)' } }, [
-        U.kpiCard({ label: 'Encerrados Hoje', value: hoje.total, cor: '#2ecc71', sub: pct(hoje.dentro, hoje.total) + '% dentro SLA' }),
-        U.kpiCard({ label: 'Backlog Ativo',  value: hoje.backlog, cor: '#3498db', sub: 'tarefas abertas agora' }),
-        U.kpiCard({ label: 'Vencendo em breve', value: hoje.backlogVencendo, cor: '#ff8c00', sub: 'próximas 6h30' }),
+        U.kpiCard({ label: 'Encerrados Hoje', value: hoje.total, cor: '#2ecc71', sub: pct(hoje.dentro, hoje.total) + '% dentro SLA',
+          onClick: function () {
+            if (!hoje.tasks || !hoje.tasks.length) { U.toast('Sem encerramentos hoje.', 'info'); return; }
+            var c = h('div', { style: { maxHeight: '70vh', overflowY: 'auto' } });
+            c.appendChild(U.taskTable(hoje.tasks, { modoResultado: true }));
+            U.openModal('Encerrados hoje (' + hoje.tasks.length + ')', c, { onCopy: function () { return U.taskTableCopyText(hoje.tasks, 'Encerrados ' + hoje.dia); } });
+          }
+        }),
+        U.kpiCard({ label: 'Backlog Ativo',  value: hoje.backlog, cor: '#3498db', sub: 'tarefas abertas agora',
+          onClick: function () {
+            if (!hoje.backlogTasks || !hoje.backlogTasks.length) { U.toast('Sem tarefas no backlog.', 'info'); return; }
+            var c = h('div', { style: { maxHeight: '70vh', overflowY: 'auto' } });
+            c.appendChild(U.taskTable(hoje.backlogTasks, { modoResultado: false }));
+            U.openModal('Backlog ativo (' + hoje.backlogTasks.length + ')', c, { onCopy: function () { return U.taskTableCopyText(hoje.backlogTasks, 'Backlog ' + hoje.dia); } });
+          }
+        }),
+        U.kpiCard({ label: 'Vencendo em breve', value: hoje.backlogVencendo, cor: '#ff8c00', sub: 'próximas 6h30',
+          onClick: function () {
+            if (!hoje.vencendoTasks || !hoje.vencendoTasks.length) { U.toast('Nenhuma tarefa vencendo nas próximas 6h30.', 'info'); return; }
+            var c = h('div', { style: { maxHeight: '70vh', overflowY: 'auto' } });
+            c.appendChild(U.taskTable(hoje.vencendoTasks, { modoResultado: false }));
+            U.openModal('Vencendo em breve (' + hoje.vencendoTasks.length + ')', c, { onCopy: function () { return U.taskTableCopyText(hoje.vencendoTasks, 'Vencendo ' + hoje.dia); } });
+          }
+        }),
         U.kpiCard({ label: 'CCI / Campo',
-          value: hoje.cci + ' / ' + hoje.campo, cor: '#ff8c00', sub: 'encerramentos do dia' })
+          value: hoje.cci + ' / ' + hoje.campo, cor: '#ff8c00', sub: 'encerramentos do dia',
+          onClick: function () {
+            if (!hoje.tasks || !hoje.tasks.length) { U.toast('Sem encerramentos hoje.', 'info'); return; }
+            var cciT = hoje.tasks.filter(function (t) { return D.classificarCciCampo(t.filaAtual) === 'CCI'; });
+            var camT = hoje.tasks.filter(function (t) { return D.classificarCciCampo(t.filaAtual) !== 'CCI'; });
+            var c = h('div', { style: { maxHeight: '70vh', overflowY: 'auto' } });
+            if (cciT.length) { c.appendChild(h('div', { style: { fontWeight: '700', color: '#3498db', padding: '4px 0 6px', fontSize: '12px', textTransform: 'uppercase' }, text: 'CCI (' + cciT.length + ')' })); c.appendChild(U.taskTable(cciT, { modoResultado: true })); }
+            if (camT.length) { c.appendChild(h('div', { style: { fontWeight: '700', color: '#ff8c00', padding: '12px 0 6px', fontSize: '12px', textTransform: 'uppercase' }, text: 'Campo (' + camT.length + ')' })); c.appendChild(U.taskTable(camT, { modoResultado: true })); }
+            U.openModal('CCI × Campo — hoje (' + hoje.tasks.length + ')', c);
+          }
+        })
       ]));
 
       // Backlog ao longo do tempo (se tiver histórico com backlog)
@@ -1355,57 +1470,69 @@
       var taxaReinci      = (totTotal > 0 ? totReinci / totTotal * 100 : 0).toFixed(1);
       var mediaDia        = diasComReinci > 0 ? (totReinci / diasComReinci).toFixed(1) : '0';
 
-      areaEl.appendChild(h('div', { class: 'grid gap-3 mb-4', style: { gridTemplateColumns: 'repeat(4,1fr)' } }, [
-        U.kpiCard({ label: 'Reincidentes', value: totReinci,
-          cor: totReinci > 0 ? '#e74c3c' : '#2ecc71', sub: 'END_IDs voltaram em ≤72h' }),
-        U.kpiCard({ label: 'Taxa de Reincidência', value: taxaReinci + '%',
-          cor: parseFloat(taxaReinci) > 15 ? '#e74c3c' : '#ff8c00', sub: 'sobre o total encerrado' }),
-        U.kpiCard({ label: 'Dias c/ Reincid.', value: diasComReinci, cor: '#3498db', sub: 'dias com ocorrência' }),
-        U.kpiCard({ label: 'Média por Dia',  value: mediaDia, cor: '#ff8c00', sub: 'reincid./dia ativo' })
-      ]));
+      if (totReinci === 0) {
+        areaEl.appendChild(h('div', { class: 'trj-card p-6 mb-5 text-center', style: { border: '1.5px solid rgba(46,204,113,0.35)' } }, [
+          h('div', { style: { fontSize: '28px', marginBottom: '6px' }, text: '✅' }),
+          h('div', { style: { fontWeight: '700', fontSize: '16px', color: '#2ecc71', marginBottom: '4px' }, text: 'Sem reincidências no período' }),
+          h('div', { style: { fontSize: '13px', color: 'var(--trj-muted)' }, text: 'Nenhum END_ID retornou com nova OS em até 72h dentro dos filtros selecionados.' })
+        ]));
+      } else {
+        areaEl.appendChild(h('div', { class: 'grid gap-3 mb-4', style: { gridTemplateColumns: 'repeat(4,1fr)' } }, [
+          U.kpiCard({ label: 'Reincidentes', value: totReinci,
+            cor: totReinci > 0 ? '#e74c3c' : '#2ecc71', sub: 'END_IDs voltaram em ≤72h' }),
+          U.kpiCard({ label: 'Taxa de Reincidência', value: taxaReinci + '%',
+            cor: parseFloat(taxaReinci) > 15 ? '#e74c3c' : '#ff8c00', sub: 'sobre o total encerrado' }),
+          U.kpiCard({ label: 'Dias c/ Reincid.', value: diasComReinci, cor: '#3498db', sub: 'dias com ocorrência' }),
+          U.kpiCard({ label: 'Média por Dia',  value: mediaDia, cor: '#ff8c00', sub: 'reincid./dia ativo' })
+        ]));
 
-      var rowRei = h('div', { class: 'grid gap-4 mb-4', style: { gridTemplateColumns: '1fr 260px' } });
-      var ccRei  = U.chartCard('REINCIDENTES POR DIA', { hint: 'END_ID retornou com nova TSK em ≤72h do último encerramento' });
-      ccRei.card.style.minHeight = '260px';
+        var rowRei = h('div', { class: 'grid gap-4 mb-4', style: { gridTemplateColumns: '1fr 260px' } });
+        var ccRei  = U.chartCard('REINCIDENTES POR DIA', { hint: 'END_ID retornou com nova TSK em ≤72h do último encerramento' });
+        ccRei.card.style.minHeight = '260px';
 
-      // Calcular top END_IDs e prioridades
-      var eidMap = {}, eidItemsMap = {}, prioAgg = {};
-      var PRIO_COR = { P1: '#e74c3c', P2: '#ff8c00', P3: '#f1c40f', P4: '#3498db', P5: '#9aa5b1' };
-      diasData.forEach(function (d) {
-        (d.reinciItems || []).forEach(function (it) {
-          eidMap[it.eid] = (eidMap[it.eid] || 0) + 1;
-          if (!eidItemsMap[it.eid]) eidItemsMap[it.eid] = [];
-          eidItemsMap[it.eid].push(it);
-          var p = it.task.prioridade || 'S/PRIO';
-          prioAgg[p] = (prioAgg[p] || 0) + 1;
+        // Calcular top END_IDs e prioridades
+        var eidMap = {}, eidItemsMap = {}, prioAgg = {};
+        var PRIO_COR = { P1: '#e74c3c', P2: '#ff8c00', P3: '#f1c40f', P4: '#3498db', P5: '#9aa5b1' };
+        diasData.forEach(function (d) {
+          (d.reinciItems || []).forEach(function (it) {
+            eidMap[it.eid] = (eidMap[it.eid] || 0) + 1;
+            if (!eidItemsMap[it.eid]) eidItemsMap[it.eid] = [];
+            eidItemsMap[it.eid].push(it);
+            var p = it.task.prioridade || 'S/PRIO';
+            prioAgg[p] = (prioAgg[p] || 0) + 1;
+          });
         });
-      });
-      var ccPrio = U.chartCard('REINCID. POR PRIORIDADE', { small: true });
-      rowRei.appendChild(ccRei.card);
-      rowRei.appendChild(ccPrio.card);
-      areaEl.appendChild(rowRei);
+        var ccPrio = U.chartCard('REINCID. POR PRIORIDADE', { small: true });
+        rowRei.appendChild(ccRei.card);
+        rowRei.appendChild(ccPrio.card);
+        areaEl.appendChild(rowRei);
 
-      var topEids = Object.keys(eidMap).map(function (e) { return { eid: e, count: eidMap[e] }; })
-        .sort(function (a, b) { return b.count - a.count; }).slice(0, 10);
+        var topEids = Object.keys(eidMap).map(function (e) { return { eid: e, count: eidMap[e] }; })
+          .sort(function (a, b) { return b.count - a.count; }).slice(0, 10);
 
-      if (topEids.length) {
-        var rowTop = h('div', { class: 'grid gap-4 mb-4', style: { gridTemplateColumns: '1fr 1fr' } });
-        var ccTop  = U.chartCard('TOP END_IDs MAIS REINCIDENTES', { hint: '🔴 ≥3x · 🟠 2x · 🟡 1x' });
-        ccTop.card.style.minHeight = '260px';
-        var ccTx   = U.chartCard('TAXA DE REINCIDÊNCIA % / DIA', {});
-        ccTx.card.style.minHeight = '260px';
-        rowTop.appendChild(ccTop.card);
-        rowTop.appendChild(ccTx.card);
-        areaEl.appendChild(rowTop);
+        if (topEids.length) {
+          var rowTop = h('div', { class: 'grid gap-4 mb-4', style: { gridTemplateColumns: '1fr 1fr' } });
+          var ccTop  = U.chartCard('TOP END_IDs MAIS REINCIDENTES', { hint: '🔴 ≥3x · 🟠 2x · 🟡 1x' });
+          ccTop.card.style.minHeight = '260px';
+          var ccTx   = U.chartCard('TAXA DE REINCIDÊNCIA % / DIA', {});
+          ccTx.card.style.minHeight = '260px';
+          rowTop.appendChild(ccTop.card);
+          rowTop.appendChild(ccTx.card);
+          areaEl.appendChild(rowTop);
+          setTimeout(function () {
+            chartTopEids(ccTop.canvas, topEids, eidItemsMap);
+            chartTaxaReinci(ccTx.canvas, diasData);
+          }, 0);
+        }
+
+        var prioDonutData = Object.keys(prioAgg).sort().map(function (p) {
+          return { label: p, value: prioAgg[p], cor: PRIO_COR[p] || '#9aa5b1' };
+        });
         setTimeout(function () {
-          chartTopEids(ccTop.canvas, topEids, eidItemsMap);
-          chartTaxaReinci(ccTx.canvas, diasData);
+          chartReinci(ccRei.canvas, diasData, drillReinci);
+          if (prioDonutData.length) U.donutChart(ccPrio.canvas, prioDonutData);
         }, 0);
-      }
-
-      var prioDonutData = Object.keys(prioAgg).sort().map(function (p) {
-        return { label: p, value: prioAgg[p], cor: PRIO_COR[p] || '#9aa5b1' };
-      });
+      } // fim else totReinci > 0
 
       setTimeout(function () {
         chartEnc(ccEnc.canvas, diasData, drillDia);
@@ -1415,8 +1542,6 @@
         ]);
         if (diarioData.allGaps.length) chartHistoDiario(ccHistoDiario.canvas, diarioData.allGaps, diarioData.stats);
         if (diarioData.stats.length) chartMediaOsDiario(ccDonDiario.canvas, diarioData.stats);
-        chartReinci(ccRei.canvas, diasData, drillReinci);
-        if (prioDonutData.length) U.donutChart(ccPrio.canvas, prioDonutData);
         if (perdaData.total > 0) chartPerdaPorHora(ccPerda.canvas, perdaData, perdaData.tasksByHour);
       }, 0);
     }

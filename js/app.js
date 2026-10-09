@@ -265,6 +265,19 @@
         } else {
           validMap = {};
         }
+      } else if (ids.length) {
+        // Cache hit: busca delta — apenas IDs novos ausentes do cache (não invalida o TTL)
+        var _missingIds = ids.filter(function (id) { return !validMap[id]; });
+        if (_missingIds.length) {
+          try {
+            var _lkD = await TRJ.api.lookupCities(_missingIds);
+            if (_lkD && _lkD.map && Object.keys(_lkD.map).length) {
+              validMap = Object.assign({}, validMap, _lkD.map);
+              _vmapSave(validMap);
+              validMapFromCache = false;
+            }
+          } catch (e) { /* delta falhou: usa cache parcial */ }
+        }
       }
       var now = new Date();
       App.data = {
@@ -436,6 +449,19 @@
             validMapErr = e.message || 'Falha ao buscar mapeamento.';
           }
         } else { validMap = {}; }
+      } else if (ids.length) {
+        // Cache hit: busca delta — apenas IDs novos ausentes do cache (não invalida o TTL)
+        var _missingIds = ids.filter(function (id) { return !validMap[id]; });
+        if (_missingIds.length) {
+          try {
+            var _lkD = await TRJ.api.lookupCities(_missingIds);
+            if (_lkD && _lkD.map && Object.keys(_lkD.map).length) {
+              validMap = Object.assign({}, validMap, _lkD.map);
+              _vmapSave(validMap);
+              validMapFromCache = false;
+            }
+          } catch (e) { /* delta falhou: usa cache parcial */ }
+        }
       }
 
       mostrarProgresso(3);
