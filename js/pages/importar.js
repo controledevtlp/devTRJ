@@ -262,7 +262,6 @@
           try {
             U.loading(true, 'Lendo planilha...');
             var r = await FS.readManualFiles(validos, function (msg) { U.loading(true, msg); });
-            app.invalidateValidMap && app.invalidateValidMap();
             await app.refresh(true);
             U.toast(r.total + ' tarefa(s) total após atualização.', 'ok');
             app.render();
@@ -314,7 +313,6 @@
           try {
             U.loading(true, 'Verificando pasta...');
             var r = await FS.scanFolder(function (msg) { U.loading(true, msg); });
-            app.invalidateValidMap && app.invalidateValidMap();
             await app.refresh(true);
             U.toast(r.unchanged ? 'Sem novidades — já está atualizado.' : (r.total + ' tarefa(s) carregada(s).'), 'ok');
             app.render();
