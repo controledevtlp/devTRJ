@@ -25,7 +25,7 @@
 
   // Endereço da Ponte TRJ local (ver ponte_trj.py). Só funciona com o
   // servidor local rodando e a VPN da empresa conectada.
-  var PONTE_URL = 'http://localhost:5057/api/incidentes';
+  var PONTE_URL = 'http://localhost:5057/api/trj/incidentes';
 
   // Processa um texto/HTML do G.E.N.E.S.I.S e atualiza os incidentes.
   // Importante: salva SEMPRE os incidentes completos (não agrupados) — o
@@ -223,7 +223,7 @@
 
       // Status atual do slot
       if (si) {
-        var nomeCurto = si.nome.replace(/Atividades-TRJ_FMMT_?/i, '').replace(/\.xlsx?$/i, '') || si.nome;
+        var nomeCurto = si.nome.replace(/Atividades-TRJ_FMMT_?/i, '').replace(/\.(xlsx?|csv)$/i, '') || si.nome;
         card.appendChild(U.h('div', {
           class: 'flex items-center gap-2 p-2 rounded',
           style: { background: 'rgba(46,204,113,.08)', border: '1px solid rgba(46,204,113,.25)', fontSize: '12px' }
@@ -241,8 +241,8 @@
       var dz = U.dropzone({
         icon: si ? '🔄' : '📂',
         title: si ? 'Atualizar este arquivo' : 'Arraste o arquivo aqui',
-        sub: 'ou clique para selecionar — <b>' + opts.filtroLabel + '</b> (.xlsx)',
-        accept: '.xlsx,.xls', multiple: false,
+        sub: 'ou clique para selecionar — <b>' + opts.filtroLabel + '</b> (.xlsx ou .csv)',
+        accept: '.xlsx,.xls,.csv', multiple: false,
         statusOk: false,
         onFile: async function (files) {
           // Normaliza para array (o dropzone pode passar File único ou FileList)

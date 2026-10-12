@@ -66,7 +66,7 @@
   var RE_TLP_A    = /TLP-T\d+-([^-\r\n]{3,60}?)\s*-\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/g;
   var RE_DTNAME_A = /(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}(?::\d{2})?)\s*-\s*([^\r\n]{5,80})/g;
   var RE_TS_A     = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?|\d{4}[\/\-]\d{2}[\/\-]\d{2}\s+\d{1,2}:\d{2}(?::\d{2})?|\d{1,2}[\/\-]\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?|\d{1,2}:\d{2}(?::\d{2})?)/g;
-  var RE_BOT_A = /^(?:MONITOR\s*CCI|WFM\s*Agent|isoc_fixa|[Aa]utoma[çc][aã]o|Sistema\s*autom|System\b|Raio-X|dsoc_[a-z_]|taischatbot|\w+chatbot)|\(anota/i;
+  var RE_BOT_A = /^(?:MONITOR\s*CCI|WFM\s*Agent|isoc_fixa|[Aa]utoma[çc][aã]o|Sistema\s*autom|System\b|Raio-X|dsoc_[a-z_]|taischatbot|\w+chatbot)/i;
 
   function parseTlpEntriesA(texto) {
     if (!texto) return [];
@@ -78,8 +78,10 @@
     }
     RE_DTNAME_A.lastIndex = 0;
     while ((m = RE_DTNAME_A.exec(texto)) !== null) {
-      var nome = m[2].trim();
-      if (RE_BOT_A.test(nome)) continue;
+      // Remove sufixo "(Anotações de trabalho)" antes de checar bot — a plataforma
+      // acrescenta esse sufixo a TODOS os autores, inclusive humanos.
+      var nome = m[2].trim().replace(/\s*\([Aa]nota[çc][õo]es\s+de\s+trabalho\)/i, '').trim();
+      if (!nome || RE_BOT_A.test(nome)) continue;
       var p2 = m[1].trim().match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
       if (!p2) continue;
       var dt2 = new Date(+p2[3], +p2[2]-1, +p2[1], +p2[4], +p2[5], p2[6]?+p2[6]:0);

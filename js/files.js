@@ -72,12 +72,23 @@
   }
   function dtv(v) {
     if (v == null || v === '') return null;
-    if (v instanceof Date) return isNaN(v.getTime()) ? null : v.toISOString();
+    // XLSX.js codifica seriais de data como UTC "clock values": o serial que
+    // representa "08:02 local" vira um Date cujo UTC é 08:02, não o UTC real.
+    // Extraindo via getUTC* e montando sem "Z" (local ISO), new Date() e
+    // parsePlatformDate interpretam o valor como horário local, igual ao CSV.
+    var p2 = function (n) { return String(n).padStart(2, '0'); };
+    if (v instanceof Date) {
+      if (isNaN(v.getTime())) return null;
+      return v.getUTCFullYear() + '-' + p2(v.getUTCMonth() + 1) + '-' + p2(v.getUTCDate())
+        + 'T' + p2(v.getUTCHours()) + ':' + p2(v.getUTCMinutes()) + ':' + p2(v.getUTCSeconds());
+    }
     if (typeof v === 'number') {
       // serial do Excel -> data (epoch 1899-12-30)
       var ms = Math.round((v - 25569) * 86400 * 1000);
       var d = new Date(ms);
-      return isNaN(d.getTime()) ? null : d.toISOString();
+      if (isNaN(d.getTime())) return null;
+      return d.getUTCFullYear() + '-' + p2(d.getUTCMonth() + 1) + '-' + p2(d.getUTCDate())
+        + 'T' + p2(d.getUTCHours()) + ':' + p2(d.getUTCMinutes()) + ':' + p2(d.getUTCSeconds());
     }
     var s = String(v).trim();
     if (!s || JUNK[s.toLowerCase()]) return null;
@@ -91,11 +102,23 @@
   }
 
   // ------------------------------------------------------------------
-  // 2) PARSE de um arquivo .xlsx em memória -> lista de tarefas
+  // 2) PARSE de um arquivo .xlsx ou .csv em memória -> lista de tarefas
   // ------------------------------------------------------------------
-  function parseArrayBuffer(buf) {
+  function parseArrayBuffer(buf, fileName) {
     if (typeof XLSX === 'undefined') throw new Error('Biblioteca de leitura de Excel não carregou. Recarregue a página.');
-    var wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    var wb;
+    if (/\.csv$/i.test(fileName || '')) {
+      // CSV: decodifica como texto (UTF-8 → fallback Windows-1252) e deixa
+      // o XLSX.js parsear; datas chegam como strings, numv/dtv tratam normalmente.
+      var uint8 = new Uint8Array(buf);
+      var text;
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(uint8); }
+      catch (e) { text = new TextDecoder('windows-1252').decode(uint8); }
+      text = text.replace(/^﻿/, ''); // remove BOM
+      wb = XLSX.read(text, { type: 'string' });
+    } else {
+      wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    }
     var ws = wb.Sheets[wb.SheetNames[0]];
     if (!ws) return [];
     var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
@@ -124,9 +147,10 @@
     return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   }
   function isExcelName(name) { return /\.xlsx?$/i.test(name || ''); }
+  function isCsvName(name)   { return /\.csv$/i.test(name || ''); }
   function isAtividadesFile(name) {
     var n = norm(name);
-    return isExcelName(name) && n.indexOf('atividades-trj_fmmt') >= 0;
+    return (isExcelName(name) || isCsvName(name)) && n.indexOf('atividades-trj_fmmt') >= 0;
   }
   function isNaoAgendada(name) {
     var n = norm(name);
@@ -343,7 +367,7 @@
 
     // Processar cada arquivo encontrado e atualizar só o tipo correspondente
     for (var i = 0; i < chosen.length; i++) {
-      var parsed = parseArrayBuffer(buffers[i]);
+      var parsed = parseArrayBuffer(buffers[i], chosen[i].name);
       var slotMeta = { nome: chosen[i].name, qtd: parsed.length, em: new Date().toISOString() };
       arquivos.push({ nome: chosen[i].name, qtd: parsed.length });
       if (chosen[i].naoAgendada) {
@@ -464,8 +488,8 @@
   // ------------------------------------------------------------------
   F.readManualFiles = async function (fileList, onProgress) {
     var files = Array.prototype.slice.call(fileList || []);
-    var xls = files.filter(function (f) { return isExcelName(f.name); });
-    if (!xls.length) throw new Error('Selecione um ou mais arquivos .xlsx (Atividades-TRJ_FMMT).');
+    var xls = files.filter(function (f) { return isExcelName(f.name) || isCsvName(f.name); });
+    if (!xls.length) throw new Error('Selecione um ou mais arquivos .xlsx ou .csv (Atividades-TRJ_FMMT).');
     var matches = xls.map(function (f) {
       return { name: f.name, file: f, naoAgendada: isNaoAgendada(f.name), key: dateKey(f.name, f.lastModified) };
     });
@@ -510,7 +534,7 @@
 
   F.previewFile = async function (file) {
     var buf = await file.arrayBuffer();
-    var parsed = parseArrayBuffer(buf);
+    var parsed = parseArrayBuffer(buf, file.name);
     return { total: parsed.length, amostra: parsed.slice(0, 5) };
   };
 
