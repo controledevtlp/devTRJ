@@ -635,13 +635,16 @@
   // ---------- Tabela de tasks (drill) ----------
   // opts.modoResultado = true  → última coluna mostra "Dentro SLA / Fora SLA" (concluídas)
   // opts.modoCancelamento = true → última coluna mostra "Automação / Associação" (canceladas)
+  // opts.modoGmg = true → coluna "P" mostra habilidadeTrabalho (confirma que é GMG)
   // sem flag → mostra tempo restante (backlog aberto)
   U.taskTable = function (rows, opts) {
     opts = opts || {};
     var modoResultado = opts.modoResultado;
     var modoCancelamento = opts.modoCancelamento;
+    var modoGmg = opts.modoGmg;
     var colLabel = modoCancelamento ? 'Tipo Cancelamento' : (modoResultado ? 'Resultado SLA' : 'Vencimento');
-    var thead = h('thead', null, h('tr', null, ['Região', 'TSK', 'Site', 'Cidade', 'Falha', 'P', 'Criação NTT', colLabel].map(function (t) { return h('th', { text: t }); })));
+    var colP = modoGmg ? 'Habilidade' : 'P';
+    var thead = h('thead', null, h('tr', null, ['Região', 'TSK', 'Site', 'Cidade', 'Falha', colP, 'Criação NTT', colLabel].map(function (t) { return h('th', { text: t }); })));
     var body = rows.slice(0, 1000).map(function (t) {
       var lastCell;
       if (modoCancelamento) lastCell = U.cancelamentoBadge(t);
@@ -652,13 +655,14 @@
       // não como dezembro 6 (US) que new Date() faria.
       var rawNTT = t.dataCriacaoAS || t.dataCriacao;
       var dtNTT = rawNTT ? (D.parsePlatformDate ? D.parsePlatformDate(rawNTT) : null) : null;
+      var pCell = modoGmg ? (t.habilidadeTrabalho || '—') : (t.prioridade || '—');
       return h('tr', null, [
         h('td', { text: C.REGIAO_LABELS[t.regiao] || t.regiao || '—' }),
         h('td', { text: t.osNumero || '—' }),
         h('td', { text: t.siteId || t.enderecoId || '—' }),
         h('td', { text: t.cidade || '—' }),
         h('td', { text: t.tipoFalha || '—' }),
-        h('td', { text: t.prioridade || '—' }),
+        h('td', { text: pCell }),
         h('td', { text: dtNTT ? D.formatarDataCompacta(dtNTT) : '—' }),
         h('td', null, lastCell)
       ]);

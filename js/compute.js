@@ -592,7 +592,7 @@
         if (!lado3) return list.filter(function (t) { return t.statusSla === 'DENTRO DO SLA' || t.statusSla === 'FORA DO SLA'; });
         return list.filter(function (t) { return t.statusSla === (lado3 === 'fora' ? 'FORA DO SLA' : 'DENTRO DO SLA'); });
       }
-      case 'gmg': return sortRegiaoP(ticketsDedup.filter(function (t) {
+      case 'gmg': return sortRegiaoP(D.dedupPorTsk(tickets).filter(function (t) {
         var s = (t.status || '').trim().toUpperCase();
         if (s !== 'NÃO INICIADO' && s !== 'NAO INICIADO' && s !== 'INICIADO') return false;
         return (t.habilidadeTrabalho || '').toUpperCase().indexOf('GMG') >= 0;

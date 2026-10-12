@@ -83,7 +83,7 @@
       { label: 'Preditiva', value: U.fmtNum(K.preditiva), cor: C.CORES_TRJ.orange, spec: { tipo: 'preditiva' }, t: 'Atividades preditivas' },
       { label: 'Produtividade (Concluídas)', value: U.fmtNum(K.produtividade), cor: C.CORES_TRJ.green, spec: { tipo: 'produtividade' }, opts: { modoResultado: true }, t: 'TSKs concluídas' },
       { label: 'SLA Geral (Concluídas)', value: U.fmtPct(K.slaGeral), cor: C.CORES_TRJ.green, spec: { tipo: 'produtividade' }, opts: { modoResultado: true }, t: 'TSKs concluídas — % dentro do prazo' },
-      { label: 'GMG (Faturável)', value: U.fmtNum(K.gmg), cor: C.CORES_TRJ.orange2, spec: { tipo: 'gmg' }, t: 'Corretivas GMG no backlog (faturamento)' }
+      { label: 'GMG (Faturável)', value: U.fmtNum(K.gmg), cor: C.CORES_TRJ.orange2, spec: { tipo: 'gmg' }, opts: { modoGmg: true }, t: 'Corretivas GMG no backlog (faturamento)' }
     ];
     var kpiGrid = U.h('div', { class: 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3 mb-5' }, kpiDefs.map(function (k) {
       return U.kpiCard({ label: k.label, value: k.value, cor: k.cor, onClick: k.spec ? function (kk) { return function () { app.openDrillTasks(kk.spec, f, kk.t, kk.opts || {}); }; }(k) : null });
