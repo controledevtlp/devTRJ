@@ -66,7 +66,7 @@
   var RE_TLP_A    = /TLP-T\d+-([^-\r\n]{3,60}?)\s*-\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/g;
   var RE_DTNAME_A = /(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}(?::\d{2})?)\s*-\s*([^\r\n]{5,80})/g;
   var RE_TS_A     = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?|\d{4}[\/\-]\d{2}[\/\-]\d{2}\s+\d{1,2}:\d{2}(?::\d{2})?|\d{1,2}[\/\-]\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?|\d{1,2}:\d{2}(?::\d{2})?)/g;
-  var RE_BOT_A = /^(?:MONITOR\s*CCI|WFM\s*Agent|isoc_fixa|[Aa]utoma[çc][aã]o|Sistema\s*autom|System\b|Raio-X|dsoc_[a-z_]|taischatbot|\w+chatbot)/i;
+  var RE_BOT_A = /^(?:MONITOR\s*CCI|WFM\s*Agent|isoc_fixa|[Aa]utoma[çc][aã]o|Sistema\s*autom|System|Tentativa\s+\d+|Raio-X|dsoc_[a-z_]|taischatbot|\w+chatbot)/i;
 
   function parseTlpEntriesA(texto) {
     if (!texto) return [];
@@ -108,6 +108,30 @@
     return entries.sort(function (a, b) { return a.dt - b.dt; });
   }
 
+  // Extrai datas/horas de cada evento "Tentativa N – Modo de validação" no diário.
+  function extrairRetornosAlarmeDts(bg) {
+    if (!bg) return [];
+    var texto = bg.toString();
+    var RE_TENT = /TENTATIVA\s+\d+\s*[–\-]\s*MODO DE VALIDA[ÇC][AÃ]O/gi;
+    var RE_DT   = /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?/g;
+    var dts = [], m;
+    RE_TENT.lastIndex = 0;
+    while ((m = RE_TENT.exec(texto)) !== null) {
+      var before = texto.substring(0, m.index);
+      RE_DT.lastIndex = 0;
+      var tsM = null, tsMt;
+      while ((tsMt = RE_DT.exec(before)) !== null) tsM = tsMt;
+      if (tsM) {
+        var pts = tsM[0].match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
+        if (pts) {
+          var dt = new Date(+pts[3], +pts[2]-1, +pts[1], +pts[4], +pts[5], pts[6]?+pts[6]:0);
+          if (!isNaN(dt.getTime())) dts.push(dt);
+        }
+      }
+    }
+    return dts;
+  }
+
   // ── Formatação ────────────────────────────────────────────────────
   function fmtHM(dt) {
     return ('0' + dt.getHours()).slice(-2) + ':' + ('0' + dt.getMinutes()).slice(-2);
@@ -138,17 +162,36 @@
     var totalEntradas = 0;
     var authorCount = {};
     var hourCount = new Array(24).fill(0);
+    var hourCountEntrantes = new Array(24).fill(0);
+    var hourCountRetorno   = new Array(24).fill(0);
+    var retornosTasks = [];
+    var siteCount = {};
+
+    // Contagem por site — todas as tasks (com e sem diário)
+    (tasks || []).forEach(function (t) {
+      var sk = (t.enderecoId || '').toString().trim().toUpperCase();
+      if (!sk) return;
+      if (!siteCount[sk]) siteCount[sk] = { site: t.site || sk, enderecoId: t.enderecoId || sk, count: 0 };
+      siteCount[sk].count++;
+    });
 
     (tasks || []).forEach(function (t) {
       var entries = parseTlpEntriesA(t.motivoCancelamento || '');
       if (!entries.length) { semDiario++; return; }
 
       totalEntradas += entries.length;
+      // Primeira entrada do diário ≈ horário de entrada da task na fila
+      hourCountEntrantes[entries[0].dt.getHours()]++;
       entries.forEach(function (e) {
         hourCount[e.dt.getHours()]++;
         var a = e.author || 'Sistema';
         authorCount[a] = (authorCount[a] || 0) + 1;
       });
+
+      // Retornos por alarme (API Netcool)
+      var retDts = extrairRetornosAlarmeDts(t.motivoCancelamento || '');
+      retDts.forEach(function (dt) { hourCountRetorno[dt.getHours()]++; });
+      if (retDts.length > 0) retornosTasks.push({ task: t, count: retDts.length });
 
       var gaps = [];
       for (var i = 1; i < entries.length; i++) {
@@ -218,68 +261,53 @@
 
     stats.sort(function (a, b) { return b.horasSemUpd - a.horasSemUpd; });
 
+    var topSites = Object.keys(siteCount)
+      .map(function (k) { return siteCount[k]; })
+      .sort(function (a, b) { return b.count - a.count; })
+      .slice(0, 30);
+
+    retornosTasks.sort(function (a, b) { return b.count - a.count; });
+
     return {
       stats: stats, semDiario: semDiario, totalEntradas: totalEntradas,
       allGaps: allGaps, avgGapH: avgGapGlobal, mediana: mediana,
       topAuthors: topAuthors, hourCount: hourCount,
+      hourCountEntrantes: hourCountEntrantes, hourCountRetorno: hourCountRetorno,
+      retornosTasks: retornosTasks,
+      topSites: topSites,
       authorOSmap: authorOSmapArr,
       todayAuthors: todayAuthors,
       todayAuthorOSmap: todayOSmapArr
     };
   }
 
-  // ── Gráfico: distribuição de intervalos + média por OS ────────────
-  function chartHistograma(canvas, allGaps, stats) {
-    var buckets = [
-      { label: '< 30min',  min: 0,   max: 0.5,      cor: '#2ecc71' },
-      { label: '30–60min', min: 0.5, max: 1,         cor: '#27ae60' },
-      { label: '1–2h',     min: 1,   max: 2,         cor: '#3498db' },
-      { label: '2–4h',     min: 2,   max: 4,         cor: '#f39c12' },
-      { label: '4–8h',     min: 4,   max: 8,         cor: '#e67e22' },
-      { label: '8–24h',    min: 8,   max: 24,        cor: '#e74c3c' },
-      { label: '> 24h',    min: 24,  max: Infinity,  cor: '#c0392b' }
-    ];
-
-    var gapCounts = buckets.map(function () { return 0; });
-    allGaps.forEach(function (g) {
-      for (var i = 0; i < buckets.length; i++) {
-        if (g >= buckets[i].min && g < buckets[i].max) { gapCounts[i]++; break; }
-      }
-    });
-
-    var avgCounts = buckets.map(function () { return 0; });
-    (stats || []).forEach(function (s) {
-      if (s.avgGapH === null) return;
-      for (var i = 0; i < buckets.length; i++) {
-        if (s.avgGapH >= buckets[i].min && s.avgGapH < buckets[i].max) { avgCounts[i]++; break; }
-      }
-    });
-
+  // ── Gráfico: entrantes normais vs retornos por alarme por hora ────
+  function chartEntrantes(canvas, hourCountEntrantes, hourCountRetorno) {
+    var labels = [];
+    for (var i = 0; i < 24; i++) labels.push(('0' + i).slice(-2) + 'h');
     var c = new Chart(canvas, {
       type: 'bar',
       data: {
-        labels: buckets.map(function (b) { return b.label; }),
+        labels: labels,
         datasets: [
           {
-            label: 'Intervalos individuais',
-            data: gapCounts,
-            backgroundColor: buckets.map(function (b) { return b.cor; }),
-            borderRadius: 4, maxBarThickness: 32
+            label: 'Entrantes Normais',
+            data: hourCountEntrantes,
+            backgroundColor: 'rgba(255,140,0,0.75)',
+            borderRadius: 3, maxBarThickness: 18
           },
           {
-            label: 'Média por OS',
-            data: avgCounts,
-            backgroundColor: 'rgba(52,152,219,0.45)',
-            borderColor: 'rgba(52,152,219,0.8)',
-            borderWidth: 1,
-            borderRadius: 4, maxBarThickness: 32
+            label: 'Retorno por Alarme',
+            data: hourCountRetorno,
+            backgroundColor: 'rgba(231,76,60,0.80)',
+            borderRadius: 3, maxBarThickness: 18
           }
         ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
         scales: {
-          x: { ticks: { color: tickClr(), font: { size: 10 } }, grid: { color: gridClr() } },
+          x: { ticks: { color: tickClr(), font: { size: 9 } }, grid: { color: gridClr() } },
           y: { ticks: { color: tickClr(), font: { size: 11 } }, grid: { color: gridClr() }, beginAtZero: true }
         },
         plugins: {
@@ -711,7 +739,7 @@
       // ── Gráficos ──────────────────────────────────────────────────
       areaEl.appendChild(secTitle('ANÁLISE DE INTERVALOS', '#ff8c00'));
       var row1 = h('div', { class: 'grid gap-4 mb-4', style: { gridTemplateColumns: '1fr 1fr' } });
-      var ccHist = U.chartCard('DISTRIBUIÇÃO DE INTERVALOS — INDIVIDUAL E MÉDIA POR OS', { hint: 'barras coloridas = intervalos individuais · azul = média por OS' });
+      var ccHist = U.chartCard('ENTRANTES POR HORA — NORMAIS VS RETORNO POR ALARME', { hint: 'laranja = entrantes normais · vermelho = retornou à fila por alarme' });
       ccHist.card.style.minHeight = '240px';
       row1.appendChild(ccHist.card);
       row1.appendChild(buildRankingCard(result));
@@ -739,7 +767,7 @@
       }
 
       setTimeout(function () {
-        if (result.allGaps.length) chartHistograma(ccHist.canvas, result.allGaps, s);
+        chartEntrantes(ccHist.canvas, result.hourCountEntrantes, result.hourCountRetorno);
         if (result.topAuthors.length) chartAutores(ccAuth.canvas, result.topAuthors, result.authorOSmap);
         chartHoras(ccHora.canvas, result.hourCount);
       }, 0);
@@ -821,6 +849,118 @@
           })
         ]));
       }
+
+      // ── RETORNO POR ALARME ────────────────────────────────────────────
+      var retList = result.retornosTasks || [];
+      areaEl.appendChild(secTitle('RETORNO POR ALARME — TSKs QUE VOLTARAM À FILA (' + retList.length + ')', '#e74c3c'));
+      if (!retList.length) {
+        areaEl.appendChild(h('div', { class: 'trj-card p-4', style: { color: 'var(--trj-muted)', fontSize: '13px', textAlign: 'center' } },
+          [h('span', { text: 'Nenhuma TSK com retorno por alarme no período selecionado.' })]));
+      } else {
+        areaEl.appendChild(h('div', { style: { color: 'var(--trj-muted)', fontSize: '12px', marginBottom: '10px' } },
+          [h('span', { text: retList.length + ' TSK(s) retornaram à fila automaticamente após encerramento com alarme presente. Clique para ver a timeline.' })]));
+        var tblRet = h('div', { class: 'trj-card', style: { overflowX: 'auto' } });
+        var tableRet = h('table', { style: { width: '100%', fontSize: '12px', borderCollapse: 'collapse' } });
+        var theadRet = h('thead', {});
+        theadRet.appendChild(h('tr', {
+          style: { borderBottom: '1px solid rgba(231,76,60,0.3)', color: 'var(--trj-muted)', textAlign: 'left', fontSize: '11px' }
+        }, [
+          h('th', { style: { padding: '8px 12px', fontWeight: '600' }, text: 'OS' }),
+          h('th', { style: { padding: '8px 12px', fontWeight: '600' }, text: 'NE ID' }),
+          h('th', { style: { padding: '8px 12px', fontWeight: '600' }, text: 'Site' }),
+          h('th', { style: { padding: '8px 12px', fontWeight: '600' }, text: 'Status' }),
+          h('th', { style: { padding: '8px 12px', fontWeight: '600', textAlign: 'center' }, text: 'Retornos' }),
+          h('th', { style: { padding: '8px 12px' } })
+        ]));
+        tableRet.appendChild(theadRet);
+        var tbodyRet = h('tbody', {});
+        retList.forEach(function (item) {
+          var t = item.task;
+          var st = s.find(function (x) { return x.task === t; });
+          var trRow = h('tr', {
+            style: { borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' },
+            onclick: function () { if (st) abrirTimeline(st); }
+          }, [
+            h('td', { style: { padding: '8px 12px', color: '#ff8c00', fontWeight: '600' }, text: t.osNumero || '—' }),
+            h('td', { style: { padding: '8px 12px', color: 'var(--trj-muted)', fontSize: '11px' }, text: String(t.enderecoId || '—') }),
+            h('td', { style: { padding: '8px 12px', color: 'var(--trj-muted)', fontSize: '11px' }, text: t.site || '—' }),
+            h('td', { style: { padding: '8px 12px' }, text: t.status || '—' }),
+            h('td', { style: { padding: '8px 12px', textAlign: 'center', color: '#e74c3c', fontWeight: '700', fontSize: '15px' }, text: String(item.count) }),
+            h('td', { style: { padding: '8px 12px' } }, [
+              h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 8px' },
+                text: 'Timeline',
+                onclick: function (e) { e.stopPropagation(); if (st) abrirTimeline(st); } })
+            ])
+          ]);
+          trRow.addEventListener('mouseenter', function () { trRow.style.background = 'rgba(231,76,60,0.05)'; });
+          trRow.addEventListener('mouseleave', function () { trRow.style.background = ''; });
+          tbodyRet.appendChild(trRow);
+        });
+        tableRet.appendChild(tbodyRet);
+        tblRet.appendChild(tableRet);
+        areaEl.appendChild(tblRet);
+      }
+
+      // ── TOP OFENSOR — SITES COM MAIOR REINCIDÊNCIA ───────────────────
+      var topSites = result.topSites || [];
+      areaEl.appendChild(secTitle('TOP OFENSOR — SITES COM MAIOR REINCIDÊNCIA', '#9b59b6'));
+      (function () {
+        var searchInput = h('input', {
+          placeholder: 'Filtrar por NE ID ou nome do site...',
+          style: { width: '100%', maxWidth: '360px', marginBottom: '12px', padding: '6px 10px',
+                   fontSize: '12px', background: 'var(--trj-card)', color: 'var(--trj-fg)',
+                   border: '1px solid rgba(155,89,182,0.4)', borderRadius: '6px' }
+        });
+        areaEl.appendChild(searchInput);
+        var siteTblWrap = h('div', { class: 'trj-card', style: { overflowX: 'auto' } });
+        function renderSiteTable(filter) {
+          siteTblWrap.innerHTML = '';
+          var filtered = (filter ? topSites.filter(function (s2) {
+            var q = filter.toUpperCase();
+            return (s2.enderecoId || '').toString().toUpperCase().indexOf(q) >= 0 ||
+                   (s2.site || '').toUpperCase().indexOf(q) >= 0;
+          }) : topSites).slice(0, 20);
+          if (!filtered.length) {
+            siteTblWrap.appendChild(h('div', { style: { color: 'var(--trj-muted)', fontSize: '12px', padding: '16px' }, text: 'Nenhum site encontrado.' }));
+            return;
+          }
+          var maxCount = filtered[0] ? filtered[0].count : 1;
+          var tblS = h('table', { style: { width: '100%', fontSize: '12px', borderCollapse: 'collapse' } });
+          var thS = h('thead', {});
+          thS.appendChild(h('tr', {
+            style: { borderBottom: '1px solid rgba(155,89,182,0.3)', color: 'var(--trj-muted)', textAlign: 'left', fontSize: '11px' }
+          }, [
+            h('th', { style: { padding: '8px 12px', fontWeight: '600', width: '32px' }, text: '#' }),
+            h('th', { style: { padding: '8px 12px', fontWeight: '600' }, text: 'NE ID' }),
+            h('th', { style: { padding: '8px 12px', fontWeight: '600' }, text: 'Site' }),
+            h('th', { style: { padding: '8px 12px', fontWeight: '600', textAlign: 'center' }, text: 'OSs' }),
+            h('th', { style: { padding: '8px 12px', fontWeight: '600' }, text: 'Reincidência' })
+          ]));
+          tblS.appendChild(thS);
+          var tbS = h('tbody', {});
+          filtered.forEach(function (site, idx) {
+            var barPct = Math.round(site.count / maxCount * 100);
+            var cor = idx === 0 ? '#e74c3c' : idx < 3 ? '#e67e22' : '#9b59b6';
+            var row = h('tr', { style: { borderBottom: '1px solid rgba(255,255,255,0.04)' } }, [
+              h('td', { style: { padding: '8px 12px', color: 'var(--trj-muted)', fontWeight: '600' }, text: String(idx + 1) }),
+              h('td', { style: { padding: '8px 12px', color: '#ff8c00', fontWeight: '600' }, text: String(site.enderecoId || '—') }),
+              h('td', { style: { padding: '8px 12px', color: 'var(--trj-muted)', fontSize: '11px' }, text: site.site || '—' }),
+              h('td', { style: { padding: '8px 12px', textAlign: 'center', fontWeight: '700', color: cor }, text: String(site.count) }),
+              h('td', { style: { padding: '8px 12px', minWidth: '120px' } }, [
+                h('div', { style: { background: 'rgba(255,255,255,0.08)', borderRadius: '4px', height: '8px', overflow: 'hidden' } }, [
+                  h('div', { style: { width: barPct + '%', height: '100%', background: cor, borderRadius: '4px', transition: 'width .3s' } })
+                ])
+              ])
+            ]);
+            tbS.appendChild(row);
+          });
+          tblS.appendChild(tbS);
+          siteTblWrap.appendChild(tblS);
+        }
+        renderSiteTable('');
+        searchInput.oninput = function () { renderSiteTable(searchInput.value.trim()); };
+        areaEl.appendChild(siteTblWrap);
+      })();
     }
 
     render();

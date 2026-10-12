@@ -1031,7 +1031,7 @@
   var RE_TLP_UI    = /TLP-T\d+-([^-\r\n]{3,60}?)\s*-\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/g;
   var RE_DTNAME_UI = /(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}(?::\d{2})?)\s*-\s*([^\r\n]{5,80})/g;
   // Bot filter: nomes de sistemas automáticos (início) OU "(Anotações de trabalho)" em qualquer posição
-  var RE_BOT_UI = /^(?:MONITOR\s*CCI|WFM\s*Agent|isoc_fixa|[Aa]utoma[çc][aã]o|Sistema\s*autom|System\b|Raio-X|dsoc_[a-z_]|taischatbot|\w+chatbot)/i;
+  var RE_BOT_UI = /^(?:MONITOR\s*CCI|WFM\s*Agent|isoc_fixa|[Aa]utoma[çc][aã]o|Sistema\s*autom|System|Tentativa\s+\d+|Raio-X|dsoc_[a-z_]|taischatbot|\w+chatbot)/i;
   function parseTlpEntries(texto) {
     if (!texto) return [];
     var entries = [], m;
