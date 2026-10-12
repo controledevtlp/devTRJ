@@ -922,9 +922,12 @@
   // Padrões de resposta automática que CONTÊM uma parte fixa, mas podem ter
   // prefixo variável (ex.: número de circuito). Checados via indexOf.
   var FRASES_PADRAO_BOT_PARCIAIS = [
-    // "Circuito RJO60014894:\nNão foi identificado massiva no provedor VTAL..."
-    // O número do circuito varia, então checamos só a parte constante.
-    'NÃO FOI IDENTIFICADO MASSIVA NO PROVEDOR VTAL E NÃO FOI IDENTIFICADO FALHA DE INFRA/ENERGIA'
+    // ODM massiva VTAL — número de circuito varia, parte constante:
+    'NÃO FOI IDENTIFICADO MASSIVA NO PROVEDOR VTAL E NÃO FOI IDENTIFICADO FALHA DE INFRA/ENERGIA',
+    // Tramitação / Suspensão — formulário WFM de mudança de status (TSK → Pendente → fila):
+    'TRAMITAÇÃO OU SUSPENSÃO:',
+    // Parceria de campo / tramitação — presente em todos os formulários WFM de tramitação:
+    'NOME DA OPERADORA/PARCEIRA:'
   ];
 
   // Corresponde a IsTextoSemAtualizacao do VBA
@@ -939,10 +942,12 @@
     for (var j = 0; j < FRASES_PADRAO_BOT_PARCIAIS.length; j++) {
       if (t.indexOf(FRASES_PADRAO_BOT_PARCIAIS[j]) >= 0) return true;
     }
-    // Formulário auto de GMG (WFM/System) — mas só se não houver bloco manual "ATUALIZAÇÃO GMG"
+    // Formulário de ativação de Flag GMG (usuário humano clica botão → sistema preenche):
     if (t.indexOf('ALTERAÇÃO NO ENVIO') >= 0 && t.indexOf('JUSTIFICATIVA DA SELEÇÃO') >= 0 && t.indexOf('DATA DE ATIVAÇÃO DO GERADOR') >= 0) {
       if (t.indexOf('ATUALIZAÇÃO GMG') < 0) return true;
     }
+    // Retorno automático por alarme presente (API Netcool / validação de NE):
+    if (t.indexOf('MODO DE VALIDAÇÃO') >= 0 && t.indexOf('API NETCOOL') >= 0) return true;
     return false;
   }
 
@@ -986,6 +991,15 @@
   var BG_TIMESTAMP_RE = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?|\d{4}[\/\-]\d{2}[\/\-]\d{2}\s+\d{1,2}:\d{2}(?::\d{2})?|\d{1,2}[\/\-]\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?|\d{1,2}:\d{2}(?::\d{2})?)/g;
   U.BG_TIMESTAMP_RE = BG_TIMESTAMP_RE;
   U.classificarUltimoBloco = classificarUltimoBloco;
+
+  // Conta quantas vezes a TSK retornou automaticamente por alarme presente (API Netcool).
+  // Cada ocorrência de "Tentativa N – Modo de validação NE ID – API Netcool" é um retorno.
+  U.contarRetornosAlarme = function (bg) {
+    if (!bg) return 0;
+    var re = /TENTATIVA\s+\d+\s*[–\-]\s*MODO DE VALIDA[ÇC][AÃ]O/gi;
+    var m = (bg || '').match(re);
+    return m ? m.length : 0;
+  };
 
   // Extrai TODOS os timestamps do texto BG e retorna o bloco (timestamp + texto seguinte)
   // cuja data seja a MAIS RECENTE — igual ao ExtrairUltimaDataHora + UltimaMensagem do VBA.
@@ -1038,6 +1052,14 @@
       if (!nome || RE_BOT_UI.test(nome)) continue;
       var p2 = m[1].trim().match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
       if (!p2) continue;
+      // Descarta entradas cujo conteúdo imediato é um formulário de sistema
+      // (ex.: ativação de Flag GMG por usuário humano — Lucas clica no botão,
+      // mas o formulário é gerado pela plataforma, não é uma atualização real).
+      var _posApos = m.index + m[0].length;
+      var _reProx = new RegExp(BG_TIMESTAMP_RE.source);
+      var _mProx = _reProx.exec(texto.substring(_posApos));
+      var _blocoConteudo = texto.substring(_posApos, _mProx ? _posApos + _mProx.index : texto.length).trim();
+      if (isTextoSemAtualizacao(_blocoConteudo)) continue;
       var dt2 = new Date(+p2[3], +p2[2]-1, +p2[1], +p2[4], +p2[5], p2[6]?+p2[6]:0);
       if (!isNaN(dt2.getTime())) entries.push({ dt: dt2, author: nome });
     }

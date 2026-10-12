@@ -84,6 +84,13 @@
       if (!nome || RE_BOT_A.test(nome)) continue;
       var p2 = m[1].trim().match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
       if (!p2) continue;
+      // Descarta entradas cujo conteúdo imediato é formulário de sistema
+      // (flag GMG por usuário humano, tramitação, retorno por alarme, etc.)
+      var _posA = m.index + m[0].length;
+      var _reProxA = new RegExp(RE_TS_A.source);
+      var _mProxA = _reProxA.exec(texto.substring(_posA));
+      var _blocoA = texto.substring(_posA, _mProxA ? _posA + _mProxA.index : texto.length).trim();
+      if (U.isTextoSemAtualizacao && U.isTextoSemAtualizacao(_blocoA)) continue;
       var dt2 = new Date(+p2[3], +p2[2]-1, +p2[1], +p2[4], +p2[5], p2[6]?+p2[6]:0);
       if (!isNaN(dt2.getTime())) entries.push({ dt: dt2, author: nome, content: '' });
     }
