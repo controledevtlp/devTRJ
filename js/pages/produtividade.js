@@ -451,7 +451,19 @@
         },
         plugins: {
           legend: { display: true, labels: { color: tickClr(), font: { size: 11 }, boxWidth: 12, padding: 10,
-            filter: function (item) { return item.text !== 'Tendência'; } // ocultar da legenda, mantém no chart
+            filter: function (item) { return item.text !== 'Tendência'; }
+          },
+          onClick: function (e, legendItem, legend) {
+            var ci = legend.chart;
+            var idx = legendItem.datasetIndex;
+            var shown = [0, 1, 2]; // indices visíveis na legenda (Tendência = 3 não aparece)
+            var isolated = shown.every(function (i) { return i === idx ? ci.isDatasetVisible(i) : !ci.isDatasetVisible(i); });
+            if (isolated) {
+              shown.forEach(function (i) { ci.setDatasetVisibility(i, true); });
+            } else {
+              shown.forEach(function (i) { ci.setDatasetVisibility(i, i === idx); });
+            }
+            ci.update();
           } },
           tooltip: Object.assign({}, TOOLTIP_STYLE, {
             callbacks: {
@@ -896,15 +908,33 @@
     var labels = [];
     for (var hr = 0; hr < 24; hr++) labels.push(('0' + hr).slice(-2) + 'h');
 
+    // Compute per-hour totals for peak highlighting
+    var hourTotals = new Array(24).fill(0);
+    PRIOS.forEach(function (p) {
+      if (data.byHourPrio[p]) data.byHourPrio[p].forEach(function (v, i) { hourTotals[i] += (v || 0); });
+    });
+    var maxHourTotal = Math.max.apply(null, hourTotals.concat([0]));
+    var peakHrIdx = maxHourTotal > 0 ? hourTotals.indexOf(maxHourTotal) : -1;
+
     var datasets = PRIOS
       .filter(function (p) {
         return data.byHourPrio[p] && data.byHourPrio[p].some(function (v) { return v > 0; });
       })
       .map(function (p) {
+        var baseCor = CORES[p] || '#9aa5b1';
+        var bgColors = (data.byHourPrio[p] || new Array(24).fill(0)).map(function (_, i) {
+          return i === peakHrIdx ? baseCor : baseCor.replace(/^(#[0-9a-f]{3,6})$/i, function (m) {
+            return m; // keep hex, apply alpha via wrapper
+          });
+        });
+        // Use rgba: peak = full, others dim
+        var bgArr = (data.byHourPrio[p] || new Array(24).fill(0)).map(function (v, i) {
+          return i === peakHrIdx ? baseCor : baseCor + '33'; // 33 ≈ 20% opacity hex suffix for 6-char hex
+        });
         return {
           label: p,
           data: data.byHourPrio[p] || new Array(24).fill(0),
-          backgroundColor: CORES[p] || '#9aa5b1',
+          backgroundColor: bgArr,
           borderColor: 'transparent',
           borderRadius: 3,
           maxBarThickness: 32
