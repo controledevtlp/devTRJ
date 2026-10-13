@@ -393,26 +393,18 @@
   // manda de novo se algo mudou desde a última publicação.
   var _ultimoSnapshotJSON = null;
 
-  // Reduz cada tarefa enriquecida a só os campos que o dashboard público
-  // (compute.js + ui.js, rodando de novo do zero em cima do snapshot)
-  // realmente lê. Sem isso, o JSON publicado vinha gigante: testei com
-  // 270 tarefas reais e deu ~770KB só de tasksEnriched — boa parte disso
-  // é a coluna "Diário de Trabalho" (motivoCancelamento), que pode ter
-  // até ~10 mil caracteres em uma única tarefa cancelada. Como só
-  // importa saber se contém "ASSOCIAÇÃO DE ATIVIDADES" ou não, mantemos
-  // o MESMO nome de campo (pra não mudar nada em compute.js) só que com
-  // o texto cortado pro essencial.
+  // Reduz cada tarefa enriquecida ao conjunto de campos necessários para o
+  // dashboard público. Inclui motivoCancelamento completo (diário de trabalho)
+  // para que a aba Atualizações possa parsear as entradas corretamente.
   function slimTaskForPublish(t) {
-    var motivo = (t.motivoCancelamento || '').toString();
-    var motivoSlim = /ASSOCIA/i.test(motivo) ? 'ASSOCIAÇÃO DE ATIVIDADES' : (motivo ? 'AUTOMACAO' : '');
     return {
       osNumero: t.osNumero, sequenciaId: t.sequenciaId, tipoAtividade: t.tipoAtividade,
       status: t.status, filaAtual: t.filaAtual, prioridade: t.prioridade,
-      dataCriacao: t.dataCriacao, dataCriacaoAS: t.dataCriacaoAS,  // AS = "Criação do NTT" (aging)
+      dataCriacao: t.dataCriacao, dataCriacaoAS: t.dataCriacaoAS, createdAt: t.createdAt,
       enderecoId: t.enderecoId, siteId: t.siteId,
       cidade: t.cidade, regiao: t.regiao, tipoFalha: t.tipoFalha,
       vencimentoCalc: t.vencimentoCalc, fimCalc: t.fimCalc,
-      statusSla: t.statusSla, fonteSla: t.fonteSla, motivoCancelamento: motivoSlim
+      statusSla: t.statusSla, fonteSla: t.fonteSla, motivoCancelamento: t.motivoCancelamento
     };
   }
 
@@ -489,6 +481,15 @@
         return Object.assign({}, inc, { _lat: coords[0], _lon: coords[1] });
       });
 
+      // Embutir histórico de produtividade no snapshot para o dashboard público
+      var prodHistory = null;
+      try {
+        var histResp = await TRJ.api.getProdutividadeHist();
+        if (histResp && histResp.ok && histResp.rows && Object.keys(histResp.rows).length) {
+          prodHistory = histResp.rows;
+        }
+      } catch(e) {}
+
       var payload = {
         tasksEnriched:     (data.tasksEnriched || []).map(slimTaskForPublish),
         incidentsEnriched: incComCoords,
@@ -496,7 +497,8 @@
         mapaCoordMap:      Object.keys(coordMapFull).length > 0 ? coordMapFull : null,
         mapaMarkersSlim:   mapaMarkersSlim,
         mapaMwSlim:        mwSlim,
-        mapaFoSlim:        foSlim
+        mapaFoSlim:        foSlim,
+        prodHistory:       prodHistory
       };
       var jsonStr = JSON.stringify(payload);
       if (jsonStr === _ultimoSnapshotJSON) return;

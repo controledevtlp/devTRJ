@@ -33,13 +33,13 @@
 <script src="js/data/mapa-enlaces.js"></script>
 <script src="js/data/mapa-coords.js"></script>
 <style>
-body { min-height: 100vh; }
-#root { max-width: 1800px; margin: 0 auto; padding: 22px 28px; position: relative; z-index: 1; }
+body { min-height: 100vh; display: flex; flex-direction: column; }
+#root { max-width: 1800px; margin: 0 auto; padding: 22px 28px; position: relative; z-index: 1; width: 100%; box-sizing: border-box; flex: 1; }
 
 /* ---- Tela de boas-vindas ---- */
-.welcome-wrap { min-height: 86vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
-.welcome-logo { width: 64px; height: 64px; object-fit: contain; margin-bottom: 18px; filter: drop-shadow(0 0 16px var(--trj-primary)); }
-.welcome-title { font-family: 'Sora', sans-serif; font-size: 30px; font-weight: 800; letter-spacing: -0.01em; margin-bottom: 6px; }
+.welcome-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+.welcome-logo { width: 80px; height: 80px; object-fit: contain; margin-bottom: 18px; filter: drop-shadow(0 0 16px var(--trj-primary)); }
+.welcome-title { font-family: 'Sora', sans-serif; font-size: clamp(16px, 4vw, 26px); font-weight: 800; letter-spacing: -0.01em; margin-bottom: 6px; }
 .welcome-sub { color: var(--trj-muted); font-size: 15px; margin-bottom: 34px; }
 .regiao-grid { display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: center; gap: 12px; width: 100%; margin-bottom: 16px; }
 @media (max-width: 900px) { .regiao-grid { flex-wrap: wrap; } }
@@ -93,14 +93,7 @@ body { min-height: 100vh; }
   var state = { regiao: 'TODAS', prioridades: [] };
   var activeTab = 'dashboard';
 
-  var REGIAO_ICONS_SVG = {
-    'INTERIOR': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
-    'BAIXADA': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><rect x="3" y="9" width="18" height="13" rx="2"/><path d="M3 9l9-6 9 6"/><path d="M9 22V12h6v10"/></svg>',
-    'GRANDE RJ': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>',
-    'ZONA OESTE': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
-    'ESPIRITO SANTO': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0"/><path d="M3 12h18"/><path d="M12 3c-2.5 2.5-4 5.5-4 9s1.5 6.5 4 9"/><path d="M12 3c2.5 2.5 4 5.5 4 9s-1.5 6.5-4 9"/></svg>',
-    'OTHERS': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 0 0-8 8c0 6 8 14 8 14s8-8 8-14a8 8 0 0 0-8-8z"/></svg>'
-  };
+  var REGIAO_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 0 0-8 8c0 6 8 14 8 14s8-8 8-14a8 8 0 0 0-8-8z"/></svg>';
 
   // ── Carregamento ────────────────────────────────────────────────────────────
   async function carregarDados(silencioso) {
@@ -154,6 +147,9 @@ body { min-height: 100vh; }
         _lsSave('trj_foData', foFull);
       } else {
         try { raw._mapaFoData = JSON.parse(localStorage.getItem('trj_foData') || 'null'); } catch(e){}
+      }
+      if (json.data.prodHistory && Object.keys(json.data.prodHistory).length) {
+        raw.prodHistory = json.data.prodHistory;
       }
 
       // Só re-renderizar se os dados mudaram de fato
@@ -281,7 +277,7 @@ body { min-height: 100vh; }
 
     var wrap = U.h('div', { class: 'welcome-wrap' }, [
       U.h('img', { src: 'assets/logo-trj.png', alt: '', class: 'welcome-logo' }),
-      U.h('div', { class: 'welcome-title trj-heading', text: 'BEM-VINDO, GESTOR' }),
+      U.h('div', { class: 'welcome-title trj-heading', text: 'BEM-VINDO AO DASHBOARD DE CONTROLE TRJ' }),
       U.h('div', { class: 'welcome-sub', text: 'Escolha sua região para visualização' }),
       U.h('div', {
         class: 'regiao-grid',
@@ -294,31 +290,19 @@ body { min-height: 100vh; }
           style: { minWidth: 'min(130px, calc(50% - 8px))', flex: '0 1 auto' },
           onclick: function () { escolherRegiao(r); }
         }, [
-          U.h('div', { class: 'ic', html: REGIAO_ICONS_SVG[r] || REGIAO_ICONS_SVG['OTHERS'] }),
+          U.h('div', { class: 'ic', html: REGIAO_ICON_SVG }),
           U.h('div', { class: 'nome', text: (C.REGIAO_LABELS[r] || r).toUpperCase() }),
           U.h('div', { class: 'qtd', text: total + ' site' + (total !== 1 ? 's' : '') + ' fora' }),
-          U.h('div', { class: 'qtd', style: { fontSize: '11px', opacity: '0.85', marginTop: '2px' }, text: '✓' + comTSK + ' com TSK · ○' + (total - comTSK) + ' sem TSK' })
+          U.h('div', { class: 'qtd', style: { fontSize: '11px', marginTop: '2px', display: 'flex', gap: '4px', justifyContent: 'center' } }, [
+            U.h('span', { style: { color: '#2ecc71' }, text: '✓' + comTSK + ' com TSK' }),
+            U.h('span', { style: { color: 'rgba(255,255,255,.25)' }, text: '·' }),
+            U.h('span', { style: { color: '#e74c3c' }, text: '○' + (total - comTSK) + ' sem TSK' })
+          ])
         ]);
       })),
       U.h('button', { class: 'visao-geral-btn', onclick: function () { state.regiao = 'TODAS'; view = 'dashboard'; renderDashboard(); } }, [
         U.h('span', { text: '🌐' }),
         U.h('span', { text: 'VISÃO GERAL — TODAS AS REGIÕES' })
-      ]),
-      U.h('button', {
-        class: 'visao-geral-btn',
-        style: { marginTop: '8px', background: 'rgba(52,152,219,.08)', borderColor: 'rgba(52,152,219,.3)', color: 'var(--trj-fg)' },
-        onclick: function () { view = 'mapa'; renderView(); }
-      }, [
-        U.h('span', { text: '🗺️' }),
-        U.h('span', { text: 'MAPA OPERACIONAL — SITES FORA' })
-      ]),
-      U.h('button', {
-        class: 'visao-geral-btn',
-        style: { marginTop: '8px', background: 'rgba(46,204,113,.08)', borderColor: 'rgba(46,204,113,.3)', color: 'var(--trj-fg)' },
-        onclick: function () { state.regiao = 'TODAS'; view = 'sla'; renderView(); }
-      }, [
-        U.h('span', { text: '📊' }),
-        U.h('span', { text: 'SLA / ADERÊNCIA' })
       ])
     ]);
     root.appendChild(wrap);
@@ -906,7 +890,6 @@ body { min-height: 100vh; }
     { id: 'mapa',          label: 'Mapa Operacional' },
     { id: 'produtividade', label: 'Produtividade' },
     { id: 'atualizacoes',  label: 'Atualizações' },
-    { id: 'regional',      label: 'Visão Regional' },
     { id: 'sitesfora',     label: 'Sites Fora' },
     { id: 'sla',           label: 'SLA' }
   ];
@@ -947,8 +930,18 @@ body { min-height: 100vh; }
       openDrillIncidents: openDrillIncidents,
       openModal: function (title, el, opts) { U.openModal(title, el, opts || {}); },
       refresh: function () { return carregarDados(true); },
-      render: function () { renderView(); }
+      render: function () { renderView(); },
+      isPublic: true
     };
+
+    // Aplicar filtro de região em todos os dados passados aos módulos
+    var rawFiltrado = raw;
+    if (state.regiao && state.regiao !== 'TODAS') {
+      rawFiltrado = Object.assign({}, raw, {
+        tasksEnriched:    (raw.tasksEnriched    || []).filter(function (t) { return (t.regiao || 'OTHERS') === state.regiao; }),
+        incidentsEnriched: (raw.incidentsEnriched || []).filter(function (i) { return (i.regiao || 'OTHERS') === state.regiao; })
+      });
+    }
 
     var btnVoltar = U.h('button', {
       class: 'trj-btn trj-btn-ghost clickable', text: '← Regiões',
@@ -961,8 +954,8 @@ body { min-height: 100vh; }
         class: 'trj-btn clickable',
         style: { fontSize: '11px', padding: '3px 8px', background: 'rgba(46,204,113,.15)', color: '#2ecc71', border: '1px solid rgba(46,204,113,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' },
         onclick: function () {
-          var d = Comp.dashboard(raw.tasksEnriched, raw.incidentsEnriched, state) || {};
-          exportarExcelPublico(d, raw.tasksEnriched, raw.incidentsEnriched);
+          var d = Comp.dashboard(rawFiltrado.tasksEnriched, rawFiltrado.incidentsEnriched, state) || {};
+          exportarExcelPublico(d, rawFiltrado.tasksEnriched, rawFiltrado.incidentsEnriched);
         }
       }, [U.h('span', { text: '📊' }), U.h('span', { text: 'Excel' })])
     ]));
@@ -972,22 +965,23 @@ body { min-height: 100vh; }
     var tabContent = U.h('div', { style: { minHeight: '200px' } });
     root.appendChild(tabContent);
 
-    var ctx = { data: raw, app: appCtx };
+    var ctx = { data: rawFiltrado, app: appCtx };
 
     if (tabId === 'prioritarios' && TRJ.pages && TRJ.pages.prioritarios) {
       TRJ.pages.prioritarios(tabContent, ctx);
     } else if (tabId === 'pesquisa' && TRJ.pages && TRJ.pages.pesquisa) {
       TRJ.pages.pesquisa(tabContent, ctx);
     } else if (tabId === 'produtividade' && TRJ.pages && TRJ.pages.produtividade) {
+      if (raw.prodHistory) {
+        try { localStorage.setItem('trj_prod_hist_v1', JSON.stringify(raw.prodHistory)); } catch(e) {}
+      }
       TRJ.pages.produtividade(tabContent, ctx);
     } else if (tabId === 'atualizacoes' && TRJ.pages && TRJ.pages.atualizacoes) {
       TRJ.pages.atualizacoes(tabContent, ctx);
-    } else if (tabId === 'regional' && TRJ.pages && TRJ.pages.regional) {
-      TRJ.pages.regional(tabContent, ctx);
     } else if (tabId === 'sitesfora' && TRJ.pages && TRJ.pages.sitesFora) {
       TRJ.pages.sitesFora(tabContent, ctx);
     } else if (tabId === 'sla' && TRJ.pages && TRJ.pages.sla) {
-      TRJ.pages.sla(tabContent, { data: raw, app: appCtx });
+      TRJ.pages.sla(tabContent, { data: rawFiltrado, app: appCtx });
     } else {
       tabContent.appendChild(U.h('div', { class: 'trj-card p-8 text-center' }, [
         U.h('div', { style: { color: 'var(--trj-muted)', fontSize: '14px' }, text: 'Módulo não disponível nesta versão.' })

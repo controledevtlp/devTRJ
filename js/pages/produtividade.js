@@ -1256,13 +1256,13 @@
         });
       });
 
-      // Botão processar histórico
-      var btnProcessar = h('button', {
+      // Botão processar histórico (apenas no dashboard autenticado)
+      var btnProcessar = (!ctx.app || !ctx.app.isPublic) ? h('button', {
         class: 'trj-btn trj-btn-ghost',
         style: { fontSize: '12px', padding: '4px 14px', color: '#ff8c00', borderColor: 'rgba(255,140,0,0.5)' },
         text: hasHist ? '🔄 Reprocessar Histórico' : '📁 Processar Histórico',
         onclick: function () { abrirModalProcessar(ctx, render); }
-      });
+      }) : null;
 
       var btnLimpar = hasHist ? h('button', {
         class: 'trj-btn trj-btn-ghost',
