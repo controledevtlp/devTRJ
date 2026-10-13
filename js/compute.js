@@ -298,11 +298,16 @@
     // de vista o que falta cadastrar.
     var incFiltrados = incidentesPorFiltro(incidentsEnriched, regiaoFiltro);
 
-    // Sites fora por regiao (incidentes ativos)
-    var sfRegMap = {};
+    // Sites fora por regiao — dedup por END_ID para bater com a tela de boas-vindas
+    var sfRegMap = {}, sfEndIdVisto = {};
     incFiltrados.forEach(function (inc) {
       if (up(inc.statusTrat) === 'RESOLVIDO') return;
       var reg = inc.regiao || 'OTHERS';
+      var endId = (inc.enderecoId || inc.endId || '').toString().trim();
+      if (!endId) { sfRegMap[reg] = (sfRegMap[reg] || 0) + 1; return; }
+      var chave = reg + '|' + endId;
+      if (sfEndIdVisto[chave]) return;
+      sfEndIdVisto[chave] = true;
       sfRegMap[reg] = (sfRegMap[reg] || 0) + 1;
     });
     var sitesForaRegiao = C.REGIOES.map(function (r) { return { regiao: r, label: C.REGIAO_LABELS[r] || r, total: sfRegMap[r] || 0 }; })

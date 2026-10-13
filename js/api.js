@@ -172,6 +172,9 @@
     }
     return call('getProdutividadeHist');
   };
+  A.deleteProdutividadeHist = function (params) {
+    return call('deleteProdutividadeHist', params || {});
+  };
   A.saveProdutividadeHist = function (rows) {
     if (offline()) {
       try {

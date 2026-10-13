@@ -148,8 +148,20 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       } else {
         try { raw._mapaFoData = JSON.parse(localStorage.getItem('trj_foData') || 'null'); } catch(e){}
       }
-      if (json.data.prodHistory && Object.keys(json.data.prodHistory).length) {
-        raw.prodHistory = json.data.prodHistory;
+      // prodHistory: preferir busca direta na aba PRODUTIVIDADE_HIST (endpoint público),
+      // com fallback para o valor embutido no snapshot.
+      var snapshotProdHist = (json.data.prodHistory && Object.keys(json.data.prodHistory).length)
+        ? json.data.prodHistory : null;
+      try {
+        var prodResp = await fetch(URL_API + '?action=getProdutividadeHistPublic');
+        var prodJson = await prodResp.json();
+        if (prodJson && prodJson.ok && prodJson.rows && Object.keys(prodJson.rows).length) {
+          raw.prodHistory = prodJson.rows;
+        } else if (snapshotProdHist) {
+          raw.prodHistory = snapshotProdHist;
+        }
+      } catch (e) {
+        if (snapshotProdHist) raw.prodHistory = snapshotProdHist;
       }
 
       // Só re-renderizar se os dados mudaram de fato
@@ -184,10 +196,11 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     root.innerHTML = '';
     TRJ._publicMapInstance = null; // limpa ref antiga
     var btnVoltarMapa = U.h('button', {
-      class: 'trj-btn trj-btn-ghost clickable', text: '← Dashboard',
-      onclick: function () { view = 'dashboard'; activeTab = 'dashboard'; renderDashboard(); }
+      class: 'trj-btn trj-btn-ghost clickable', text: '← Regiões',
+      onclick: function () { view = 'welcome'; renderView(); }
     });
     root.appendChild(U.h('div', { class: 'pub-topbar' }, [btnVoltarMapa, liveElGlobal()]));
+    root.appendChild(buildTabBar('mapa'));
     var mapaContainer = U.h('div');
     root.appendChild(mapaContainer);
     if (TRJ.pages && TRJ.pages.mapa) {

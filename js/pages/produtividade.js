@@ -1268,7 +1268,7 @@
         class: 'trj-btn trj-btn-ghost',
         style: { fontSize: '11px', padding: '3px 10px', color: 'var(--trj-muted)' },
         text: '🗑 Limpar Histórico',
-        onclick: function () { clearHist(); render(); }
+        onclick: function () { abrirModalLimpar(hist, ctx, render); }
       }) : null;
 
       var sep = function () { return h('span', { style: { color: 'rgba(255,255,255,.12)', margin: '0 4px' }, text: '|' }); };
@@ -1618,6 +1618,135 @@
   }
 
   // ── Modal: processamento de histórico ──────────────────────────────
+  function abrirModalLimpar(hist, ctx, onDone) {
+    // Agrupar datas por mês (YYYY-MM) e contar dias por mês
+    var mesesMap = {};
+    Object.keys(hist).forEach(function (d) {
+      var ym = d.substring(0, 7);
+      if (!mesesMap[ym]) mesesMap[ym] = 0;
+      mesesMap[ym]++;
+    });
+    var meses = Object.keys(mesesMap).sort().reverse(); // mais recente primeiro
+
+    var MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    function fmtMes(ym) {
+      var p = ym.split('-');
+      var nome = MESES_PT[parseInt(p[1], 10) - 1] || p[1];
+      return nome + ' ' + p[0];
+    }
+
+    var statusEl = h('div', { style: { marginTop: '12px', fontSize: '13px', minHeight: '20px' } });
+    var checkboxes = {};
+
+    var listaEl = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', margin: '12px 0' } });
+    meses.forEach(function (ym) {
+      var cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.style.marginRight = '8px'; cb.style.accentColor = '#e74c3c';
+      checkboxes[ym] = cb;
+      var row = h('label', { style: { display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: '13px', gap: '4px' } }, [
+        cb,
+        h('span', { style: { fontWeight: '600' }, text: fmtMes(ym) }),
+        h('span', { style: { color: 'var(--trj-muted)', marginLeft: '6px', fontSize: '12px' }, text: '(' + mesesMap[ym] + ' dia' + (mesesMap[ym] !== 1 ? 's' : '') + ')' })
+      ]);
+      listaEl.appendChild(row);
+    });
+
+    var btnTodos = h('button', {
+      class: 'trj-btn trj-btn-ghost',
+      style: { fontSize: '11px', padding: '3px 10px', marginBottom: '8px' },
+      text: 'Marcar todos',
+      onclick: function () {
+        var allChecked = meses.every(function (ym) { return checkboxes[ym].checked; });
+        meses.forEach(function (ym) { checkboxes[ym].checked = !allChecked; });
+      }
+    });
+
+    var btnApagarSel = h('button', {
+      class: 'trj-btn trj-btn-ghost',
+      style: { padding: '6px 18px', color: '#e74c3c', borderColor: 'rgba(231,76,60,.4)', fontSize: '13px' },
+      text: '🗑 Apagar Selecionados'
+    });
+    var btnApagarTudo = h('button', {
+      class: 'trj-btn',
+      style: { padding: '6px 18px', background: 'rgba(231,76,60,.15)', color: '#e74c3c', border: '1px solid rgba(231,76,60,.4)', fontSize: '13px' },
+      text: '🗑 Apagar Tudo'
+    });
+
+    async function executarDelete(params, mesesApagados) {
+      btnApagarSel.disabled = true; btnApagarTudo.disabled = true;
+      statusEl.style.color = 'var(--trj-muted)';
+      statusEl.textContent = 'Apagando do banco de dados...';
+      try {
+        if (TRJ.api && TRJ.api.deleteProdutividadeHist) {
+          var res = await TRJ.api.deleteProdutividadeHist(params);
+          if (!res || !res.ok) throw new Error(res && res.error ? res.error : 'Erro desconhecido');
+          // Remover do localStorage apenas as datas apagadas
+          if (params.all) {
+            clearHist();
+          } else {
+            var histAtual = loadHist();
+            mesesApagados.forEach(function (ym) {
+              Object.keys(histAtual).forEach(function (d) {
+                if (d.substring(0, 7) === ym) delete histAtual[d];
+              });
+            });
+            saveHist(histAtual);
+          }
+          statusEl.style.color = '#2ecc71';
+          statusEl.textContent = '✅ ' + (res.deleted || 0) + ' registro(s) apagado(s) do banco de dados.';
+          setTimeout(function () {
+            var ov = document.querySelector('.trj-modal-overlay');
+            if (ov) ov.click();
+            if (onDone) onDone();
+          }, 1200);
+        } else {
+          // Sem API disponível: apagar só local
+          if (params.all) { clearHist(); } else {
+            var histAtual2 = loadHist();
+            mesesApagados.forEach(function (ym) {
+              Object.keys(histAtual2).forEach(function (d) {
+                if (d.substring(0, 7) === ym) delete histAtual2[d];
+              });
+            });
+            saveHist(histAtual2);
+          }
+          statusEl.style.color = '#f0b429';
+          statusEl.textContent = '⚠ Apagado localmente (API indisponível). Os dados permanecem no banco.';
+          setTimeout(function () {
+            var ov = document.querySelector('.trj-modal-overlay');
+            if (ov) ov.click();
+            if (onDone) onDone();
+          }, 1500);
+        }
+      } catch (e) {
+        statusEl.style.color = '#e74c3c';
+        statusEl.textContent = '❌ Erro: ' + (e.message || String(e));
+        btnApagarSel.disabled = false; btnApagarTudo.disabled = false;
+      }
+    }
+
+    btnApagarSel.addEventListener('click', function () {
+      var selecionados = meses.filter(function (ym) { return checkboxes[ym] && checkboxes[ym].checked; });
+      if (!selecionados.length) { statusEl.style.color = '#f0b429'; statusEl.textContent = 'Selecione pelo menos um período.'; return; }
+      executarDelete({ months: selecionados }, selecionados);
+    });
+    btnApagarTudo.addEventListener('click', function () {
+      if (!confirm('Apagar TODO o histórico de produtividade do banco de dados? Esta ação não pode ser desfeita.')) return;
+      executarDelete({ all: true }, meses);
+    });
+
+    var content = h('div', {}, [
+      h('div', { style: { color: 'var(--trj-muted)', fontSize: '13px', marginBottom: '4px' },
+        text: 'Selecione os períodos a remover do banco de dados (aba PRODUTIVIDADE_HIST):' }),
+      btnTodos,
+      listaEl,
+      h('div', { class: 'flex gap-3 mt-2 flex-wrap' }, [btnApagarSel, btnApagarTudo]),
+      statusEl
+    ]);
+
+    U.openModal('Limpar Histórico de Produtividade', content);
+  }
+
   function abrirModalProcessar(ctx, onDone) {
     var progressEl = h('div', { style: { color: 'var(--trj-muted)', fontSize: '13px', minHeight: '24px' }, text: 'Aguardando...' });
     var btnStart = h('button', {
