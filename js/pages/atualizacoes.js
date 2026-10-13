@@ -843,16 +843,104 @@
       var hoje = result.todayAuthors.reduce(function (acc, a) { return acc + a.count; }, 0);
 
       // ── KPIs ──────────────────────────────────────────────────────
+      var kpiDiario = U.kpiCard({ label: 'OSs com Diário', value: pctCom + '%',
+        cor: pctCom >= 80 ? '#2ecc71' : pctCom >= 50 ? '#f39c12' : '#e74c3c',
+        sub: comDiario + ' de ' + totalOSs + ' OSs',
+        onClick: function () { mostrarTodasModal(s); }
+      });
+      kpiDiario.style.cursor = 'pointer';
+      kpiDiario.title = 'Clique para ver todas as OSs com diário';
+      var kpiAbertas = U.kpiCard({ label: 'Abertas s/ Atualiz. +4h', value: abertas4h,
+        cor: abertas4h > 0 ? '#e74c3c' : '#2ecc71', sub: 'requerem atenção agora',
+        onClick: function () {
+          var lista = s.filter(function (st) {
+            var up = (st.task.status || '').toUpperCase();
+            return up.indexOf('CONCLU') < 0 && up.indexOf('CANCEL') < 0 && st.horasSemUpd > 4;
+          });
+          var wrap = h('div', { style: { maxHeight: '65vh', overflowY: 'auto' } });
+          var cpBtn = h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 8px', marginBottom: '8px' }, text: '📋 Copiar' });
+          cpBtn.onclick = function () {
+            var lines = ['TSK\tSITE\tEND ID\tSTATUS\tSem Atualiz.'];
+            lista.forEach(function (st) { lines.push([st.task.osNumero || '—', st.task.siteId || '—', st.task.enderecoId || '—', st.task.status || '—', fmtGap(st.horasSemUpd)].join('\t')); });
+            copyText(lines.join('\n'));
+          };
+          wrap.appendChild(cpBtn);
+          wrap.appendChild(h('div', { style: { display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr auto', gap: '4px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', fontSize: '10px', color: 'var(--trj-muted)', fontWeight: '600', textTransform: 'uppercase' } }, [
+            h('span', { text: 'TSK' }), h('span', { text: 'Site' }), h('span', { text: 'END ID' }), h('span', { text: 'Status' }), h('span', { text: 'Sem Atualiz.' }), h('span', { text: '' })
+          ]));
+          lista.forEach(function (st) {
+            var urgente = st.horasSemUpd > 8, atencao = st.horasSemUpd > 4;
+            var corGap = urgente ? '#e74c3c' : atencao ? '#f39c12' : 'var(--trj-muted)';
+            var row = h('div', { style: { display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr auto', gap: '4px', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer', alignItems: 'center' }, onclick: function () { abrirTimeline(st); } }, [
+              h('div', { style: { display: 'flex', alignItems: 'center', gap: '5px' } }, [h('span', { style: { color: '#ff8c00', fontWeight: '700', fontSize: '12px' }, text: st.task.osNumero || '—' }), statusBadge(st.task.status)]),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: st.task.siteId || '—' }),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: String(st.task.enderecoId || '—') }),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: st.task.status || '—' }),
+              h('span', { style: { color: corGap, fontWeight: urgente ? '700' : '400', fontSize: '11px' }, text: fmtGap(st.horasSemUpd) }),
+              h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 6px' }, text: 'TL', onclick: function (e) { e.stopPropagation(); abrirTimeline(st); } })
+            ]);
+            row.addEventListener('mouseenter', function () { row.style.background = 'rgba(231,76,60,0.06)'; });
+            row.addEventListener('mouseleave', function () { row.style.background = ''; });
+            wrap.appendChild(row);
+          });
+          if (!lista.length) wrap.appendChild(h('div', { style: { color: 'var(--trj-muted)', fontSize: '13px', padding: '20px', textAlign: 'center' }, text: 'Nenhuma OS requer atenção agora.' }));
+          U.openModal('Abertas s/ Atualiz. +4h (' + lista.length + ')', wrap);
+        }
+      });
+      kpiAbertas.style.cursor = 'pointer';
+      kpiAbertas.title = 'Clique para ver OSs sem atualização há mais de 4h';
+      var kpiHoje = U.kpiCard({ label: 'Atualizações Hoje', value: String(hoje),
+        cor: hoje > 0 ? '#2ecc71' : 'var(--trj-muted)', sub: result.todayAuthors.length + ' autor(es) hoje',
+        onClick: function () {
+          var todaySts = [];
+          var _seen = {};
+          Object.keys(result.todayAuthorOSmap || {}).forEach(function (a) {
+            (result.todayAuthorOSmap[a] || []).forEach(function (entry) {
+              var osn = entry.stat.task.osNumero || '_';
+              if (!_seen[osn]) { _seen[osn] = true; todaySts.push(entry); }
+            });
+          });
+          todaySts.sort(function (a, b) { return (b.lastDt || 0) - (a.lastDt || 0); });
+          var wrap = h('div', { style: { maxHeight: '65vh', overflowY: 'auto' } });
+          var cpBtn = h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 8px', marginBottom: '8px' }, text: '📋 Copiar' });
+          cpBtn.onclick = function () {
+            var lines = ['TSK\tSITE\tEND ID\tSTATUS\tEntr. Hoje\tÚltima Atualiz.'];
+            todaySts.forEach(function (x) { lines.push([x.stat.task.osNumero || '—', x.stat.task.siteId || '—', x.stat.task.enderecoId || '—', x.stat.task.status || '—', String(x.count), fmtDDMM(x.lastDt) + ' ' + fmtHM(x.lastDt)].join('\t')); });
+            copyText(lines.join('\n'));
+          };
+          wrap.appendChild(cpBtn);
+          wrap.appendChild(h('div', { style: { display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 0.6fr 1fr auto', gap: '4px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', fontSize: '10px', color: 'var(--trj-muted)', fontWeight: '600', textTransform: 'uppercase' } }, [
+            h('span', { text: 'TSK' }), h('span', { text: 'Site' }), h('span', { text: 'END ID' }), h('span', { text: 'Status' }), h('span', { text: 'Entr.' }), h('span', { text: 'Última Atualiz.' }), h('span', { text: '' })
+          ]));
+          if (!todaySts.length) {
+            wrap.appendChild(h('div', { style: { color: 'var(--trj-muted)', fontSize: '13px', padding: '20px', textAlign: 'center' }, text: 'Nenhuma atualização registrada hoje.' }));
+          }
+          todaySts.forEach(function (x) {
+            var st = x.stat;
+            var row = h('div', { style: { display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 0.6fr 1fr auto', gap: '4px', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer', alignItems: 'center' }, onclick: function () { abrirTimeline(st); } }, [
+              h('div', { style: { display: 'flex', alignItems: 'center', gap: '5px' } }, [h('span', { style: { color: '#ff8c00', fontWeight: '700', fontSize: '12px' }, text: st.task.osNumero || '—' }), statusBadge(st.task.status)]),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: st.task.siteId || '—' }),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: String(st.task.enderecoId || '—') }),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: st.task.status || '—' }),
+              h('span', { style: { color: '#2ecc71', fontWeight: '600', fontSize: '11px' }, text: String(x.count) }),
+              h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: fmtDDMM(x.lastDt) + ' ' + fmtHM(x.lastDt) }),
+              h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 6px' }, text: 'TL', onclick: function (e) { e.stopPropagation(); abrirTimeline(st); } })
+            ]);
+            row.addEventListener('mouseenter', function () { row.style.background = 'rgba(46,204,113,0.05)'; });
+            row.addEventListener('mouseleave', function () { row.style.background = ''; });
+            wrap.appendChild(row);
+          });
+          U.openModal('Atualizações Hoje (' + todaySts.length + ' OSs)', wrap);
+        }
+      });
+      kpiHoje.style.cursor = 'pointer';
+      kpiHoje.title = 'Clique para ver as OSs atualizadas hoje';
       areaEl.appendChild(h('div', { class: 'grid gap-3 mb-5', style: { gridTemplateColumns: 'repeat(5,1fr)' } }, [
-        U.kpiCard({ label: 'OSs com Diário', value: pctCom + '%',
-          cor: pctCom >= 80 ? '#2ecc71' : pctCom >= 50 ? '#f39c12' : '#e74c3c',
-          sub: comDiario + ' de ' + totalOSs + ' OSs' }),
+        kpiDiario,
         U.kpiCard({ label: 'Intervalo Médio', value: avgFmt, cor: '#ff8c00', sub: 'mediana: ' + medFmt }),
         U.kpiCard({ label: 'Entradas/OS', value: avgEntradas, cor: '#3498db', sub: result.totalEntradas + ' entradas no total' }),
-        U.kpiCard({ label: 'Abertas s/ Atualiz. +4h', value: abertas4h,
-          cor: abertas4h > 0 ? '#e74c3c' : '#2ecc71', sub: 'requerem atenção agora' }),
-        U.kpiCard({ label: 'Atualizações Hoje', value: String(hoje),
-          cor: hoje > 0 ? '#2ecc71' : 'var(--trj-muted)', sub: result.todayAuthors.length + ' autor(es) hoje' })
+        kpiAbertas,
+        kpiHoje
       ]));
 
       // ── Gráficos ──────────────────────────────────────────────────
@@ -899,10 +987,7 @@
         areaEl.appendChild(h('div', { class: 'trj-card p-4', style: { color: 'var(--trj-muted)', fontSize: '13px', textAlign: 'center' } },
           [h('span', { text: 'Nenhuma TSK com retorno por alarme no período selecionado.' })]));
       } else {
-        areaEl.appendChild(h('div', { style: { color: 'var(--trj-muted)', fontSize: '12px', marginBottom: '10px' } },
-          [h('span', { text: retList.length + ' TSK(s) retornaram à fila automaticamente após encerramento com alarme presente. Clique para ver a timeline.' })]));
-
-        // Gráfico por região
+        // Gráfico por região — lista completa somente no drilldown
         var retRegiaoMap = {};
         retList.forEach(function (item) {
           var rg = (item.task.regiao || 'SEM REGIÃO').toString().trim().toUpperCase();
@@ -910,94 +995,67 @@
           retRegiaoMap[rg].push(item);
         });
         var retRegioes = Object.keys(retRegiaoMap).sort(function (a, b) { return retRegiaoMap[b].length - retRegiaoMap[a].length; });
-        if (retRegioes.length > 1) {
-          var retRgMax = retRegiaoMap[retRegioes[0]].length;
-          var retRgCard = h('div', { class: 'trj-card p-3 mb-3' });
-          retRgCard.appendChild(h('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--trj-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '.05em' }, text: 'Volume por Região' }));
-          retRegioes.forEach(function (rg) {
-            var rgItems = retRegiaoMap[rg];
-            var barW = Math.round(rgItems.length / retRgMax * 100);
-            var rgRow = h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 4px', cursor: 'pointer', borderRadius: '4px' } });
-            rgRow.appendChild(h('span', { style: { width: '140px', fontSize: '11px', color: 'var(--trj-fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, text: rg }));
-            rgRow.appendChild(h('div', { style: { flex: '1', background: 'rgba(255,255,255,0.07)', borderRadius: '3px', height: '8px', overflow: 'hidden' } }, [
-              h('div', { style: { width: barW + '%', height: '100%', background: '#e74c3c', borderRadius: '3px' } })
+        var retRgMax = retRegiaoMap[retRegioes[0]].length;
+        var retRgCard = h('div', { class: 'trj-card p-3 mb-3' });
+        var retTitleRow = h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' } });
+        retTitleRow.appendChild(h('span', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--trj-muted)', textTransform: 'uppercase', letterSpacing: '.05em' }, text: 'Volume por Região' }));
+        var retCopyBtn = h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 8px' }, text: '📋 Copiar' });
+        retCopyBtn.onclick = function () {
+          var lines = ['TSK\tEND ID\tSITE\tTipo de Falha\tStatus\tRetornos'];
+          retList.forEach(function (item) { lines.push([item.task.osNumero || '—', item.task.enderecoId || '—', item.task.siteId || '—', item.task.tipoFalha || '—', item.task.status || '—', String(item.count)].join('\t')); });
+          copyText(lines.join('\n'));
+        };
+        retTitleRow.appendChild(retCopyBtn);
+        retRgCard.appendChild(retTitleRow);
+        retRegioes.forEach(function (rg) {
+          var rgItems = retRegiaoMap[rg];
+          var barW = Math.round(rgItems.length / retRgMax * 100);
+          var rgRow = h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 4px', cursor: 'pointer', borderRadius: '4px' } });
+          rgRow.appendChild(h('span', { style: { width: '140px', fontSize: '11px', color: 'var(--trj-fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, text: rg }));
+          rgRow.appendChild(h('div', { style: { flex: '1', background: 'rgba(255,255,255,0.07)', borderRadius: '3px', height: '8px', overflow: 'hidden' } }, [
+            h('div', { style: { width: barW + '%', height: '100%', background: '#e74c3c', borderRadius: '3px' } })
+          ]));
+          rgRow.appendChild(h('span', { style: { fontSize: '11px', color: '#e74c3c', fontWeight: '700', minWidth: '28px', textAlign: 'right' }, text: String(rgItems.length) }));
+          rgRow.appendChild(h('span', { style: { fontSize: '12px', color: 'var(--trj-muted)', paddingLeft: '4px' }, text: '›' }));
+          rgRow.addEventListener('mouseenter', function () { rgRow.style.background = 'rgba(231,76,60,0.06)'; });
+          rgRow.addEventListener('mouseleave', function () { rgRow.style.background = ''; });
+          rgRow.addEventListener('click', (function (rgLabel, rgItems2) { return function () {
+            var wrap = h('div', { style: { maxHeight: '65vh', overflowY: 'auto' } });
+            var mCpBtn = h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 8px', marginBottom: '8px' }, text: '📋 Copiar' });
+            mCpBtn.onclick = function () {
+              var lines = ['TSK\tEND ID\tSITE\tTipo de Falha\tStatus\tRetornos'];
+              rgItems2.forEach(function (item2) { lines.push([item2.task.osNumero || '—', item2.task.enderecoId || '—', item2.task.siteId || '—', item2.task.tipoFalha || '—', item2.task.status || '—', String(item2.count)].join('\t')); });
+              copyText(lines.join('\n'));
+            };
+            wrap.appendChild(mCpBtn);
+            wrap.appendChild(h('div', { style: { display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 0.6fr auto', gap: '4px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', fontSize: '10px', color: 'var(--trj-muted)', fontWeight: '600', textTransform: 'uppercase' } }, [
+              h('span', { text: 'TSK' }), h('span', { text: 'END ID' }), h('span', { text: 'Site' }), h('span', { text: 'Tipo de Falha' }), h('span', { text: 'Retor.' }), h('span', { text: '' })
             ]));
-            rgRow.appendChild(h('span', { style: { fontSize: '11px', color: '#e74c3c', fontWeight: '700', minWidth: '28px', textAlign: 'right' }, text: String(rgItems.length) }));
-            rgRow.appendChild(h('span', { style: { fontSize: '12px', color: 'var(--trj-muted)', paddingLeft: '4px' }, text: '›' }));
-            rgRow.addEventListener('mouseenter', function () { rgRow.style.background = 'rgba(231,76,60,0.06)'; });
-            rgRow.addEventListener('mouseleave', function () { rgRow.style.background = ''; });
-            rgRow.addEventListener('click', (function (rgLabel, rgItems2) { return function () {
-              var wrap = h('div', { style: { maxHeight: '60vh', overflowY: 'auto' } });
-              rgItems2.forEach(function (item2) {
-                var t2 = item2.task;
-                var st2 = s.find(function (x) { return x.task === t2; });
-                var rowM = h('div', {
-                  style: { display: 'flex', gap: '10px', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: st2 ? 'pointer' : 'default' },
-                  onclick: st2 ? function () { abrirTimeline(st2); } : null
-                }, [
-                  h('span', { style: { color: '#ff8c00', fontWeight: '700', fontSize: '12px', minWidth: '130px' }, text: t2.osNumero || '—' }),
-                  h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px', flex: '1' }, text: String(t2.enderecoId || '—') }),
-                  h('span', { style: { color: '#e74c3c', fontWeight: '700' }, text: String(item2.count) + 'x' })
-                ]);
-                if (st2) { rowM.addEventListener('mouseenter', function () { rowM.style.background = 'rgba(255,140,0,0.06)'; }); rowM.addEventListener('mouseleave', function () { rowM.style.background = ''; }); }
-                wrap.appendChild(rowM);
-              });
-              U.openModal('Retornos por Alarme — ' + rgLabel + ' (' + rgItems2.length + ')', wrap);
-            }; })(rg, rgItems));
-            retRgCard.appendChild(rgRow);
-          });
-          areaEl.appendChild(retRgCard);
-        }
-
-        var tblRet = h('div', { class: 'trj-card', style: { overflowX: 'auto' } });
-        var tableRet = h('table', { style: { width: '100%', fontSize: '12px', borderCollapse: 'collapse' } });
-        var theadRet = h('thead', {});
-        theadRet.appendChild(h('tr', {
-          style: { borderBottom: '1px solid rgba(231,76,60,0.3)', color: 'var(--trj-muted)', textAlign: 'left', fontSize: '11px' }
-        }, [
-          h('th', { style: { padding: '8px 12px', fontWeight: '600' }, text: 'OS' }),
-          h('th', { style: { padding: '8px 12px', fontWeight: '600' }, text: 'END ID' }),
-          h('th', { style: { padding: '8px 12px', fontWeight: '600' }, text: 'Site' }),
-          h('th', { style: { padding: '8px 12px', fontWeight: '600' }, text: 'Tipo de Falha / Status' }),
-          h('th', { style: { padding: '8px 12px', fontWeight: '600', textAlign: 'center' }, text: 'Retornos' }),
-          h('th', { style: { padding: '8px 12px' } })
-        ]));
-        tableRet.appendChild(theadRet);
-        var tbodyRet = h('tbody', {});
-        retList.forEach(function (item) {
-          var t = item.task;
-          var st = s.find(function (x) { return x.task === t; });
-          var statusTxt = t.tipoFalha || t.status || '—';
-          var stUp = (t.status || '').trim().toUpperCase();
-          var badgeCor, badgeBg;
-          if (stUp === 'INICIADO') { badgeCor = '#1fae5e'; badgeBg = 'rgba(31,174,94,.18)'; }
-          else if (stUp.indexOf('NÃO') >= 0 || stUp === 'NAO INICIADO') { badgeCor = '#9a7d00'; badgeBg = 'rgba(241,196,15,.22)'; }
-          else if (stUp.indexOf('CONCLU') >= 0) { badgeCor = '#5b7ed6'; badgeBg = 'rgba(91,126,214,.2)'; }
-          else { badgeCor = 'var(--trj-muted)'; badgeBg = 'rgba(255,255,255,0.07)'; }
-          var trRow = h('tr', {
-            style: { borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' },
-            onclick: function () { if (st) abrirTimeline(st); }
-          }, [
-            h('td', { style: { padding: '8px 12px', color: '#ff8c00', fontWeight: '600' }, text: t.osNumero || '—' }),
-            h('td', { style: { padding: '8px 12px', color: 'var(--trj-muted)', fontSize: '11px' }, text: String(t.enderecoId || '—') }),
-            h('td', { style: { padding: '8px 12px', color: 'var(--trj-muted)', fontSize: '11px' }, text: String(t.siteId || '—') }),
-            h('td', { style: { padding: '8px 12px' } }, [
-              h('span', { style: { background: badgeBg, color: badgeCor, fontWeight: '700', padding: '2px 7px', borderRadius: '5px', fontSize: '11px' }, text: statusTxt })
-            ]),
-            h('td', { style: { padding: '8px 12px', textAlign: 'center', color: '#e74c3c', fontWeight: '700', fontSize: '15px' }, text: String(item.count) }),
-            h('td', { style: { padding: '8px 12px' } }, [
-              h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 8px' },
-                text: 'Timeline',
-                onclick: function (e) { e.stopPropagation(); if (st) abrirTimeline(st); } })
-            ])
-          ]);
-          trRow.addEventListener('mouseenter', function () { trRow.style.background = 'rgba(231,76,60,0.05)'; });
-          trRow.addEventListener('mouseleave', function () { trRow.style.background = ''; });
-          tbodyRet.appendChild(trRow);
+            rgItems2.forEach(function (item2) {
+              var t2 = item2.task;
+              var st2 = s.find(function (x) { return x.task === t2; });
+              var rowM = h('div', {
+                style: { display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 0.6fr auto', gap: '4px', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: st2 ? 'pointer' : 'default', alignItems: 'center' },
+                onclick: st2 ? function () { abrirTimeline(st2); } : null
+              }, [
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: '5px' } }, [
+                  h('span', { style: { color: '#ff8c00', fontWeight: '700', fontSize: '12px' }, text: t2.osNumero || '—' }),
+                  statusBadge(t2.status)
+                ]),
+                h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: String(t2.enderecoId || '—') }),
+                h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: String(t2.siteId || '—') }),
+                h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: t2.tipoFalha || '—' }),
+                h('span', { style: { color: '#e74c3c', fontWeight: '700', fontSize: '13px', textAlign: 'center' }, text: String(item2.count) }),
+                h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 6px' }, text: 'TL', onclick: function (e) { e.stopPropagation(); if (st2) abrirTimeline(st2); } })
+              ]);
+              if (st2) { rowM.addEventListener('mouseenter', function () { rowM.style.background = 'rgba(231,76,60,0.05)'; }); rowM.addEventListener('mouseleave', function () { rowM.style.background = ''; }); }
+              wrap.appendChild(rowM);
+            });
+            U.openModal('Retornos por Alarme — ' + rgLabel + ' (' + rgItems2.length + ')', wrap);
+          }; })(rg, rgItems));
+          retRgCard.appendChild(rgRow);
         });
-        tableRet.appendChild(tbodyRet);
-        tblRet.appendChild(tableRet);
-        areaEl.appendChild(tblRet);
+        areaEl.appendChild(retRgCard);
       }
 
       // ── OSs ABERTAS + TOP OFENSOR — lado a lado ───────────────────
