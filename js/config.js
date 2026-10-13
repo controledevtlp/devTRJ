@@ -10,7 +10,7 @@
 (function (TRJ) {
   TRJ.config = {
     // >>>>>>>>>>>>>>  COLE A URL DO SEU APPS SCRIPT AQUI  <<<<<<<<<<<<<<
-    APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycby1EdIAQiEZJ1vCV5Q2S-bfLwsNdNctd2FUE3uDVrxdFDgEgdKUpH3wAFwRK31ltwLQvA/exec",
+    APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbyJ9Xq_oT-EcIRNL6_udoGSBwQnuF51sHB8Dx8rL9pJDmujP2oFegNO9MtJ33L1jXdMRw/exec",
 
     // Nome exibido no topo (pode personalizar)
     APP_NAME: "CONTROLE TRJ",
