@@ -24,6 +24,14 @@
 <script src="js/ui.js"></script>
 <script src="js/pages/mapa.js"></script>
 <script src="js/pages/sla.js"></script>
+<script src="js/pages/regional.js"></script>
+<script src="js/pages/sites-fora.js"></script>
+<script src="js/pages/prioritarios.js"></script>
+<script src="js/pages/pesquisa.js"></script>
+<script src="js/pages/produtividade.js"></script>
+<script src="js/pages/atualizacoes.js"></script>
+<script src="js/data/mapa-enlaces.js"></script>
+<script src="js/data/mapa-coords.js"></script>
 <style>
 body { min-height: 100vh; }
 #root { max-width: 1800px; margin: 0 auto; padding: 22px 28px; position: relative; z-index: 1; }
@@ -60,6 +68,12 @@ body { min-height: 100vh; }
 .pub-live { font-size: 11.5px; color: var(--trj-muted); display: flex; align-items: center; gap: 7px; }
 .pub-live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--trj-green); box-shadow: 0 0 7px var(--trj-green); animation: trjPulseLive 2s infinite; }
 @keyframes trjPulseLive { 0%,100%{opacity:1;} 50%{opacity:.35;} }
+/* ---- Tab navigation ---- */
+.pub-tabs-bar { display:flex; gap:4px; flex-wrap:nowrap; overflow-x:auto; padding:2px 0 8px; margin-bottom:8px; border-bottom:1px solid rgba(255,255,255,.07); scrollbar-width:none; }
+.pub-tabs-bar::-webkit-scrollbar { display:none; }
+.pub-tab { flex-shrink:0; padding:5px 12px; border-radius:8px; font-size:12px; font-weight:600; background:transparent; border:1px solid transparent; color:var(--trj-muted); cursor:pointer; transition:all .18s; white-space:nowrap; }
+.pub-tab:hover { background:rgba(255,140,0,.08); color:var(--trj-fg); }
+.pub-tab.active { background:rgba(255,140,0,.15); border-color:rgba(255,140,0,.4); color:var(--trj-primary); }
 </style>
 </head>
 <body>
@@ -77,6 +91,7 @@ body { min-height: 100vh; }
   var lastSavedAt = null; // controla re-render silencioso
   var view = 'welcome';
   var state = { regiao: 'TODAS', prioridades: [] };
+  var activeTab = 'dashboard';
 
   var REGIAO_ICONS_SVG = {
     'INTERIOR': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
@@ -162,7 +177,10 @@ body { min-height: 100vh; }
     if (view === 'welcome') renderWelcome();
     else if (view === 'mapa') renderMapaPublico();
     else if (view === 'sla')  renderSlaPublico();
-    else renderDashboard();
+    else {
+      if (activeTab === 'dashboard') renderDashboard();
+      else renderPageTab(activeTab);
+    }
   }
 
   // ── Mapa Operacional (versão pública, sem botão de atualização) ────────────
@@ -171,7 +189,7 @@ body { min-height: 100vh; }
     TRJ._publicMapInstance = null; // limpa ref antiga
     var btnVoltarMapa = U.h('button', {
       class: 'trj-btn trj-btn-ghost clickable', text: '← Dashboard',
-      onclick: function () { view = 'dashboard'; renderView(); }
+      onclick: function () { view = 'dashboard'; activeTab = 'dashboard'; renderDashboard(); }
     });
     root.appendChild(U.h('div', { class: 'pub-topbar' }, [btnVoltarMapa, liveElGlobal()]));
     var mapaContainer = U.h('div');
@@ -196,7 +214,7 @@ body { min-height: 100vh; }
     root.innerHTML = '';
     var btnV = U.h('button', {
       class:'trj-btn trj-btn-ghost clickable', text:'← Dashboard',
-      onclick: function(){ view='dashboard'; renderView(); }
+      onclick: function(){ view='dashboard'; activeTab='dashboard'; renderDashboard(); }
     });
     root.appendChild(U.h('div', { class:'pub-topbar' }, [btnV, liveElGlobal()]));
     var slaContainer = U.h('div');
@@ -496,6 +514,7 @@ body { min-height: 100vh; }
 
   // ── Dashboard ───────────────────────────────────────────────────────────────
   function renderDashboard() {
+    activeTab = 'dashboard';
     root.innerHTML = '';
     var d = Comp.dashboard(raw.tasksEnriched, raw.incidentsEnriched, state) || {};
     var f = state;
@@ -553,16 +572,6 @@ body { min-height: 100vh; }
       liveEl,
       U.h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, [
         prioSelect,
-        U.h('button', {
-          class: 'trj-btn clickable',
-          style: { fontSize: '11px', padding: '3px 8px', background: 'rgba(52,152,219,.15)', color: '#3498db', border: '1px solid rgba(52,152,219,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace:'nowrap' },
-          onclick: function () { view = 'mapa'; renderView(); }
-        }, [U.h('span', {text:'Mapa'})]),
-        U.h('button', {
-          class: 'trj-btn clickable',
-          style: { fontSize: '12px', padding: '4px 12px', background: 'rgba(46,204,113,.15)', color: '#2ecc71', border: '1px solid rgba(46,204,113,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '5px' },
-          onclick: function () { view = 'sla'; renderView(); }
-        }, [U.h('span', {text:'📊'}), U.h('span', {text:'SLA'})]),
         U.h('button', {
           class: 'trj-btn clickable',
           style: { fontSize: '11px', padding: '3px 8px', background: 'rgba(46,204,113,.15)', color: '#2ecc71', border: '1px solid rgba(46,204,113,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace:'nowrap' },
@@ -632,6 +641,8 @@ body { min-height: 100vh; }
       });
       root.appendChild(wrap);
     }());
+
+    root.appendChild(buildTabBar('dashboard'));
 
     root.appendChild(U.h('div', { class: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4' }, kpis.map(function (k) {
       return U.kpiCard({ label: k.label, value: k.value, cor: k.cor, onClick: k.spec ? function (kk) { return function () { openDrillTasks(kk.spec, f, kk.t, kk.opts || {}); }; }(k) : null });
@@ -885,6 +896,103 @@ body { min-height: 100vh; }
         U.h('div', { class: 'lg:col-span-2' }, [headerEl, searchEl, barsWrap])
       ])
     ]);
+  }
+
+  // ── Tab navigation ──────────────────────────────────────────────────────────
+  var PUB_TABS = [
+    { id: 'dashboard',     label: 'Dashboard' },
+    { id: 'prioritarios',  label: 'Prioritários' },
+    { id: 'pesquisa',      label: 'Pesquisa Op.' },
+    { id: 'mapa',          label: 'Mapa Operacional' },
+    { id: 'produtividade', label: 'Produtividade' },
+    { id: 'atualizacoes',  label: 'Atualizações' },
+    { id: 'regional',      label: 'Visão Regional' },
+    { id: 'sitesfora',     label: 'Sites Fora' },
+    { id: 'sla',           label: 'SLA' }
+  ];
+
+  function buildTabBar(activeId) {
+    var bar = U.h('div', { class: 'pub-tabs-bar' });
+    PUB_TABS.forEach(function (tab) {
+      var btn = U.h('button', {
+        class: 'pub-tab' + (activeId === tab.id ? ' active' : ''),
+        text: tab.label,
+        onclick: function () {
+          if (tab.id === activeId) return;
+          if (tab.id === 'mapa') {
+            view = 'mapa';
+            renderMapaPublico();
+            return;
+          }
+          if (tab.id === 'dashboard') {
+            activeTab = 'dashboard';
+            renderDashboard();
+            return;
+          }
+          activeTab = tab.id;
+          renderPageTab(tab.id);
+        }
+      });
+      bar.appendChild(btn);
+    });
+    return bar;
+  }
+
+  function renderPageTab(tabId) {
+    activeTab = tabId;
+    root.innerHTML = '';
+
+    var appCtx = {
+      openDrillTasks: openDrillTasks,
+      openDrillIncidents: openDrillIncidents,
+      openModal: function (title, el, opts) { U.openModal(title, el, opts || {}); },
+      refresh: function () { return carregarDados(true); },
+      render: function () { renderView(); }
+    };
+
+    var btnVoltar = U.h('button', {
+      class: 'trj-btn trj-btn-ghost clickable', text: '← Regiões',
+      onclick: function () { view = 'welcome'; renderView(); }
+    });
+    root.appendChild(U.h('div', { class: 'pub-topbar' }, [
+      btnVoltar,
+      liveElGlobal(),
+      U.h('button', {
+        class: 'trj-btn clickable',
+        style: { fontSize: '11px', padding: '3px 8px', background: 'rgba(46,204,113,.15)', color: '#2ecc71', border: '1px solid rgba(46,204,113,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' },
+        onclick: function () {
+          var d = Comp.dashboard(raw.tasksEnriched, raw.incidentsEnriched, state) || {};
+          exportarExcelPublico(d, raw.tasksEnriched, raw.incidentsEnriched);
+        }
+      }, [U.h('span', { text: '📊' }), U.h('span', { text: 'Excel' })])
+    ]));
+
+    root.appendChild(buildTabBar(tabId));
+
+    var tabContent = U.h('div', { style: { minHeight: '200px' } });
+    root.appendChild(tabContent);
+
+    var ctx = { data: raw, app: appCtx };
+
+    if (tabId === 'prioritarios' && TRJ.pages && TRJ.pages.prioritarios) {
+      TRJ.pages.prioritarios(tabContent, ctx);
+    } else if (tabId === 'pesquisa' && TRJ.pages && TRJ.pages.pesquisa) {
+      TRJ.pages.pesquisa(tabContent, ctx);
+    } else if (tabId === 'produtividade' && TRJ.pages && TRJ.pages.produtividade) {
+      TRJ.pages.produtividade(tabContent, ctx);
+    } else if (tabId === 'atualizacoes' && TRJ.pages && TRJ.pages.atualizacoes) {
+      TRJ.pages.atualizacoes(tabContent, ctx);
+    } else if (tabId === 'regional' && TRJ.pages && TRJ.pages.regional) {
+      TRJ.pages.regional(tabContent, ctx);
+    } else if (tabId === 'sitesfora' && TRJ.pages && TRJ.pages.sitesFora) {
+      TRJ.pages.sitesFora(tabContent, ctx);
+    } else if (tabId === 'sla' && TRJ.pages && TRJ.pages.sla) {
+      TRJ.pages.sla(tabContent, { data: raw, app: appCtx });
+    } else {
+      tabContent.appendChild(U.h('div', { class: 'trj-card p-8 text-center' }, [
+        U.h('div', { style: { color: 'var(--trj-muted)', fontSize: '14px' }, text: 'Módulo não disponível nesta versão.' })
+      ]));
+    }
   }
 
   // ── Drills ──────────────────────────────────────────────────────────────────
