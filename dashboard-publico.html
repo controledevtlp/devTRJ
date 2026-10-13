@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Controle TRJ · Dashboard (visualização pública)</title>
-<link rel="icon" href="assets/logo-trj.png">
+<title>Controle TNE · Dashboard (visualização pública)</title>
+<link rel="icon" href="assets/logo-tne.png">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -38,52 +38,51 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
 
 /* ---- Tela de boas-vindas ---- */
 .welcome-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
-.welcome-logo { width: 80px; height: 80px; object-fit: contain; margin-bottom: 18px; filter: drop-shadow(0 0 16px var(--trj-primary)); }
+.welcome-logo { width: 80px; height: 80px; object-fit: contain; margin-bottom: 18px; filter: drop-shadow(0 0 16px var(--tne-primary)); }
 .welcome-title { font-family: 'Sora', sans-serif; font-size: clamp(16px, 4vw, 26px); font-weight: 800; letter-spacing: -0.01em; margin-bottom: 6px; }
-.welcome-sub { color: var(--trj-muted); font-size: 15px; margin-bottom: 34px; }
+.welcome-sub { color: var(--tne-muted); font-size: 15px; margin-bottom: 34px; }
 .regiao-grid { display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: center; gap: 12px; width: 100%; margin-bottom: 16px; }
 @media (max-width: 900px) { .regiao-grid { flex-wrap: wrap; } }
 @media (max-width: 640px) { .regiao-grid { grid-template-columns: repeat(2, 1fr); } }
 .regiao-btn {
-  position: relative; overflow: hidden; flex: 0 1 160px; min-width: 140px; max-width: 200px; background: var(--trj-card); border: 1px solid var(--trj-border);
+  position: relative; overflow: hidden; flex: 0 1 160px; min-width: 140px; max-width: 200px; background: var(--tne-card); border: 1px solid var(--tne-border);
   border-radius: 14px; padding: 22px 14px; cursor: pointer; transition: transform .22s cubic-bezier(.4,0,.2,1), border-color .22s ease, box-shadow .22s ease;
-  display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--trj-fg);
+  display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--tne-fg);
 }
-.regiao-btn::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--trj-primary); opacity: 0; transition: opacity .22s ease; }
+.regiao-btn::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--tne-primary); opacity: 0; transition: opacity .22s ease; }
 .regiao-btn:hover { transform: translateY(-5px); border-color: rgba(255,140,0,.55); box-shadow: 0 18px 38px rgba(0,0,0,.5), 0 0 26px rgba(255,140,0,.18); }
 .regiao-btn:hover::before { opacity: 1; }
 .regiao-btn .ic { font-size: 26px; transition: transform .22s ease; }
 .regiao-btn:hover .ic { transform: scale(1.18) rotate(-3deg); }
 .regiao-btn .nome { font-size: 14px; font-weight: 700; }
-.regiao-btn .qtd { font-size: 11px; color: var(--trj-muted); }
+.regiao-btn .qtd { font-size: 11px; color: var(--tne-muted); }
 .visao-geral-btn {
   width: 100%; max-width: 760px; background: rgba(255,140,0,.06); border: 1px solid rgba(255,140,0,.3);
-  border-radius: 14px; padding: 16px; cursor: pointer; transition: all .22s ease; color: var(--trj-fg);
+  border-radius: 14px; padding: 16px; cursor: pointer; transition: all .22s ease; color: var(--tne-fg);
   display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 700; font-size: 14.5px;
 }
-.visao-geral-btn:hover { background: rgba(255,140,0,.12); border-color: var(--trj-primary); box-shadow: 0 10px 28px rgba(255,140,0,.18); transform: translateY(-2px); }
+.visao-geral-btn:hover { background: rgba(255,140,0,.12); border-color: var(--tne-primary); box-shadow: 0 10px 28px rgba(255,140,0,.18); transform: translateY(-2px); }
 
 /* ---- barra superior da view de dashboard ---- */
 .pub-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
-.pub-live { font-size: 11.5px; color: var(--trj-muted); display: flex; align-items: center; gap: 7px; }
-.pub-live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--trj-green); box-shadow: 0 0 7px var(--trj-green); animation: trjPulseLive 2s infinite; }
-@keyframes trjPulseLive { 0%,100%{opacity:1;} 50%{opacity:.35;} }
-/* ---- Tab navigation ---- */
+.pub-live { font-size: 11.5px; color: var(--tne-muted); display: flex; align-items: center; gap: 7px; }
+.pub-live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tne-green); box-shadow: 0 0 7px var(--tne-green); animation: tmgPulseLive 2s infinite; }
+@keyframes tmgPulseLive { 0%,100%{opacity:1;} 50%{opacity:.35;} }
 .pub-tabs-bar { display:flex; gap:4px; flex-wrap:nowrap; overflow-x:auto; padding:2px 0 8px; margin-bottom:8px; border-bottom:1px solid rgba(255,255,255,.07); scrollbar-width:none; }
 .pub-tabs-bar::-webkit-scrollbar { display:none; }
-.pub-tab { flex-shrink:0; padding:5px 12px; border-radius:8px; font-size:12px; font-weight:600; background:transparent; border:1px solid transparent; color:var(--trj-muted); cursor:pointer; transition:all .18s; white-space:nowrap; }
-.pub-tab:hover { background:rgba(255,140,0,.08); color:var(--trj-fg); }
-.pub-tab.active { background:rgba(255,140,0,.15); border-color:rgba(255,140,0,.4); color:var(--trj-primary); }
+.pub-tab { flex-shrink:0; padding:5px 12px; border-radius:8px; font-size:12px; font-weight:600; background:transparent; border:1px solid transparent; color:var(--tne-muted); cursor:pointer; transition:all .18s; white-space:nowrap; }
+.pub-tab:hover { background:rgba(255,140,0,.08); color:var(--tne-fg); }
+.pub-tab.active { background:rgba(255,140,0,.15); border-color:rgba(255,140,0,.4); color:var(--tne-primary); }
 </style>
 </head>
 <body>
-<div id="root"><div class="text-center py-20" style="color:var(--trj-muted)">Carregando dados publicados...</div></div>
+<div id="root"><div class="text-center py-20" style="color:var(--tne-muted)">Carregando dados publicados...</div></div>
 <div id="dev-footer-mount" style="max-width:1400px;margin:0 auto;padding:0 22px;position:relative;z-index:1;"></div>
 
 <script>
 (function () {
-  var U = TRJ.ui, C = TRJ.constants, D = TRJ.domain, Comp = TRJ.compute;
-  var URL_API = (TRJ.config && TRJ.config.APPS_SCRIPT_URL) || '';
+  var U = TNE.ui, C = TNE.constants, D = TNE.domain, Comp = TNE.compute;
+  var URL_API = (TNE.config && TNE.config.APPS_SCRIPT_URL) || '';
   var root = document.getElementById('root');
 
   var raw = { tasksEnriched: [], incidentsEnriched: [] };
@@ -97,16 +96,15 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
 
   // ── Carregamento ────────────────────────────────────────────────────────────
   async function carregarDados(silencioso) {
-    if (!URL_API) { root.innerHTML = '<div class="text-center py-20" style="color:var(--trj-red)">URL do Apps Script não configurada (js/config.js).</div>'; return; }
+    if (!URL_API) { root.innerHTML = '<div class="text-center py-20" style="color:var(--tne-red)">URL do Apps Script não configurada (js/config.js).</div>'; return; }
     try {
       var resp = await fetch(URL_API + '?action=getDashboardSnapshot');
       var json = await resp.json();
       if (!json || json.ok === false) throw new Error((json && json.error) || 'Erro ao buscar dados.');
       if (!json.data) {
-        if (!silencioso) root.innerHTML = '<div class="text-center py-20" style="color:var(--trj-muted)">Ainda não há nenhuma publicação.<br>Abra o Dashboard no painel principal pelo menos uma vez.</div>';
+        if (!silencioso) root.innerHTML = '<div class="text-center py-20" style="color:var(--tne-muted)">Ainda não há nenhuma publicação.<br>Abra o Dashboard no painel principal pelo menos uma vez.</div>';
         return;
       }
-
       var newSavedAt = json.savedAt || null;
       var dadosMudaram = newSavedAt !== lastSavedAt;
       lastSavedAt = newSavedAt;
@@ -123,9 +121,9 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       }
       if (json.data.mapaCoordMap) {
         raw._mapaCoordMap = json.data.mapaCoordMap;
-        _lsSave('trj_coordMap', json.data.mapaCoordMap);
+        _lsSave('tne_coordMap', json.data.mapaCoordMap);
       } else {
-        try { raw._mapaCoordMap = JSON.parse(localStorage.getItem('trj_coordMap') || 'null'); } catch(e){}
+        try { raw._mapaCoordMap = JSON.parse(localStorage.getItem('tne_coordMap') || 'null'); } catch(e){}
       }
       if (json.data.mapaMarkersSlim && json.data.mapaMarkersSlim.length) {
         raw._mapaMarkersSlim = json.data.mapaMarkersSlim;
@@ -135,20 +133,20 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
           return { Enlace2:l.E2, LAT_A:l.LA, LONG_A:l.LO, LAT_B:l.LB, LONG_B:l.LOB, FORNECEDOR:l.F };
         });
         raw._mapaMwData = mwFull;
-        _lsSave('trj_mwData', mwFull);
+        _lsSave('tne_mwData', mwFull);
       } else {
-        try { raw._mapaMwData = JSON.parse(localStorage.getItem('trj_mwData') || 'null'); } catch(e){}
+        try { raw._mapaMwData = JSON.parse(localStorage.getItem('tne_mwData') || 'null'); } catch(e){}
       }
       if (json.data.mapaFoSlim && json.data.mapaFoSlim.length) {
         var foFull = json.data.mapaFoSlim.map(function(h) {
           return { NEName:h.N, HUB:h.H, LAT_A:h.LA, LONG_A:h.LO, FORNECEDOR:h.F };
         });
         raw._mapaFoData = foFull;
-        _lsSave('trj_foData', foFull);
+        _lsSave('tne_foData', foFull);
       } else {
-        try { raw._mapaFoData = JSON.parse(localStorage.getItem('trj_foData') || 'null'); } catch(e){}
+        try { raw._mapaFoData = JSON.parse(localStorage.getItem('tne_foData') || 'null'); } catch(e){}
       }
-      // prodHistory: preferir busca direta na aba PRODUTIVIDADE_HIST (endpoint público),
+      // prodHistory: busca direta na aba PRODUTIVIDADE_HIST (endpoint público),
       // com fallback para o valor embutido no snapshot.
       var snapshotProdHist = (json.data.prodHistory && Object.keys(json.data.prodHistory).length)
         ? json.data.prodHistory : null;
@@ -169,15 +167,15 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
 
       if (view === 'mapa') {
         // Salvar posição/zoom antes de recriar o mapa
-        var prevCenter = TRJ._publicMapInstance ? TRJ._publicMapInstance.getCenter() : null;
-        var prevZoom   = TRJ._publicMapInstance ? TRJ._publicMapInstance.getZoom()   : null;
+        var prevCenter = TNE._publicMapInstance ? TNE._publicMapInstance.getCenter() : null;
+        var prevZoom   = TNE._publicMapInstance ? TNE._publicMapInstance.getZoom()   : null;
         root.innerHTML = '';
         renderMapaPublico(prevCenter, prevZoom);
       } else {
         renderView();
       }
     } catch (e) {
-      if (!silencioso) root.innerHTML = '<div class="text-center py-20" style="color:var(--trj-red)">Não foi possível carregar: ' + U.esc(e.message || String(e)) + '</div>';
+      if (!silencioso) root.innerHTML = '<div class="text-center py-20" style="color:var(--tne-red)">Não foi possível carregar: ' + U.esc(e.message || String(e)) + '</div>';
     }
   }
 
@@ -194,17 +192,17 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
   // ── Mapa Operacional (versão pública, sem botão de atualização) ────────────
   function renderMapaPublico(prevCenter, prevZoom) {
     root.innerHTML = '';
-    TRJ._publicMapInstance = null; // limpa ref antiga
+    TNE._publicMapInstance = null; // limpa ref antiga
     var btnVoltarMapa = U.h('button', {
-      class: 'trj-btn trj-btn-ghost clickable', text: '← Regiões',
+      class: 'tne-btn tne-btn-ghost clickable', text: '← Regiões',
       onclick: function () { view = 'welcome'; renderView(); }
     });
     root.appendChild(U.h('div', { class: 'pub-topbar' }, [btnVoltarMapa, liveElGlobal()]));
     root.appendChild(buildTabBar('mapa'));
     var mapaContainer = U.h('div');
     root.appendChild(mapaContainer);
-    if (TRJ.pages && TRJ.pages.mapa) {
-      TRJ.pages.mapa(mapaContainer, {
+    if (TNE.pages && TNE.pages.mapa) {
+      TNE.pages.mapa(mapaContainer, {
         data: raw,
         readOnly: true,
         prevCenter: prevCenter || null,
@@ -215,25 +213,25 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
         mapaFoData:   raw._mapaFoData        || null
       });
     } else {
-      mapaContainer.appendChild(U.h('p', { style:{color:'var(--trj-muted)',padding:'20px'}, text:'Módulo de mapa não carregado.' }));
+      mapaContainer.appendChild(U.h('p', { style:{color:'var(--tne-muted)',padding:'20px'}, text:'Módulo de mapa não carregado.' }));
     }
   }
   // ── SLA / Aderência (versão pública) ──────────────────────────────────────
   function renderSlaPublico() {
     root.innerHTML = '';
     var btnV = U.h('button', {
-      class:'trj-btn trj-btn-ghost clickable', text:'← Dashboard',
+      class:'tne-btn tne-btn-ghost clickable', text:'← Dashboard',
       onclick: function(){ view='dashboard'; activeTab='dashboard'; renderDashboard(); }
     });
     root.appendChild(U.h('div', { class:'pub-topbar' }, [btnV, liveElGlobal()]));
     var slaContainer = U.h('div');
     root.appendChild(slaContainer);
-    if (TRJ.pages && TRJ.pages.sla) {
-      TRJ.pages.sla(slaContainer, {
+    if (TNE.pages && TNE.pages.sla) {
+      TNE.pages.sla(slaContainer, {
         data: raw,
         app: {
           openDrillTasks: function(spec, filtros, title, opts, onCopy) {
-            var Comp = TRJ.compute;
+            var Comp = TNE.compute;
             var rows = Comp.drillTasks(raw.tasksEnriched, spec, filtros||{});
             U.openModal(title||'Detalhamento', U.taskTable(rows, opts||{}), {
               onCopy: onCopy || function(){ return U.taskTableCopyText(rows, title); }
@@ -289,8 +287,8 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     var regioesSelecionaveis = C.REGIOES.filter(function (r) { return r !== 'OTHERS'; });
 
     var wrap = U.h('div', { class: 'welcome-wrap' }, [
-      U.h('img', { src: 'assets/logo-trj.png', alt: '', class: 'welcome-logo' }),
-      U.h('div', { class: 'welcome-title trj-heading', text: 'BEM-VINDO AO DASHBOARD DE CONTROLE TRJ' }),
+      U.h('img', { src: 'assets/logo-tne.png', alt: '', class: 'welcome-logo' }),
+      U.h('div', { class: 'welcome-title tne-heading', text: 'BEM-VINDO AO DASHBOARD DE CONTROLE TNE' }),
       U.h('div', { class: 'welcome-sub', text: 'Escolha sua região para visualização' }),
       U.h('div', {
         class: 'regiao-grid',
@@ -479,7 +477,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       ['REGION', state.regiao], ['PRIORIDADE', state.prioridades && state.prioridades.length ? state.prioridades.join(',') : 'TODAS'],
       ['GERADO EM', new Date().toLocaleString('pt-BR')]
     ], [40, 20]);
-    var D2 = TRJ.domain;
+    var D2 = TNE.domain;
     var sep = D2.separarTicketsManuais(tasksEnriched||[]);
     var tickets = sep.tickets;
     var backlog = tickets.filter(function(t){
@@ -505,7 +503,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     ws2['!cols'] = [12,10,20,16,22,16,30,40,16].map(function(w){return{wch:w};});
     XLSX.utils.book_append_sheet(wb, ws2, 'SITES FORA');
     var ts = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
-    XLSX.writeFile(wb, 'Dashboard_TRJ_Pub_' + ts + '.xlsx');
+    XLSX.writeFile(wb, 'Dashboard_tne_Pub_' + ts + '.xlsx');
     U.toast('Excel exportado!', 'ok');
   }
 
@@ -517,16 +515,16 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     var f = state;
     var topCidades = d.topCidades || {};
     var kpis = [
-      { label: 'FORA DO SLA', value: d.kpis ? d.kpis.foraSla : 0, cor: C.CORES_TRJ.red, spec: { tipo: 'foraSla' }, t: 'Fora do SLA' },
-      { label: 'BACKLOG TOTAL', value: d.kpis ? d.kpis.backlogTotal : 0, cor: C.CORES_TRJ.orange, spec: { tipo: 'backlogTotal' }, t: 'Backlog total' },
-      { label: 'BACKLOG INDEFINIDO', value: d.kpis ? d.kpis.backlogIndef : 0, cor: C.CORES_TRJ.orange2, spec: { tipo: 'backlogIndef' }, t: 'Backlog indefinido' },
+      { label: 'FORA DO SLA', value: d.kpis ? d.kpis.foraSla : 0, cor: C.CORES_TNE.red, spec: { tipo: 'foraSla' }, t: 'Fora do SLA' },
+      { label: 'BACKLOG TOTAL', value: d.kpis ? d.kpis.backlogTotal : 0, cor: C.CORES_TNE.orange, spec: { tipo: 'backlogTotal' }, t: 'Backlog total' },
+      { label: 'BACKLOG INDEFINIDO', value: d.kpis ? d.kpis.backlogIndef : 0, cor: C.CORES_TNE.orange2, spec: { tipo: 'backlogIndef' }, t: 'Backlog indefinido' },
       { label: 'PREDITIVA', value: d.kpis ? d.kpis.preditiva : 0, cor: '#3498db', spec: { tipo: 'preditiva' }, t: 'Preditiva' },
-      { label: 'PRODUTIVIDADE', value: d.kpis ? d.kpis.produtividade : 0, cor: C.CORES_TRJ.green, spec: { tipo: 'produtividade' }, opts: { modoResultado: true }, t: 'TSKs concluídas' },
-      { label: 'SLA GERAL', value: d.kpis ? (d.kpis.slaGeral + '%') : '—', cor: C.CORES_TRJ.green, spec: { tipo: 'produtividade' }, opts: { modoResultado: true }, t: 'TSKs concluídas — % dentro do prazo' }
+      { label: 'PRODUTIVIDADE', value: d.kpis ? d.kpis.produtividade : 0, cor: C.CORES_TNE.green, spec: { tipo: 'produtividade' }, opts: { modoResultado: true }, t: 'TSKs concluídas' },
+      { label: 'SLA GERAL', value: d.kpis ? (d.kpis.slaGeral + '%') : '—', cor: C.CORES_TNE.green, spec: { tipo: 'produtividade' }, opts: { modoResultado: true }, t: 'TSKs concluídas — % dentro do prazo' }
     ];
 
     // Topbar
-    var btnVoltar = U.h('button', { class: 'trj-btn trj-btn-ghost clickable', text: '← Regiões', onclick: function () { view = 'welcome'; renderView(); } });
+    var btnVoltar = U.h('button', { class: 'tne-btn tne-btn-ghost clickable', text: '← Regiões', onclick: function () { view = 'welcome'; renderView(); } });
     var liveEl = U.h('div', { class: 'pub-live' }, [
       U.h('span', { class: 'dot' }),
       U.h('span', { text: savedAt ? 'Atualizado em ' + new Date(savedAt).toLocaleString('pt-BR') : 'Dados publicados' })
@@ -536,12 +534,12 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       var wrap = U.h('div', { style: { display: 'flex', gap: '3px', flexWrap: 'wrap', alignItems: 'center' } });
       function mkChip(lbl, ativo, onclick) {
         return U.h('button', {
-          class: 'trj-btn trj-btn-ghost',
+          class: 'tne-btn tne-btn-ghost',
           style: {
             fontSize: '10px', padding: '2px 7px', borderRadius: '20px',
             background: ativo ? 'rgba(255,140,0,.25)' : 'rgba(255,255,255,.06)',
-            color: ativo ? 'var(--trj-primary)' : 'var(--trj-muted)',
-            border: '1px solid ' + (ativo ? 'var(--trj-primary)' : 'rgba(255,255,255,.12)'),
+            color: ativo ? 'var(--tne-primary)' : 'var(--tne-muted)',
+            border: '1px solid ' + (ativo ? 'var(--tne-primary)' : 'rgba(255,255,255,.12)'),
             fontWeight: ativo ? '700' : '400', cursor: 'pointer'
           },
           text: lbl, onclick: onclick
@@ -570,14 +568,14 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       U.h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, [
         prioSelect,
         U.h('button', {
-          class: 'trj-btn clickable',
+          class: 'tne-btn clickable',
           style: { fontSize: '11px', padding: '3px 8px', background: 'rgba(46,204,113,.15)', color: '#2ecc71', border: '1px solid rgba(46,204,113,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace:'nowrap' },
           onclick: function () { exportarExcelPublico(d, raw.tasksEnriched, raw.incidentsEnriched); }
         }, [U.h('span', {text:'📊'}), U.h('span', {text:'Excel'})])
       ])
     ]));
-    // ── Chips de região com contagens (N · ✓N · ○N) ─────────────────────────
-    (function () {
+    // ── Chips de região (só na visão geral — região específica usa só "← Regiões") ──
+    if (state.regiao === 'TODAS') (function () {
       var incAll = (raw.incidentsEnriched || []).filter(function (i) {
         return (i.statusTrat || 'ATIVO').toUpperCase() !== 'RESOLVIDO';
       });
@@ -604,11 +602,11 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       });
       var ativoTodas = state.regiao === 'TODAS';
       wrap.appendChild(U.h('button', {
-        class: 'trj-btn trj-btn-ghost',
+        class: 'tne-btn tne-btn-ghost',
         style: {
           fontSize: '10px', padding: '3px 9px', borderRadius: '20px',
           background: ativoTodas ? 'rgba(52,152,219,.25)' : 'rgba(255,255,255,.06)',
-          color: ativoTodas ? '#3498db' : 'var(--trj-muted)',
+          color: ativoTodas ? '#3498db' : 'var(--tne-muted)',
           border: '1px solid ' + (ativoTodas ? 'rgba(52,152,219,.5)' : 'rgba(255,255,255,.12)'),
           fontWeight: ativoTodas ? '700' : '400', cursor: 'pointer'
         },
@@ -621,11 +619,11 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
         var sem = tot - tsk;
         var ativo = state.regiao === r;
         wrap.appendChild(U.h('button', {
-          class: 'trj-btn trj-btn-ghost',
+          class: 'tne-btn tne-btn-ghost',
           style: {
             fontSize: '10px', padding: '2px 8px', borderRadius: '20px',
             background: ativo ? 'rgba(231,76,60,.2)' : 'rgba(255,255,255,.06)',
-            color: ativo ? '#e74c3c' : 'var(--trj-muted)',
+            color: ativo ? '#e74c3c' : 'var(--tne-muted)',
             border: '1px solid ' + (ativo ? 'rgba(231,76,60,.5)' : 'rgba(255,255,255,.12)'),
             fontWeight: ativo ? '700' : '400', cursor: 'pointer',
             display: 'inline-flex', flexDirection: 'column', alignItems: 'center', lineHeight: '1.35'
@@ -648,7 +646,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     // Charts: Aging + Prazos a Vencer (com botão copiar)
     var aging = U.chartCard('AGING DO BACKLOG');
     var vencBtnCopiar = U.h('button', {
-      class: 'trj-btn trj-btn-ghost clickable',
+      class: 'tne-btn tne-btn-ghost clickable',
       style: { fontSize: '11px', padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: '5px', border: '1px solid rgba(255,255,255,.15)' },
       onclick: function () { copyText(gerarTextoPrazosTodasRegioes()); }
     }, [U.h('span', { text: '📋' }), U.h('span', { text: 'Copiar' })]);
@@ -658,7 +656,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     var sfAgrupar = { value: true };
     var switchSf = U.switch(true, 'AGRUPAR POR END_ID', function (v) { sfAgrupar.value = v; });
     var btnCopiarSF = U.h('button', {
-      class: 'trj-btn trj-btn-ghost clickable',
+      class: 'tne-btn tne-btn-ghost clickable',
       style: { fontSize: '11px', padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: '5px', border: '1px solid rgba(255,255,255,.15)' },
       onclick: function () { copyText(gerarTextoSitesFora(null)); }
     }, [U.h('span', { text: '📋' }), U.h('span', { text: 'Copiar' })]);
@@ -704,7 +702,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       };
       openDrillTasks({ tipo: 'vencimento', arg: i }, f, 'A VENCER: ' + (bucket.label || ''), {}, onCopyDrill);
     }});
-    U.barChart(sites.canvas, sfData.map(function (x) { return { label: x.label.toUpperCase(), total: x.total, cor: C.CORES_TRJ.red }; }), {
+    U.barChart(sites.canvas, sfData.map(function (x) { return { label: x.label.toUpperCase(), total: x.total, cor: C.CORES_TNE.red }; }), {
       onBar: function (i) {
         var tipo = sfAgrupar.value ? 'sitesForaAgrupado' : 'sitesFora';
         var regiao = sfData[i].regiao;
@@ -768,18 +766,18 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     function mkBarRow(label, count, grandTotal, maxCount, onRowClick, onVerClick) {
       var pct  = grandTotal > 0 ? Math.round(count / grandTotal * 100) : 0;
       var barW = maxCount  > 0 ? (count / maxCount * 100) : 0;
-      var barra = U.h('div', { style: { width: barW + '%', height: '8px', borderRadius: '6px', background: 'var(--trj-primary)', transition: 'width .3s ease, background .2s ease' } });
+      var barra = U.h('div', { style: { width: barW + '%', height: '8px', borderRadius: '6px', background: 'var(--tne-primary)', transition: 'width .3s ease, background .2s ease' } });
       var verBtn = U.h('button', {
-        class: 'trj-btn trj-btn-ghost',
+        class: 'tne-btn tne-btn-ghost',
         style: { fontSize: '10px', padding: '1px 7px', lineHeight: '1.4', flexShrink: '0' },
         text: 'ver casos',
         onclick: function (e) { e.stopPropagation(); onVerClick(); }
       });
       var metaEl = U.h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexShrink: '0' } }, [
         verBtn,
-        U.h('span', { style: { color: 'var(--trj-muted)', fontSize: '10px' }, text: pct + '%' }),
-        U.h('span', { style: { color: 'var(--trj-primary)', fontWeight: '700', fontSize: '12px', minWidth: '22px', textAlign: 'right' }, text: String(count) }),
-        onRowClick ? U.h('span', { style: { color: 'var(--trj-muted)', fontSize: '14px', marginLeft: '2px' }, text: '›' }) : U.h('span', { style: { width: '14px' } })
+        U.h('span', { style: { color: 'var(--tne-muted)', fontSize: '10px' }, text: pct + '%' }),
+        U.h('span', { style: { color: 'var(--tne-primary)', fontWeight: '700', fontSize: '12px', minWidth: '22px', textAlign: 'right' }, text: String(count) }),
+        onRowClick ? U.h('span', { style: { color: 'var(--tne-muted)', fontSize: '14px', marginLeft: '2px' }, text: '›' }) : U.h('span', { style: { width: '14px' } })
       ]);
       var row = U.h('div', {
         style: { cursor: onRowClick ? 'pointer' : 'default', padding: '5px 8px', borderRadius: '8px', transition: 'background .18s ease' }
@@ -791,8 +789,8 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
         U.h('div', { style: { background: 'rgba(255,255,255,.07)', borderRadius: '6px', height: '8px', overflow: 'hidden' } }, barra)
       ]);
       if (onRowClick) {
-        row.addEventListener('mouseenter', function () { row.style.background = 'rgba(255,140,0,.08)'; barra.style.background = 'var(--trj-primary2)'; barra.style.boxShadow = '0 0 8px rgba(255,140,0,.4)'; });
-        row.addEventListener('mouseleave', function () { row.style.background = ''; barra.style.background = 'var(--trj-primary)'; barra.style.boxShadow = ''; });
+        row.addEventListener('mouseenter', function () { row.style.background = 'rgba(255,140,0,.08)'; barra.style.background = 'var(--tne-primary2)'; barra.style.boxShadow = '0 0 8px rgba(255,140,0,.4)'; });
+        row.addEventListener('mouseleave', function () { row.style.background = ''; barra.style.background = 'var(--tne-primary)'; barra.style.boxShadow = ''; });
         row.addEventListener('click', onRowClick);
       }
       return row;
@@ -804,7 +802,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       style: {
         width: '100%', padding: '4px 10px', borderRadius: '8px', boxSizing: 'border-box',
         background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)',
-        color: 'var(--trj-fg)', fontSize: '12px', outline: 'none', marginBottom: '6px'
+        color: 'var(--tne-fg)', fontSize: '12px', outline: 'none', marginBottom: '6px'
       }
     });
     searchEl.addEventListener('input', function () { render(); });
@@ -831,20 +829,20 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
           ));
         });
         if (!visiveis.length) {
-          barsWrap.appendChild(U.h('div', { style: { color: 'var(--trj-muted)', fontSize: '12px', padding: '16px 0' }, text: filtro ? 'Nenhuma causa encontrada.' : 'Nenhum incidente ativo.' }));
+          barsWrap.appendChild(U.h('div', { style: { color: 'var(--tne-muted)', fontSize: '12px', padding: '16px 0' }, text: filtro ? 'Nenhuma causa encontrada.' : 'Nenhum incidente ativo.' }));
         }
       } else {
         var causaObj = causas.filter(function (c) { return c.causa === drillCausa; })[0];
         var voltarBtn = U.h('button', {
-          class: 'trj-btn trj-btn-ghost',
+          class: 'tne-btn tne-btn-ghost',
           style: { fontSize: '11px', padding: '2px 8px' },
           text: '← Voltar',
           onclick: function () { drillCausa = null; searchEl.value = ''; render(); }
         });
         headerEl.appendChild(voltarBtn);
-        headerEl.appendChild(U.h('span', { style: { color: 'var(--trj-muted)', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, text: drillCausa }));
+        headerEl.appendChild(U.h('span', { style: { color: 'var(--tne-muted)', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, text: drillCausa }));
         if (!causaObj) {
-          barsWrap.appendChild(U.h('div', { style: { color: 'var(--trj-muted)', fontSize: '12px' }, text: 'Sem dados.' }));
+          barsWrap.appendChild(U.h('div', { style: { color: 'var(--tne-muted)', fontSize: '12px' }, text: 'Sem dados.' }));
           return;
         }
         var subs = Object.keys(causaObj.subs)
@@ -862,7 +860,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
           ));
         });
         if (!visiveis.length) {
-          barsWrap.appendChild(U.h('div', { style: { color: 'var(--trj-muted)', fontSize: '12px', padding: '8px 0' }, text: 'Nenhuma subcausa encontrada.' }));
+          barsWrap.appendChild(U.h('div', { style: { color: 'var(--tne-muted)', fontSize: '12px', padding: '8px 0' }, text: 'Nenhuma subcausa encontrada.' }));
         }
       }
     }
@@ -870,23 +868,23 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     render();
 
     var totalCard = U.h('div', {
-      class: 'trj-card p-5 flex flex-col items-center justify-center clickable',
+      class: 'tne-card p-5 flex flex-col items-center justify-center clickable',
       style: { minWidth: '180px', cursor: 'pointer', transition: 'box-shadow .15s, border-color .15s', border: '2px solid transparent' },
       title: 'Clique para ver todos os sites fora',
       onclick: function () { openDrillIncidents({ tipo: 'sitesFora', arg: null }, 'TODOS OS SITES FORA'); }
     }, [
-      U.h('div', { class: 'text-xs uppercase', style: { color: 'var(--trj-muted)' }, text: 'TOTAL SITES FORA' }),
-      U.h('div', { class: 'font-extrabold', style: { fontSize: '56px', color: C.CORES_TRJ.red, lineHeight: '1', textShadow: '0 0 20px rgba(231,76,60,.4)' }, text: U.fmtNum(tc.totalSitesFora) }),
-      U.h('div', { style: { fontSize: '10px', color: 'var(--trj-muted)', marginTop: '4px' }, text: '▼ ver incidentes' })
+      U.h('div', { class: 'text-xs uppercase', style: { color: 'var(--tne-muted)' }, text: 'TOTAL SITES FORA' }),
+      U.h('div', { class: 'font-extrabold', style: { fontSize: '56px', color: C.CORES_TNE.red, lineHeight: '1', textShadow: '0 0 20px rgba(231,76,60,.4)' }, text: U.fmtNum(tc.totalSitesFora) }),
+      U.h('div', { style: { fontSize: '10px', color: 'var(--tne-muted)', marginTop: '4px' }, text: '▼ ver incidentes' })
     ]);
     totalCard.addEventListener('mouseenter', function () { totalCard.style.boxShadow = '0 0 20px rgba(231,76,60,.25)'; totalCard.style.borderColor = 'rgba(231,76,60,.5)'; });
     totalCard.addEventListener('mouseleave', function () { totalCard.style.boxShadow = ''; totalCard.style.borderColor = 'transparent'; });
 
-    return U.h('div', { class: 'trj-card p-4' }, [
+    return U.h('div', { class: 'tne-card p-4' }, [
       U.h('div', { class: 'flex items-center gap-2 mb-3' }, [
-        U.h('span', { class: 'trj-chart-dot' }),
+        U.h('span', { class: 'tne-chart-dot' }),
         U.h('h3', { class: 'text-sm font-bold', text: 'CAUSA / SUBCAUSA — SITES FORA' }),
-        U.h('span', { class: 'text-xs font-normal', style: { color: 'var(--trj-muted)' }, text: '(clique em uma causa para ver subcausas · "ver casos" abre os incidentes)' })
+        U.h('span', { class: 'text-xs font-normal', style: { color: 'var(--tne-muted)' }, text: '(clique em uma causa para ver subcausas · "ver casos" abre os incidentes)' })
       ]),
       U.h('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4' }, [
         totalCard,
@@ -951,20 +949,20 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     var rawFiltrado = raw;
     if (state.regiao && state.regiao !== 'TODAS') {
       rawFiltrado = Object.assign({}, raw, {
-        tasksEnriched:    (raw.tasksEnriched    || []).filter(function (t) { return (t.regiao || 'OTHERS') === state.regiao; }),
+        tasksEnriched:     (raw.tasksEnriched    || []).filter(function (t) { return (t.regiao || 'OTHERS') === state.regiao; }),
         incidentsEnriched: (raw.incidentsEnriched || []).filter(function (i) { return (i.regiao || 'OTHERS') === state.regiao; })
       });
     }
 
     var btnVoltar = U.h('button', {
-      class: 'trj-btn trj-btn-ghost clickable', text: '← Regiões',
+      class: 'tne-btn tne-btn-ghost clickable', text: '← Regiões',
       onclick: function () { view = 'welcome'; renderView(); }
     });
     root.appendChild(U.h('div', { class: 'pub-topbar' }, [
       btnVoltar,
       liveElGlobal(),
       U.h('button', {
-        class: 'trj-btn clickable',
+        class: 'tne-btn clickable',
         style: { fontSize: '11px', padding: '3px 8px', background: 'rgba(46,204,113,.15)', color: '#2ecc71', border: '1px solid rgba(46,204,113,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' },
         onclick: function () {
           var d = Comp.dashboard(rawFiltrado.tasksEnriched, rawFiltrado.incidentsEnriched, state) || {};
@@ -980,24 +978,24 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
 
     var ctx = { data: rawFiltrado, app: appCtx };
 
-    if (tabId === 'prioritarios' && TRJ.pages && TRJ.pages.prioritarios) {
-      TRJ.pages.prioritarios(tabContent, ctx);
-    } else if (tabId === 'pesquisa' && TRJ.pages && TRJ.pages.pesquisa) {
-      TRJ.pages.pesquisa(tabContent, ctx);
-    } else if (tabId === 'produtividade' && TRJ.pages && TRJ.pages.produtividade) {
+    if (tabId === 'prioritarios' && TNE.pages && TNE.pages.prioritarios) {
+      TNE.pages.prioritarios(tabContent, ctx);
+    } else if (tabId === 'pesquisa' && TNE.pages && TNE.pages.pesquisa) {
+      TNE.pages.pesquisa(tabContent, ctx);
+    } else if (tabId === 'produtividade' && TNE.pages && TNE.pages.produtividade) {
       if (raw.prodHistory) {
-        try { localStorage.setItem('trj_prod_hist_v1', JSON.stringify(raw.prodHistory)); } catch(e) {}
+        try { localStorage.setItem('tne_prod_hist_v1', JSON.stringify(raw.prodHistory)); } catch(e) {}
       }
-      TRJ.pages.produtividade(tabContent, ctx);
-    } else if (tabId === 'atualizacoes' && TRJ.pages && TRJ.pages.atualizacoes) {
-      TRJ.pages.atualizacoes(tabContent, ctx);
-    } else if (tabId === 'sitesfora' && TRJ.pages && TRJ.pages.sitesFora) {
-      TRJ.pages.sitesFora(tabContent, ctx);
-    } else if (tabId === 'sla' && TRJ.pages && TRJ.pages.sla) {
-      TRJ.pages.sla(tabContent, { data: rawFiltrado, app: appCtx });
+      TNE.pages.produtividade(tabContent, ctx);
+    } else if (tabId === 'atualizacoes' && TNE.pages && TNE.pages.atualizacoes) {
+      TNE.pages.atualizacoes(tabContent, ctx);
+    } else if (tabId === 'sitesfora' && TNE.pages && TNE.pages.sitesFora) {
+      TNE.pages.sitesFora(tabContent, ctx);
+    } else if (tabId === 'sla' && TNE.pages && TNE.pages.sla) {
+      TNE.pages.sla(tabContent, { data: rawFiltrado, app: appCtx });
     } else {
       tabContent.appendChild(U.h('div', { class: 'trj-card p-8 text-center' }, [
-        U.h('div', { style: { color: 'var(--trj-muted)', fontSize: '14px' }, text: 'Módulo não disponível nesta versão.' })
+        U.h('div', { style: { color: 'var(--tne-muted)', fontSize: '14px' }, text: 'Módulo não disponível nesta versão.' })
       ]));
     }
   }
