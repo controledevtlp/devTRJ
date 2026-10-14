@@ -489,7 +489,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     var cols = [['TSK',20],['STATUS',14],['PRIORIDADE',12],['REGIÃO',16],['CIDADE',20],['END_ID',16],['SITE',16],['TIPO FALHA',22],['FILA',40],['SLA',16],['CRIAÇÃO NTT',20]];
     var hdrs = cols.map(function(c){return c[0];});
     var aoa = [hdrs].concat(backlog.slice(0,2000).map(function(t){
-      return [t.osNumero,t.status,t.prioridade,t.regiao,t.cidade,t.enderecoId,t.siteId,t.tipoFalha,t.filaAtual,t.statusSla,t.dataCriacaoAS];
+      return [t.osNumero,t.status,t.prioridade,t.regiao,t.cidade,t.enderecoId,t.siteId,t.tipoFalha,t.filaAtual,t.statusSla,t.dataCriacaoAS||t.dataCriacao];
     }));
     var ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!freeze'] = { ySplit:1 };
