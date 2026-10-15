@@ -13,24 +13,65 @@
   --trj-muted: #8a8a93;
   --trj-border: rgba(255, 140, 0, 0.15);
   --trj-border2: rgba(255, 140, 0, 0.32);
+  /* derivadas (mudam no tema claro) */
+  --trj-link: #cfcfd6;
+  --trj-link-hover: #ffffff;
+  --trj-line: rgba(255, 255, 255, 0.06);        /* divisórias de linha/tabela */
+  --trj-tile: rgba(255, 255, 255, 0.03);        /* fundo sutil de tiles/zonas */
+  --trj-hover-bg: rgba(255, 255, 255, 0.06);
+  --trj-hover-border: rgba(255, 255, 255, 0.35);
+  --trj-shadow: rgba(0, 0, 0, 0.5);
+  --trj-shadow-soft: rgba(0, 0, 0, 0.35);
+  --trj-veil: rgba(10, 10, 15, 0.6);            /* véu do loading */
+  --trj-map-bg: #1a1a2e;
+  --trj-red-text: #ff4444;
+  --trj-scroll: rgba(255, 140, 0, 0.25);
+  --trj-scroll-hover: rgba(255, 140, 0, 0.45);
 }
 
 /* Tema claro — ativado via <html data-theme="light"> (ver app.js, toggle no menu) */
 html[data-theme="light"] {
+  color-scheme: light;
   --trj-bg: #f3f4f7;
   --trj-card: #ffffff;
   --trj-card2: #eef0f5;
   --trj-popover: #ffffff;
-  --trj-primary: #e07a00;
-  --trj-primary2: #ff8c00;
-  --trj-red: #d6334a;
-  --trj-green: #1f9d57;
-  --trj-blue: #2a7fc9;
+  /* acentos escurecidos p/ contraste mínimo 4.5:1 sobre branco quando usados como texto */
+  --trj-primary: #b85a00;
+  --trj-primary2: #e07a00;
+  --trj-red: #c62839;
+  --trj-green: #168a47;
+  --trj-blue: #1f6fb5;
   --trj-fg: #181820;
   --trj-muted: #5a5d6b;
-  --trj-border: rgba(224, 122, 0, 0.18);
-  --trj-border2: rgba(224, 122, 0, 0.38);
+  --trj-border: rgba(20, 24, 40, 0.13);
+  --trj-border2: rgba(194, 94, 0, 0.42);
+  --trj-link: #3d4050;
+  --trj-link-hover: #111118;
+  --trj-line: rgba(20, 24, 40, 0.10);
+  --trj-tile: rgba(20, 24, 40, 0.035);
+  --trj-hover-bg: rgba(20, 24, 40, 0.05);
+  --trj-hover-border: rgba(20, 24, 40, 0.28);
+  --trj-shadow: rgba(20, 24, 40, 0.16);
+  --trj-shadow-soft: rgba(20, 24, 40, 0.10);
+  --trj-veil: rgba(243, 244, 247, 0.72);
+  --trj-map-bg: #e4e6ec;
+  --trj-red-text: #c62839;
+  --trj-scroll: rgba(20, 24, 40, 0.22);
+  --trj-scroll-hover: rgba(20, 24, 40, 0.40);
 }
+html[data-theme="light"] body::before {
+  background:
+    radial-gradient(ellipse at 10% 0%, rgba(255,140,0,0.07) 0%, transparent 50%),
+    radial-gradient(ellipse at 90% 100%, rgba(52,152,219,0.05) 0%, transparent 50%);
+}
+html[data-theme="light"] .trj-resumo-total-valor { text-shadow: none; }
+html[data-theme="light"] .trj-card { box-shadow: 0 1px 2px rgba(20,24,40,.05); }
+html[data-theme="light"] .trj-btn-primary { color: #fff; box-shadow: 0 2px 8px rgba(194,94,0,.25); }
+html[data-theme="light"] .trj-btn-primary:hover { background: #9c4a00; }
+html[data-theme="light"] .trj-input::placeholder { color: #8b8e9b; }
+html[data-theme="light"] .trj-modal-bg { background: rgba(20,24,40,.45); }
+html[data-theme="light"] .trj-badge { box-shadow: inset 0 0 0 1px rgba(20,24,40,.06); }
 
 /* Título com fonte mais executiva/chamativa (Sora) — usado no pageHeader e nos cabeçalhos das páginas */
 .trj-heading {
@@ -53,8 +94,8 @@ body::before {
 /* Scrollbar discreta */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,140,0,0.25); border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,140,0,0.45); }
+::-webkit-scrollbar-thumb { background: var(--trj-scroll); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--trj-scroll-hover); }
 
 .trj-card {
   background: var(--trj-card);
@@ -65,10 +106,10 @@ body::before {
 .trj-link {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 12px; border-radius: 10px;
-  color: #cfcfd6; font-size: 14px; font-weight: 500;
+  color: var(--trj-link); font-size: 14px; font-weight: 500;
   cursor: pointer; transition: all .15s ease; text-decoration: none;
 }
-.trj-link:hover { background: rgba(255,140,0,0.10); color: #fff; }
+.trj-link:hover { background: rgba(255,140,0,0.12); color: var(--trj-link-hover); }
 .trj-link.active { background: rgba(255,140,0,0.16); color: var(--trj-primary); }
 .trj-link .ico { width: 18px; text-align: center; }
 
@@ -80,7 +121,7 @@ body::before {
 .trj-kpi:hover {
   transform: translateY(-5px);
   border-color: rgba(255,140,0,.5);
-  box-shadow: 0 20px 40px rgba(0,0,0,.5), 0 0 30px rgba(255,140,0,.15);
+  box-shadow: 0 20px 40px var(--trj-shadow), 0 0 30px rgba(255,140,0,.15);
 }
 
 .trj-btn {
@@ -111,24 +152,24 @@ body::before {
   position: sticky; top: 0; background: var(--trj-card);
   text-transform: uppercase; font-size: 11px; letter-spacing: .4px;
 }
-.trj-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.05); transition: background .12s ease; }
+.trj-table td { padding: 8px 10px; border-bottom: 1px solid var(--trj-line); transition: background .12s ease; }
 .trj-table tr:hover td { background: rgba(255,140,0,0.07); }
 
 .trj-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
 
 /* Cartão de gráfico: cabeçalho com "pulso" + hover de borda/sombra */
 .trj-chart-card { transition: border-color .25s ease, box-shadow .25s ease; }
-.trj-chart-card:hover { border-color: rgba(255,140,0,.4); box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+.trj-chart-card:hover { border-color: rgba(255,140,0,.4); box-shadow: 0 8px 32px var(--trj-shadow-soft); }
 
 /* Tile de métrica clicável (Visão Regional e similares) */
 .trj-metric-tile {
   cursor: pointer; padding: 10px 12px; border-radius: 10px;
-  background: rgba(255,255,255,.02); border: 1px solid transparent;
+  background: var(--trj-tile); border: 1px solid transparent;
   transition: background .2s ease, border-color .2s ease, transform .2s ease, box-shadow .2s ease;
 }
 .trj-metric-tile:hover {
   background: rgba(255,140,0,.08); border-color: rgba(255,140,0,.35);
-  transform: translateY(-3px); box-shadow: 0 8px 18px rgba(0,0,0,.35);
+  transform: translateY(-3px); box-shadow: 0 8px 18px var(--trj-shadow-soft);
 }
 .trj-metric-tile .ic { font-size: 15px; opacity: .85; }
 .trj-chart-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--trj-primary); box-shadow: 0 0 10px var(--trj-primary); flex-shrink: 0; }
@@ -136,7 +177,7 @@ body::before {
 /* Dropzone reutilizável (upload de arquivos) */
 .trj-dropzone {
   border: 2px dashed var(--trj-border2);
-  border-radius: 14px; background: rgba(255,255,255,0.02);
+  border-radius: 14px; background: var(--trj-tile);
   padding: 30px 18px; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 10px; text-align: center; cursor: pointer; transition: all .22s ease; min-height: 190px;
 }
@@ -146,7 +187,7 @@ body::before {
 .trj-dropzone-icon {
   width: 52px; height: 52px; border-radius: 14px; background: var(--trj-card2);
   border: 1px solid var(--trj-border); display: flex; align-items: center; justify-content: center;
-  font-size: 22px; box-shadow: 0 8px 20px rgba(0,0,0,.4);
+  font-size: 22px; box-shadow: 0 8px 20px var(--trj-shadow-soft);
 }
 .trj-dropzone-title { font-size: 14.5px; font-weight: 700; color: var(--trj-fg); }
 .trj-dropzone-sub { font-size: 12px; color: var(--trj-muted); line-height: 1.5; }
@@ -159,17 +200,17 @@ body::before {
 }
 .trj-resumo-total { display: flex; align-items: baseline; gap: 7px; padding-right: 14px; border-right: 1px solid rgba(255,140,0,.2); margin-right: 2px; }
 .trj-resumo-total-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--trj-muted); white-space: nowrap; }
-.trj-resumo-total-valor { font-size: 22px; font-weight: 800; color: #ff4444; text-shadow: 0 0 12px rgba(255,68,68,.35); line-height: 1; }
+.trj-resumo-total-valor { font-size: 22px; font-weight: 800; color: var(--trj-red-text); text-shadow: 0 0 12px rgba(255,68,68,.35); line-height: 1; }
 .trj-resumo-grid { display: flex; flex-wrap: wrap; gap: 6px 8px; flex: 1; }
 .trj-resumo-item {
   display: flex; align-items: center; gap: 5px; padding: 3px 9px;
-  background: rgba(255,255,255,.03); border: 1px solid var(--trj-border); border-radius: 999px;
+  background: var(--trj-tile); border: 1px solid var(--trj-border); border-radius: 999px;
   transition: background .15s ease, border-color .15s ease;
 }
 .trj-resumo-item:hover { background: rgba(255,140,0,.08); border-color: var(--trj-border2); }
 .trj-resumo-nome { font-size: 11px; color: var(--trj-muted); }
 .trj-resumo-val { font-size: 12.5px; font-weight: 700; color: var(--trj-fg); }
-.trj-resumo-pct { font-size: 10px; color: rgba(255,140,0,.75); }
+.trj-resumo-pct { font-size: 10px; color: var(--trj-primary); opacity: .85; }
 
 /* Switch (toggle) reutilizável — com hover/glow e thumb animado */
 .trj-switch-wrap { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; }
@@ -224,7 +265,7 @@ body::before {
 .trj-modal {
   background: var(--trj-card); border: 1px solid var(--trj-border); border-radius: 16px;
   width: 96vw; max-width: 1500px; max-height: 90vh; display: flex; flex-direction: column;
-  box-shadow: 0 40px 80px rgba(0,0,0,.6);
+  box-shadow: 0 40px 80px var(--trj-shadow);
 }
 
 /* Menu lateral retrátil: fica fora da tela e só aparece com hover na
@@ -234,7 +275,7 @@ body::before {
   position: fixed; top: 0; left: 0; height: 100vh; z-index: 65;
   transform: translateX(-100%);
   transition: transform .22s cubic-bezier(.4,0,.2,1);
-  box-shadow: 10px 0 36px rgba(0,0,0,.55);
+  box-shadow: 10px 0 36px var(--trj-shadow);
 }
 body.trj-sidebar-open #sidebar { transform: translateX(0); }
 #sidebar-hover-zone { position: fixed; top: 0; left: 0; width: 16px; height: 100vh; z-index: 64; }
@@ -243,7 +284,7 @@ body.trj-sidebar-open #sidebar { transform: translateX(0); }
   width: 38px; height: 38px; border-radius: 10px;
   background: var(--trj-card); border: 1px solid var(--trj-border);
   display: flex; align-items: center; justify-content: center;
-  cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,.45);
+  cursor: pointer; box-shadow: 0 4px 16px var(--trj-shadow-soft);
   color: var(--trj-fg); font-size: 17px; line-height: 1;
   transition: border-color .18s ease, color .18s ease, opacity .18s ease;
 }
@@ -254,7 +295,7 @@ body.trj-sidebar-open #sidebar-toggle-btn { opacity: 0; pointer-events: none; }
 #trj-toasts { position: fixed; top: 16px; right: 16px; z-index: 80; display: flex; flex-direction: column; gap: 8px; }
 .trj-toast {
   background: var(--trj-popover); border: 1px solid var(--trj-border); color: var(--trj-fg);
-  padding: 11px 16px; border-radius: 10px; font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  padding: 11px 16px; border-radius: 10px; font-size: 14px; box-shadow: 0 8px 24px var(--trj-shadow);
   min-width: 240px; max-width: 360px; animation: trjslide .2s ease;
 }
 .trj-toast.ok { border-left: 3px solid #2ecc71; }
@@ -264,7 +305,7 @@ body.trj-sidebar-open #sidebar-toggle-btn { opacity: 0; pointer-events: none; }
 
 /* Loading (com mensagem opcional de etapa) */
 #trj-loading {
-  position: fixed; inset: 0; background: rgba(10,10,15,.6); z-index: 90;
+  position: fixed; inset: 0; background: var(--trj-veil); z-index: 90;
   display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   backdrop-filter: blur(2px);
 }
@@ -289,9 +330,9 @@ body.trj-sidebar-open #sidebar-toggle-btn { opacity: 0; pointer-events: none; }
 
 /* destaque mais claro ao passar o mouse + borda "quase branca" */
 .clickable:hover {
-  background-color: rgba(255,255,255,0.06); /* cor mais clara */
-  border: 1px solid rgba(255,255,255,0.35); /* borda esbranquiçada no hover */
-  box-shadow: 0 6px 18px rgba(255,255,255,0.04);
+  background-color: var(--trj-hover-bg);
+  border: 1px solid var(--trj-hover-border);
+  box-shadow: 0 6px 18px var(--trj-shadow-soft);
   transform: translateY(-2px);
 }
 
@@ -312,9 +353,9 @@ body.trj-sidebar-open #sidebar-toggle-btn { opacity: 0; pointer-events: none; }
   border-radius: 6px;
 }
 .chart-clickable:hover {
-  background-color: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.28);
-  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+  background-color: var(--trj-hover-bg);
+  border: 1px solid var(--trj-hover-border);
+  box-shadow: 0 6px 18px var(--trj-shadow-soft);
 }
 
 /* Ajustes visuais para botões/links que já existem */
@@ -332,14 +373,14 @@ body.trj-sidebar-open #sidebar-toggle-btn { opacity: 0; pointer-events: none; }
   display: inline !important;
 }
 /* Fundo escuro igual ao tileset — elimina "buracos" durante o carregamento */
-.leaflet-container { background: #1a1a2e !important; font-family: inherit; }
+.leaflet-container { background: var(--trj-map-bg) !important; font-family: inherit; }
 /* Popups com tema TRJ */
 .leaflet-popup-content-wrapper {
   background: var(--trj-card2) !important;
   color: var(--trj-fg) !important;
   border: 1px solid var(--trj-border) !important;
   border-radius: 10px !important;
-  box-shadow: 0 4px 24px rgba(0,0,0,.6) !important;
+  box-shadow: 0 4px 24px var(--trj-shadow) !important;
 }
 .leaflet-popup-tip { background: var(--trj-card2) !important; }
 .leaflet-popup-close-button { color: var(--trj-muted) !important; }
@@ -359,7 +400,7 @@ body.trj-sidebar-open #sidebar-toggle-btn { opacity: 0; pointer-events: none; }
   border: 1px solid var(--trj-border) !important;
   border-radius: 6px !important;
   font-size: 11px !important;
-  box-shadow: 0 2px 10px rgba(0,0,0,.4) !important;
+  box-shadow: 0 2px 10px var(--trj-shadow-soft) !important;
 }
 .leaflet-tooltip::before { border-top-color: var(--trj-border) !important; }
 
@@ -380,10 +421,22 @@ body.trj-sidebar-open #sidebar-toggle-btn { opacity: 0; pointer-events: none; }
   text-align: left; min-width: 240px; flex: 1;
   transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
 }
-.trj-dev-card:hover { transform: translateY(-2px); border-color: var(--trj-border2); box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+.trj-dev-card:hover { transform: translateY(-2px); border-color: var(--trj-border2); box-shadow: 0 6px 18px var(--trj-shadow-soft); }
 .trj-dev-avatar { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: #fff; flex-shrink: 0; }
 .trj-dev-role { font-size: 10px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
 .trj-dev-name { font-size: 14px; font-weight: 700; color: var(--trj-fg); margin: 1px 0; }
 .trj-dev-email { font-size: 12px; color: var(--trj-muted); text-decoration: none; transition: color .15s ease; }
 .trj-dev-email:hover { color: var(--trj-primary); text-decoration: underline; }
 .trj-dev-footer-copy { font-size: 11px; color: var(--trj-muted); margin-top: 18px; opacity: .8; }
+
+/* Botão flutuante de tema (dashboard público / devGERAL — páginas sem menu lateral) */
+#trj-theme-fab {
+  position: fixed; right: 16px; bottom: 16px; z-index: 75;
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--trj-card); border: 1px solid var(--trj-border2);
+  color: var(--trj-fg); font-size: 18px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 6px 20px var(--trj-shadow);
+  transition: transform .15s ease, border-color .15s ease;
+}
+#trj-theme-fab:hover { transform: scale(1.08); border-color: var(--trj-primary); }

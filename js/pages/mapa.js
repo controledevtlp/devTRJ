@@ -665,7 +665,7 @@
         .setView(initCenter, initZoom);
       if (readOnly) TRJ._publicMapInstance = mapInstance; // permite salvar estado no refresh silencioso
 
-      window.L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+      window.L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/Canvas/World_' + ((TRJ.theme && TRJ.theme.isLight()) ? 'Light' : 'Dark') + '_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
         attribution: '&copy; <a href="https://www.esri.com/">Esri</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 16
       }).addTo(mapInstance);

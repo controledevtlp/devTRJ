@@ -13,13 +13,10 @@
 
   // ícones SVG simples (stroke currentColor)
   // ---------------- TEMA (claro/escuro) ----------------
-  var LS_THEME = 'trj_theme';
-  function getTheme() { try { return localStorage.getItem(LS_THEME) || 'dark'; } catch (e) { return 'dark'; } }
-  function applyTheme(t) {
-    document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
-    try { localStorage.setItem(LS_THEME, t); } catch (e) {}
-  }
-  applyTheme(getTheme()); // aplica o tema salvo já no carregamento, antes de montar a tela
+  // A escolha é guardada e aplicada por js/theme.js (carregado no <head>); ele também adapta as
+  // cores escritas direto no estilo inline das páginas quando o tema claro está ativo.
+  function getTheme() { return TRJ.theme ? TRJ.theme.get() : 'dark'; }
+  function applyTheme(t) { if (TRJ.theme) TRJ.theme.set(t); }
 
   var ICONS = {
     dashboard: '<path d="M3 13h8V3H3zM13 21h8V3h-8zM3 21h8v-6H3z"/>',

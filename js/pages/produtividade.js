@@ -445,7 +445,7 @@
                ticks: { color: tickClr(), font: { size: 11 } }, grid: { color: gridClr() }, beginAtZero: true },
           yPct: { position: 'right',
                   min: 0, max: 100,
-                  ticks: { color: '#f1c40f', font: { size: 10 }, stepSize: 25,
+                  ticks: { color: (TRJ.theme ? TRJ.theme.ink('#f1c40f', 4) : '#f1c40f'), font: { size: 10 }, stepSize: 25,
                            callback: function (v) { return v + '%'; } },
                   grid: { drawOnChartArea: false } }
         },
