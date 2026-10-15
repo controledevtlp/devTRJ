@@ -103,7 +103,9 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       var json = await resp.json();
       if (!json || json.ok === false) throw new Error((json && json.error) || 'Erro ao buscar dados.');
       if (!json.data) {
-        if (!silencioso) root.innerHTML = '<div class="text-center py-20" style="color:var(--trj-muted)">Ainda não há nenhuma publicação.<br>Abra o Dashboard no painel principal pelo menos uma vez.</div>';
+        if (!silencioso) root.innerHTML = json.savedAt
+          ? '<div class="text-center py-20" style="color:var(--trj-red)">O snapshot publicado está indisponível (dados corrompidos no servidor).<br>Abra o Dashboard no painel principal para republicar.</div>'
+          : '<div class="text-center py-20" style="color:var(--trj-muted)">Ainda não há nenhuma publicação.<br>Abra o Dashboard no painel principal pelo menos uma vez.</div>';
         return;
       }
 

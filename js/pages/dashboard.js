@@ -404,7 +404,8 @@
       enderecoId: t.enderecoId, siteId: t.siteId,
       cidade: t.cidade, regiao: t.regiao, tipoFalha: t.tipoFalha,
       vencimentoCalc: t.vencimentoCalc, fimCalc: t.fimCalc,
-      statusSla: t.statusSla, fonteSla: t.fonteSla, motivoCancelamento: t.motivoCancelamento
+      statusSla: t.statusSla, fonteSla: t.fonteSla, motivoCancelamento: t.motivoCancelamento,
+      habilidadeTrabalho: t.habilidadeTrabalho   // KPI "GMGs na Fila" (siteGERAL / público)
     };
   }
 
