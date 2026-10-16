@@ -348,19 +348,19 @@
   }
 
   function listaConcentradores(lista, onRemover) {
-    if (!lista.length) return U.h('p', { style: { color: 'var(--trj-muted)', fontSize: '12px', fontStyle: 'italic' }, text: 'Nenhum concentrador cadastrado. Use o formulário acima.' });
+    if (!lista.length) return U.h('p', { style: { color: 'var(--trj-muted)', fontSize: '12px', fontStyle: 'italic' }, text: onRemover ? 'Nenhum concentrador cadastrado. Use o formulário acima.' : 'Nenhum concentrador cadastrado.' });
     return U.h('div', { style: { marginBottom: '12px' } }, lista.map(function (c) {
       return U.h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0', borderBottom: '1px solid var(--trj-border)', fontSize: '12px', flexWrap: 'wrap' } }, [
         U.h('span', { style: { fontFamily: 'ui-monospace,monospace', fontWeight: '700', minWidth: '80px' }, text: c.site || '—' }),
         U.h('span', { style: { color: 'var(--trj-muted)', minWidth: '120px' }, text: c.endId || '—' }),
         U.h('span', { style: { color: 'var(--trj-muted)', fontStyle: 'italic', flex: '1' }, text: c.nota || '' }),
-        U.h('button', {
+        onRemover ? U.h('button', {
           class: 'trj-btn trj-btn-ghost clickable',
           style: { fontSize: '10px', padding: '1px 6px', color: '#e74c3c', marginLeft: 'auto' },
           text: '✕ Remover',
           onclick: function () { salvarConc(carregarConc().filter(function (x) { return x.id !== c.id; }), onRemover); }
-        })
-      ]);
+        }) : null
+      ].filter(Boolean));
     }));
   }
 
@@ -396,6 +396,10 @@
   TRJ.pages.prioritarios = function (container, ctx) {
     var app  = ctx.app;
     var data = ctx.data || {};
+    // Visão pública/somente leitura: a lista de concentradores vem dentro do snapshot publicado
+    // (o visitante não tem login, então não consegue ler o CONFIG do backend).
+    var somenteLeitura = !!(app && app.isPublic);
+    if (Array.isArray(data.concentradores)) _concCache = data.concentradores;
 
     // Pegar o status mais recente por TSK (maior sequenciaId = col C)
     var todasCorretivas = (data.tasksEnriched || []).filter(ehCorretiva);
@@ -505,8 +509,8 @@
 
       } else if (cat === 'conc') {
         card.appendChild(headerComCopiar('', 'Concentradores — ' + concMatches.length + ' alerta(s)', '#9b59b6', function () { return gerarTextoCopiaConc(concMatches); }));
-        card.appendChild(formConcentradores(function () { concMatches = calcMatches(); setCategoria('conc'); }));
-        card.appendChild(listaConcentradores(carregarConc(), function () { concMatches = calcMatches(); setCategoria('conc'); }));
+        if (!somenteLeitura) card.appendChild(formConcentradores(function () { concMatches = calcMatches(); setCategoria('conc'); }));
+        card.appendChild(listaConcentradores(carregarConc(), somenteLeitura ? null : function () { concMatches = calcMatches(); setCategoria('conc'); }));
         if (concMatches.length > 0) {
           card.appendChild(U.h('hr', { style: { margin: '12px 0', borderColor: 'var(--trj-border)' } }));
           card.appendChild(U.h('p', { style: { fontWeight: '700', fontSize: '13px', marginBottom: '8px', color: '#9b59b6' }, text: 'Alertas ativos:' }));

@@ -100,6 +100,15 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
   async function carregarDados(silencioso) {
     if (!URL_API) { root.innerHTML = '<div class="text-center py-20" style="color:var(--trj-red)">URL do Apps Script não configurada (js/config.js).</div>'; return; }
     try {
+      // Verificação leve (1 célula da planilha): se o snapshot não mudou, não baixa 1–2 MB nem recalcula nada.
+      // Servidor com Apps Script antigo (sem a ação) cai no download completo.
+      if (silencioso && lastSavedAt) {
+        try {
+          var mr = await fetch(URL_API + '?action=getSnapshotMeta');
+          var mj = await mr.json();
+          if (mj && mj.ok && mj.savedAt && mj.savedAt === lastSavedAt) return;
+        } catch (e) { /* segue para o download completo */ }
+      }
       var resp = await fetch(URL_API + '?action=getDashboardSnapshot');
       var json = await resp.json();
       if (!json || json.ok === false) throw new Error((json && json.error) || 'Erro ao buscar dados.');
@@ -119,6 +128,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       raw.tasksEnriched = json.data.tasksEnriched || [];
       raw.incidentsEnriched = json.data.incidentsEnriched || [];
       raw.prazoMap = json.data.prazoMap || {};
+      raw.concentradores = Array.isArray(json.data.concentradores) ? json.data.concentradores : null;
 
       // Sincronizar dados do mapa para o localStorage E para o objeto raw
       function _lsSave(key, val) {

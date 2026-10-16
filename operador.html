@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Controle TRJ · Operação (visão do operador)</title>
+<link rel="icon" href="assets/logo-trj.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: { colors: { bg: '#0a0a0f', card: '#13131a', popover: '#1a1a24', primary: '#ff8c00', fg: '#f0f0f0', muted: '#8a8a93' } } }
+  };
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<script src="js/theme.js"></script>
+<link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/operador.css">
+<script src="js/config.js"></script>
+<script src="js/constants.js"></script>
+<script src="js/domain.js"></script>
+<script src="js/compute.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/operador-regras.js"></script>
+<script src="js/pages/mapa.js"></script>
+<script src="js/pages/prioritarios.js"></script>
+<script src="js/data/mapa-enlaces.js"></script>
+<script src="js/data/mapa-coords.js"></script>
+</head>
+<body>
+<div id="root"><div class="op-loading">Carregando dados publicados...</div></div>
+<div id="op-tip" class="op-tip" role="tooltip"></div>
+<script src="js/operador.js"></script>
+</body>
+</html>

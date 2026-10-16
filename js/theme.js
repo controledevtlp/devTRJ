@@ -17,7 +17,7 @@
   var KEY = 'trj_theme';
   var root = document.documentElement;
   var listeners = [];
-  var obs = null, queue = [], raf = 0;
+  var obs = null, queue = [], raf = 0, tmo = 0;
 
   function stored() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
   function get() { return root.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; }
@@ -194,7 +194,8 @@
   }
 
   function flush() {
-    raf = 0;
+    if (raf) { try { cancelAnimationFrame(raf); } catch (e) {} raf = 0; }
+    if (tmo) { clearTimeout(tmo); tmo = 0; }
     if (!isLight()) { queue = []; return; }
     var q = queue; queue = [];
     var deep = new Set(), shallow = new Set();
@@ -205,6 +206,8 @@
   function schedule(el, deep) {
     queue.push({ el: el, deep: !!deep });
     if (!raf) raf = requestAnimationFrame(flush);
+    /* abas em segundo plano / ocultas pausam o requestAnimationFrame: o temporizador garante o ajuste */
+    if (!tmo) tmo = setTimeout(flush, 80);
   }
 
   function startObserver() {

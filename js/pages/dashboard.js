@@ -405,7 +405,8 @@
       cidade: t.cidade, regiao: t.regiao, tipoFalha: t.tipoFalha,
       vencimentoCalc: t.vencimentoCalc, fimCalc: t.fimCalc,
       statusSla: t.statusSla, fonteSla: t.fonteSla, motivoCancelamento: t.motivoCancelamento,
-      habilidadeTrabalho: t.habilidadeTrabalho   // KPI "GMGs na Fila" (siteGERAL / público)
+      habilidadeTrabalho: t.habilidadeTrabalho,  // KPI "GMGs na Fila" (siteGERAL / público)
+      isocDJ: t.isocDJ                           // tipo de cliente — define B2B/Premium na aba Prioritários
     };
   }
 
@@ -491,8 +492,19 @@
         }
       } catch(e) {}
 
+      // Lista de concentradores (cadastrada no painel, guardada no CONFIG do backend e exigindo login):
+      // vai dentro do snapshot para o dashboard público/visões de operador conseguirem exibir.
+      var concentradores = null;
+      try {
+        if (TRJ.api && TRJ.api.getConcentradores) {
+          var cr = await TRJ.api.getConcentradores();
+          if (cr && Array.isArray(cr.lista)) concentradores = cr.lista;
+        }
+      } catch(e) {}
+
       var payload = {
         tasksEnriched:     (data.tasksEnriched || []).map(slimTaskForPublish),
+        concentradores:    concentradores,
         incidentsEnriched: incComCoords,
         prazoMap:          data.prazoMap || {},        // necessário para SLA/Aderência
         mapaCoordMap:      Object.keys(coordMapFull).length > 0 ? coordMapFull : null,
