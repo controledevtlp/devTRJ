@@ -1079,6 +1079,131 @@
     return entries;
   }
 
+  // >>> DIARIO-PARSER (bloco copiado para siteGERAL — manter idêntico) >>>
+  // Leitura das entradas do diário (autor + MENSAGEM). O diário vem concatenado, sem quebras:
+  //   2026-10-16 09:22 - App Teleperformance - Tel.:16/10/2026 09:21:32 - NOME SOBRENOME: mensagem...
+  //   2026-10-16 08:59 - TLP-T3710913-NOME - Tel.: 31993911379mensagem...
+  //   15/10/2026 16:27:16 - WFM Agent (Anotações de trabalho)TLP-T3498527-NOME  - 2026-10-05 17:02mensagem
+  // O cabeçalho "App Teleperformance - Tel.:" não carrega texto — a mensagem está na entrada seguinte.
+  var PARTICULAS_NOME = /^(?:da|de|do|das|dos|e|di|du|del)$/i;
+  // Palavras em MAIÚSCULAS que iniciam mensagem (nunca fazem parte de um nome)
+  var INICIO_MENSAGEM = /^(?:I?SOC|DSOC|T[EÉ]CNICO|T[EÉ]C|SITE|FLAG|TSK|TICKET|OBS|ATEN[ÇC][ÃA]O|URGENTE|FAVOR|PREVIS[ÃA]O|CHAMADO|CLIENTE|AGUARDANDO|ACIONAD[OA]|ACIONAMENTO|SOLICITA[ÇC][ÃA]O|MASSIVA|TRAMITA[ÇC][ÃA]O|PEND[ÊE]NCIA|ENCAMINHAD[OA]|ESCALONAD[OA]|VERIFICANDO|CONTATO|ALARMES?|FALHA|NECESS[ÁA]RIO|COORDENADOR|SUPERVISOR|SEM|COM|NO|NA|EM|PARA|POR|ASSOCIA[ÇC][ÃA]O)$/i;
+  var RE_SUFIXO_AUTOR = /^\s*([^\r\n]{1,90}?)\s*\(\s*(?:Anota[çc][õo]es\s+de\s+trabalho|Work\s*notes?)\s*\)/i;
+  var AUTORES_CONHECIDOS = {};   // nomes confirmados por um separador claro; ajudam quando a mensagem começa em MAIÚSCULAS
+  var RE_DIARIO_HDR = /(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}(?::\d{2})?)\s*-\s*|(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})(?::\d{2})?\s*-\s*(App\s+Teleperformance|TLP-T\d+-)/g;
+
+  function aprenderAutorDiario(nome) {
+    nome = (nome || '').replace(/\s+/g, ' ').trim();
+    if (nome.length < 7 || nome.length > 60 || /\d/.test(nome) || nome.indexOf(' ') < 0) return;
+    if (RE_BOT_UI.test(nome)) return;
+    AUTORES_CONHECIDOS[nome.toUpperCase()] = 1;
+  }
+
+  // Separa "NOME SOBRENOME<mensagem>" quando o diário não traz o sufixo "(Anotações de trabalho)".
+  function separarAutorMensagem(corpo) {
+    var ms = RE_SUFIXO_AUTOR.exec(corpo);
+    if (ms) { aprenderAutorDiario(ms[1]); return { autor: ms[1].trim(), mensagem: corpo.substring(ms[0].length) }; }
+    var s = corpo.replace(/^\s+/, '');
+    var up = s.toUpperCase(), melhor = '', k;
+    for (k in AUTORES_CONHECIDOS) {
+      if (k.length > melhor.length && up.indexOf(k) === 0 && !/[A-ZÀ-ÖØ-Þ]/.test(up.charAt(k.length) || ' ')) melhor = k;
+    }
+    if (melhor) return { autor: s.substr(0, melhor.length), mensagem: s.substring(melhor.length) };
+    var conta = /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+(?=[\s:]|$)/.exec(s);   // conta de equipe: NOC_B2B_NAVA
+    if (conta && !RE_BOT_UI.test(conta[0])) return { autor: conta[0], mensagem: s.substring(conta[0].length) };
+    var pos = 0, fims = [], toks = [], confirmado = false;
+    while (toks.length < 7) {
+      var mt = /^[^\s:]+/.exec(s.substr(pos));
+      if (!mt) break;
+      var tok = mt[0];
+      var cap = tok.length >= 2 && /^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'’\-]*$/.test(tok);
+      if (cap && INICIO_MENSAGEM.test(tok)) break;
+      if (!cap && !(toks.length && PARTICULAS_NOME.test(tok))) break;
+      toks.push(tok); pos += tok.length; fims.push(pos);
+      var sp = /^ */.exec(s.substr(pos))[0].length;
+      if (sp !== 1) { confirmado = true; break; }   // ":" / quebra / espaço duplo = fim do nome
+      pos += 1;
+    }
+    while (toks.length && PARTICULAS_NOME.test(toks[toks.length - 1])) { toks.pop(); fims.pop(); }
+    if (toks.length < 2) return { autor: '', mensagem: s };
+    var autor = s.substr(0, fims[fims.length - 1]);
+    if (confirmado) aprenderAutorDiario(autor);
+    return { autor: autor, mensagem: s.substr(fims[fims.length - 1]) };
+  }
+
+  function limparMensagemDiario(m) {
+    return (m || '').replace(/^[\s:]+/, '').replace(/\s+$/, '');
+  }
+
+  // Lista cronológica (ordem do texto) de todas as entradas: { dt, autor, mensagem, tipo }
+  //   tipo: 'humano' (digitado no TOA), 'tecnico' (app do técnico), 'app' (cabeçalho sem texto), 'bot'
+  function parseEntradasDiario(texto) {
+    texto = texto == null ? '' : String(texto);
+    var re = new RegExp(RE_DIARIO_HDR.source, 'g'), hs = [], m, i;
+    while ((m = re.exec(texto)) !== null) hs.push({ idx: m.index, fim: m.index + m[0].length, br: m[1], iso: m[2], kind: m[3] });
+    var out = [];
+    for (i = 0; i < hs.length; i++) {
+      var hd = hs[i];
+      var corpo = texto.substring(hd.fim, i + 1 < hs.length ? hs[i + 1].idx : texto.length);
+      var e;
+      if (hd.iso) {
+        var dtI = parseDataHoraBG(hd.iso);
+        if (!dtI) continue;
+        if (/^App/i.test(hd.kind)) {
+          e = { dt: dtI, autor: 'App Teleperformance', mensagem: limparMensagemDiario(corpo.replace(/^\s*-?\s*Tel\.?\s*:\s*\d{0,11}/i, '')), tipo: 'app' };
+          if (e.mensagem) e.tipo = 'tecnico';
+        } else {
+          var mi = /^\s*([^\r\n]*?)\s+-\s+Tel\.?\s*:\s*(\d{10,11})?/.exec(corpo);
+          var nomeT = mi ? mi[1] : (corpo.split(/\s+-\s+|[\r\n]/)[0] || '');
+          var msgT = mi ? corpo.substring(mi[0].length) : corpo.substring(nomeT.length);
+          e = { dt: dtI, autor: nomeT.trim(), mensagem: limparMensagemDiario(msgT), tipo: 'tecnico' };
+        }
+      } else {
+        var dtB = parseDataHoraBG(hd.br);
+        if (!dtB) continue;
+        var sp = separarAutorMensagem(corpo), msg = sp.mensagem, autor = sp.autor, tipo = 'humano';
+        if (RE_BOT_UI.test(autor || corpo.replace(/^\s+/, ''))) {
+          tipo = 'bot';
+          if (/^WFM\s*Agent/i.test(autor)) {
+            // eco da anotação do técnico / do app: "TLP-Txxxx-NOME  - AAAA-MM-DD HH:MM<mensagem>"
+            var eco = /^\s*TLP-T\d+-(.+?)\s+-\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/.exec(msg);
+            var ecoApp = /^\s*App\s+Teleperformance\s+-\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/.exec(msg);
+            if (eco) { autor = eco[1].trim(); msg = msg.substring(eco[0].length); tipo = 'tecnico'; dtB = parseDataHoraBG(eco[2]) || dtB; }
+            else if (ecoApp) { autor = 'App Teleperformance'; msg = msg.substring(ecoApp[0].length); tipo = 'app'; dtB = parseDataHoraBG(ecoApp[1]) || dtB; }
+          }
+        }
+        msg = limparMensagemDiario(msg);
+        if (tipo === 'humano' && (isTextoSemAtualizacao(msg) || /^\S{0,12}\s*TLP-MONITOR\s*CCI/i.test(msg))) tipo = 'bot';
+        if (tipo === 'app' && msg) tipo = 'tecnico';
+        e = { dt: dtB, autor: (autor || '').trim(), mensagem: msg, tipo: tipo };
+      }
+      if (e.tipo === 'tecnico' && /^\S{0,12}\s*TLP-MONITOR\s*CCI/i.test(e.mensagem)) e.tipo = 'bot';
+      out.push(e);
+    }
+    return out;
+  }
+
+  // As n entradas REAIS (humano/técnico, com texto) mais recentes, sem repetir o eco do mesmo texto.
+  function ultimasEntradasDiario(texto, n) {
+    var reais = parseEntradasDiario(texto).filter(function (e) {
+      return (e.tipo === 'humano' || e.tipo === 'tecnico') && e.mensagem && !isTextoSemAtualizacao(e.mensagem);
+    });
+    reais.sort(function (a, b) { return b.dt - a.dt; });
+    var sel = [];
+    for (var i = 0; i < reais.length && sel.length < (n || 1); i++) {
+      var k = reais[i].mensagem.replace(/\s+/g, ' ').slice(0, 80).toUpperCase(), dup = false;
+      for (var j = 0; j < sel.length; j++) {
+        if (sel[j]._k === k && Math.abs(sel[j].dt - reais[i].dt) <= 15 * 60000) { dup = true; break; }
+      }
+      if (!dup) { reais[i]._k = k; sel.push(reais[i]); }
+    }
+    return sel;
+  }
+  U.ultimaEntradaDiario = function (bg) { return ultimasEntradasDiario(bg, 1)[0] || null; };
+  U.ultimasEntradasDiario = ultimasEntradasDiario;
+  U.parseEntradasDiario = parseEntradasDiario;
+  // <<< DIARIO-PARSER <<<
+
   // Classifica o estado do Último Update.
   // Prioriza entradas TLP-T (genuínas de operadores, mesmo critério da aba Atualizações).
   // Cai de volta à detecção genérica de timestamp + filtro de bot apenas quando não há TLP-T.
@@ -1091,6 +1216,12 @@
     // de ODM/bot ficam no histórico mas não invalidam entradas TLP-T recentes.
     var bloco = extrairBlocoMaisRecente(bgTexto);
     var textoDisplay = bloco ? bloco.texto : (bgTexto ? bgTexto.toString().trim() : null);
+    // O bloco "bruto" mais recente costuma ser só o cabeçalho ("2026-10-16 09:22 - App Teleperformance - Tel.:");
+    // para exibir usamos a MENSAGEM da última entrada real (humano/técnico), logo após o nome do autor.
+    var ult = ultimasEntradasDiario(bgTexto, 1)[0] || null;
+    var msgDisplay = ult ? ult.mensagem : textoDisplay;
+    var extra = ult ? { autor: ult.autor, quando: ult.dt, bruto: textoDisplay } : { autor: '', quando: null, bruto: textoDisplay };
+    function R(estado, texto, dt) { return { estado: estado, texto: texto, dt: dt, autor: extra.autor, quando: extra.quando, bruto: extra.bruto }; }
 
     // Fonte primária: entradas TLP-T (operadores humanos, filtragem por design)
     var tlpEntries = parseTlpEntries(bgTexto || '');
@@ -1098,24 +1229,24 @@
 
     if (!dtRef) {
       // Sem timestamps: verifica se o conteúdo é puramente automático
-      if (isTextoSemAtualizacao(bgTexto)) return { estado: 'sem', texto: null, dt: null };
-      return { estado: 'sem', texto: textoDisplay, dt: null };
+      if (isTextoSemAtualizacao(bgTexto)) return R('sem', null, null);
+      return R('sem', msgDisplay, null);
     }
 
     var txtUpper = (textoDisplay || '').toUpperCase();
-    if (txtUpper.indexOf('VERIFICANDO ACIONAMENTO') >= 0) return { estado: 'acionamento', texto: textoDisplay, dt: dtRef };
+    if (txtUpper.indexOf('VERIFICANDO ACIONAMENTO') >= 0 || (msgDisplay || '').toUpperCase().indexOf('VERIFICANDO ACIONAMENTO') >= 0) return R('acionamento', msgDisplay, dtRef);
 
     // Filtro de bot só no fallback (sem TLP-T): aplica isTextoSemAtualizacao APENAS no
     // bloco mais recente, nunca no diário inteiro, para evitar falso-positivo por ODM antigo.
     if (!tlpEntries.length) {
-      if (bloco && isTextoSemAtualizacao(bloco.texto)) return { estado: 'sem', texto: null, dt: null };
+      if (bloco && isTextoSemAtualizacao(bloco.texto)) return R('sem', null, null);
       if (txtUpper.indexOf('MONITOR CCI') >= 0) {
         for (var fi = 0; fi < FRASES_PADRAO_BOT.length; fi++) {
           if (txtUpper.indexOf(FRASES_PADRAO_BOT[fi].toUpperCase()) >= 0) {
-            return { estado: 'sem', texto: null, dt: null };
+            return R('sem', null, null);
           }
         }
-        return { estado: 'acionamento', texto: textoDisplay, dt: dtRef };
+        return R('acionamento', msgDisplay, dtRef);
       }
     }
 
@@ -1123,12 +1254,19 @@
     var ehHoje = dtRef.getDate() === agora.getDate() &&
                  dtRef.getMonth() === agora.getMonth() &&
                  dtRef.getFullYear() === agora.getFullYear();
-    return { estado: ehHoje ? 'ok' : 'antigo', texto: textoDisplay, dt: dtRef };
+    return R(ehHoje ? 'ok' : 'antigo', msgDisplay, dtRef);
   }
 
   // Extrai os 2 blocos mais recentes (penúltimo + último) para o modal.
+  function fmtEntradaDiario(e) {
+    var d = e.dt, p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) +
+           (e.autor ? ' · ' + e.autor : '') + String.fromCharCode(10) + e.mensagem;
+  }
   function extrairDoisBlocosMaisRecentes(bgTexto) {
     if (!bgTexto) return [];
+    var reais = ultimasEntradasDiario(bgTexto, 2);
+    if (reais.length) return reais.map(fmtEntradaDiario);
     var texto = bgTexto.toString();
     var DT_RE = new RegExp(BG_TIMESTAMP_RE.source, 'g');
     var matches = [], m;
@@ -1176,7 +1314,7 @@
         var dois = extrairDoisBlocosMaisRecentes(m.motivoCancelamento || '');
         conteudoModal = dois.length > 1
           ? '── Último ──\n\n' + dois[0] + '\n\n── Penúltimo ──\n\n' + dois[1]
-          : (textoCompleto || '—');
+          : (dois[0] || textoCompleto || '—');
       } else {
         conteudoModal = 'Última atualização registrada no Genesis:\n' + (incident.ultimaAtGenesis || '—');
       }

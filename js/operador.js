@@ -6,9 +6,12 @@
  * dos dashboards existentes e não cria backend novo.
  *
  * Abas: Fazer agora · Sites fora · B2B / Premium · Concentradores · Backbone / LD · Mapa
- * Filtros: regra criadora (FIXA / MÓVEL — coluna DJ), prioridade, situação, regiões (várias), busca.
- * Visão por região: cada região é um bloco (lado a lado quando há mais de uma).
- * Ctrl+clique em TSKs → "Calcular rota" abre o Mapa já com a rota. Exporta Excel com resumo/atalhos.
+ * Filtros: regra criadora (FIXA / MÓVEL — coluna DJ), prioridade, situação, regiões (chips), busca.
+ * Visão por região: cada região é um bloco (lado a lado quando há mais de uma), com botão de cópia
+ * ("Prioridade -> TSK / SITE - FALHA") logo acima.
+ * Ctrl+clique em TSKs → "Calcular rota" abre o Mapa já com a rota. Site sem coordenada não entra na
+ * seleção até a coordenada ser informada (e gravada no banco). Exporta Excel (ExcelJS) com resumo,
+ * atalhos e o backlog de cada região (sites fora com TSK em vermelho).
  * ===================================================================== */
 (function () {
   'use strict';
@@ -28,9 +31,12 @@
   var savedAt = null, lastSavedAt = null, loadedOnce = false, erroCarga = null;
   var model = null;
   var firstSeen = {};
-  var view = { pop: false, popReg: false, rotaInicial: null, rotaAtiva: false, novaRegra: false };
+  var view = { pop: false, rotaInicial: null, rotaAtiva: false, novaRegra: false, modal: false };
   var sel = [];            // seleção para rota: [{ key, os, end, site }] na ordem do clique
   var selMode = false;     // toque/sem Ctrl: cada clique seleciona
+  var lastNums = {};       // últimos valores exibidos (contagem animada ao mudar)
+  var LS_COORD_PEND = 'trj_operador_coords_pend', LS_COORD_LOCAL = 'trj_operador_coords_local', LS_PIN = 'trj_operador_pin';
+  var coordCache = { src: null, idx: null };
 
   /* ---------- estado dos filtros (lembrado no navegador) ---------- */
   var state = (function () {
@@ -61,7 +67,44 @@
   }
   function ehBackbone(t) { return up(t.motivoCancelamento).indexOf('LONGA DISTANCIA') >= 0; }
   function copiar(txt, msg) {
-    if (navigator.clipboard) navigator.clipboard.writeText(txt).then(function () { U.toast(msg || ('TSK ' + txt + ' copiada'), 'ok'); }, function () {});
+    function ok() { U.toast(msg || ('TSK ' + txt + ' copiada'), 'ok'); }
+    function fallback() {     // http/arquivo local ou navegador sem a API de área de transferência
+      var ta = document.createElement('textarea'); ta.value = txt; ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      try { if (document.execCommand('copy')) ok(); else U.toast('Não foi possível copiar.', 'err'); } catch (e) { U.toast('Não foi possível copiar.', 'err'); }
+      ta.remove();
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(ok, fallback); else fallback();
+  }
+  function fmtNum(n) { return typeof n === 'number' ? n.toLocaleString('pt-BR') : String(n); }
+  var REDUZIDO = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  /* número que "rola" até o valor novo (mesmo efeito do devGERAL: easeOut cúbico) — data-k identifica o contador */
+  function num(valor, key, cls) {
+    var s = h('span', { class: cls || null, text: fmtNum(valor) });
+    if (typeof valor === 'number' && key) { s.setAttribute('data-target', String(valor)); s.setAttribute('data-k', key); }
+    return s;
+  }
+  function animarNumeros(scope) {
+    var els = scope.querySelectorAll('[data-target]'), alvos = [];
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i], to = parseFloat(el.getAttribute('data-target')), k = el.getAttribute('data-k');
+      var from = lastNums[k] === undefined ? 0 : lastNums[k];
+      lastNums[k] = to;
+      if (from === to || REDUZIDO) { el.textContent = fmtNum(to); continue; }
+      el.textContent = fmtNum(from); el.classList.add('bump');
+      alvos.push({ el: el, from: from, to: to });
+    }
+    if (!alvos.length) return;
+    var dur = 680, ini = null;
+    function fim() { alvos.forEach(function (a) { a.el.textContent = fmtNum(a.to); }); }
+    function step(ts) {
+      if (ini === null) ini = ts;
+      var p = Math.min((ts - ini) / dur, 1), e = 1 - Math.pow(1 - p, 3);
+      alvos.forEach(function (a) { a.el.textContent = fmtNum(Math.round(a.from + (a.to - a.from) * e)); });
+      if (p < 1) requestAnimationFrame(step); else fim();
+    }
+    requestAnimationFrame(step);
+    setTimeout(fim, dur + 120);        // aba em segundo plano não executa rAF: garante o valor final
   }
   var ordemRegioes = (C.REGIOES || []).slice();
   function regiaoIdx(r) { var i = ordemRegioes.indexOf(r); return r === 'OTHERS' ? 998 : (i < 0 ? 997 : i); }
@@ -82,26 +125,59 @@
         if (!loadedOnce) { erroCarga = json.savedAt ? 'O snapshot publicado está indisponível. Peça para abrirem o Dashboard no painel principal.' : 'Ainda não há nenhuma publicação.'; render(); }
         return;
       }
-      var novo = json.savedAt || null, mudou = novo !== lastSavedAt;
-      lastSavedAt = novo; savedAt = novo;
-      var d = json.data;
-      raw.tasksEnriched = d.tasksEnriched || [];
-      raw.incidentsEnriched = d.incidentsEnriched || [];
-      raw.prazoMap = d.prazoMap || {};
-      raw.concentradores = Array.isArray(d.concentradores) ? d.concentradores : null;
-      prepararMapa(d);
-      if (mudou || !loadedOnce) {
-        erroCarga = null; buildModel(); loadedOnce = true;
-        if (!(state.tab === 'mapa' && view.rotaAtiva)) render(); else atualizarIdade();   // não destrói a rota que está na tela
-      } else atualizarIdade();
+      aplicarSnapshot(json);
+      cacheSet({ savedAt: json.savedAt || null, data: json.data });
+      reenviarCoordsPendentes();
     } catch (e) {
       if (!loadedOnce) { erroCarga = 'Não foi possível carregar: ' + (e.message || e); render(); }
     }
+  }
+  function aplicarSnapshot(json, doCache) {
+    var novo = json.savedAt || null, mudou = novo !== lastSavedAt, estavaEmCache = view.emCache;
+    view.emCache = !!doCache;
+    lastSavedAt = novo; savedAt = novo;
+    var d = json.data;
+    raw.tasksEnriched = d.tasksEnriched || [];
+    raw.incidentsEnriched = d.incidentsEnriched || [];
+    raw.prazoMap = d.prazoMap || {};
+    raw.concentradores = Array.isArray(d.concentradores) ? d.concentradores : null;
+    prepararMapa(d);
+    if (mudou || !loadedOnce || estavaEmCache) {
+      var primeira = !loadedOnce;
+      erroCarga = null; buildModel(); loadedOnce = true;
+      if (!(state.tab === 'mapa' && view.rotaAtiva)) render(!primeira); else atualizarIdade();   // não destrói a rota que está na tela
+    } else atualizarIdade();
+  }
+  /* última versão do snapshot guardada neste aparelho: a tela abre na hora e atualiza quando o download termina
+     (o Apps Script pode levar 15 s+ para entregar 1–2 MB) */
+  function idb() {
+    return new Promise(function (res, rej) {
+      var r = indexedDB.open('trj_operador', 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore('kv'); };
+      r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); };
+    });
+  }
+  async function cacheGet() {
+    try { var db = await idb(); return await new Promise(function (res) { var q = db.transaction('kv').objectStore('kv').get('snap'); q.onsuccess = function () { res(q.result || null); }; q.onerror = function () { res(null); }; }); } catch (e) { return null; }
+  }
+  async function cacheSet(v) { try { var db = await idb(); db.transaction('kv', 'readwrite').objectStore('kv').put(v, 'snap'); } catch (e) {} }
+  async function abrirComCache() {
+    var c = await cacheGet();
+    if (c && c.data && !loadedOnce) aplicarSnapshot({ savedAt: c.savedAt, data: c.data }, true);
   }
   function ls(key, val) { try { if (val) localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
   function lsGet(key) { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; } }
   function prepararMapa(d) {
     if (d.mapaCoordMap) { raw._mapaCoordMap = d.mapaCoordMap; ls('trj_coordMap', d.mapaCoordMap); } else raw._mapaCoordMap = lsGet('trj_coordMap');
+    // coordenadas informadas aqui que o snapshot ainda não trouxe continuam valendo (somem da lista local quando chegam no snapshot)
+    var locais = lsGet(LS_COORD_LOCAL) || {}, ks = Object.keys(locais);
+    if (ks.length) {
+      if (!raw._mapaCoordMap) raw._mapaCoordMap = {};
+      var alterou = false;
+      ks.forEach(function (k) { if (k in raw._mapaCoordMap) { delete locais[k]; alterou = true; } else raw._mapaCoordMap[k] = locais[k]; });
+      if (alterou) { try { localStorage.setItem(LS_COORD_LOCAL, JSON.stringify(locais)); } catch (e) {} }
+    }
+    coordCache.src = null;
     if (d.mapaMarkersSlim && d.mapaMarkersSlim.length) raw._mapaMarkersSlim = d.mapaMarkersSlim;
     if (d.mapaMwSlim && d.mapaMwSlim.length) {
       raw._mapaMwData = d.mapaMwSlim.map(function (l) { return { Enlace2: l.E2, LAT_A: l.LA, LONG_A: l.LO, LAT_B: l.LB, LONG_B: l.LOB, FORNECEDOR: l.F }; });
@@ -157,7 +233,10 @@
       var op = openEnd[up(antigo.enderecoId)];
       return { inc: antigo, sites: nomes, qtd: g.length, regiao: antigo.regiao || 'OTHERS', desde: toDate(antigo.horarioDt), tsk: op ? op.t : null, end: antigo.enderecoId || '' };
     });
-    model = { items: items, byOs: byOs, byTsk: byTsk, openEnd: openEnd, sites: sites, temDJ: temDJ };
+    var foraPorEnd = {};      // END_ID -> site fora ativo (a linha da TSK fica em destaque vermelho)
+    sites.forEach(function (s) { if (s.end) foraPorEnd[up(s.end)] = s; });
+    items.forEach(function (it) { it.fora = foraPorEnd[up(it.end)] || null; });
+    model = { items: items, byOs: byOs, byTsk: byTsk, openEnd: openEnd, sites: sites, temDJ: temDJ, foraPorEnd: foraPorEnd };
   }
 
   /* ---------- filtros / ordenação ---------- */
@@ -287,8 +366,12 @@
     var upd = it ? it.upd : (U.classificarUltimoBloco ? U.classificarUltimoBloco(t.motivoCancelamento) : null);
     if (upd && upd.estado !== 'sem' && upd.dt) {
       out += ln('Último update', fmtDt(upd.dt) + ' <span class="tx">(há ' + fmtDur((now - upd.dt.getTime()) / 60000) + ')</span>');
-      if (upd.texto) out += '<div class="tx" style="margin:2px 0 4px">“' + esc(String(upd.texto).replace(/\s+/g, ' ').slice(0, 170)) + (String(upd.texto).length > 170 ? '…' : '') + '”</div>';
+      if (upd.texto) {      // a MENSAGEM que vem depois do nome de quem atualizou (não o cabeçalho "App Teleperformance - Tel.:")
+        var msg = String(upd.texto).replace(/\s+/g, ' ');
+        out += '<div class="msg">' + (upd.autor ? '<b>' + esc(upd.autor) + '</b><br>' : '') + '“' + esc(msg.slice(0, 260)) + (msg.length > 260 ? '…' : '') + '”</div>';
+      }
     } else out += ln('Último update', '<b style="color:' + COR.red + '">sem atualização do operador</b>');
+    if (t.enderecoId) out += ln('Coordenada', coordDe(t.enderecoId) ? 'cadastrada' : '<b style="color:' + COR.orange + '">sem coordenada — informe ao selecionar p/ rota</b>');
     var bg = String(t.motivoCancelamento || ''), m = /TRAMITA[ÇC][ÃA]O OU SUSPENS[ÃA]O:/i.exec(bg);
     if (m && (D.normalize(t.status) === 'PENDENTE' || rows.some(function (r) { return D.normalize(r.status) === 'PENDENTE'; }))) {
       out += ln('Pendência', esc(bg.slice(m.index, m.index + 200).replace(/\s+/g, ' ')) + '…');
@@ -325,9 +408,14 @@
   function toggleSel(rowEl) {
     var key = rowEl.getAttribute('data-sel'); if (!key) return;
     var i = selIdx(key);
-    if (i >= 0) sel.splice(i, 1);
-    else sel.push({ key: key, os: rowEl.getAttribute('data-os-sel') || '', end: rowEl.getAttribute('data-end') || '', site: rowEl.getAttribute('data-site') || '' });
-    refreshSelUI();
+    if (i >= 0) { sel.splice(i, 1); refreshSelUI(); return; }
+    var item = { key: key, os: rowEl.getAttribute('data-os-sel') || '', end: rowEl.getAttribute('data-end') || '', site: rowEl.getAttribute('data-site') || '' };
+    if (!item.end.trim()) { U.toast('Esta TSK está sem END_ID — não é possível traçar rota.', 'err'); return; }
+    if (!coordDe(item.end)) {       // sem coordenada: avisa e só deixa selecionar depois que a coordenada for informada
+      abrirCoordModal(item, function () { if (selIdx(key) < 0) sel.push(item); refreshSelUI(); });
+      return;
+    }
+    sel.push(item); refreshSelUI();
   }
   function refreshSelUI() {
     var rows = root.querySelectorAll('[data-sel]');
@@ -352,9 +440,124 @@
     if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(selBar);
   }
   function coordIndex() {
-    var cm = raw._mapaCoordMap || lsGet('trj_coordMap') || TRJ.defaultCoordMap || {}, idx = {};
-    Object.keys(cm).forEach(function (k) { idx[k.toLowerCase()] = k; });
-    return { cm: cm, idx: idx };
+    var cm = raw._mapaCoordMap || lsGet('trj_coordMap') || TRJ.defaultCoordMap || {};
+    if (coordCache.src !== cm) {
+      var idx = {}; Object.keys(cm).forEach(function (k) { idx[k.toLowerCase()] = k; });
+      coordCache = { src: cm, idx: idx };
+    }
+    return { cm: cm, idx: coordCache.idx };
+  }
+  function coordDe(end) {
+    var e = String(end || '').trim().toLowerCase(); if (!e) return null;
+    var ci = coordIndex(), k = ci.idx[e], v = k ? ci.cm[k] : null;
+    return v && v.length >= 2 && isFinite(+v[0]) && isFinite(+v[1]) ? [+v[0], +v[1]] : null;
+  }
+
+  /* ---------- coordenada que falta: informar, validar e gravar no banco ---------- */
+  /* aceita "-22.9071, -43.1743", "-22,9071 -43,1743", "-22.9071;-43.1743" ou o link do Google Maps (@lat,lon) */
+  function lerCoord(txt) {
+    var s = String(txt || '').trim(); if (!s) return { erro: 'Informe latitude e longitude.' };
+    var m = /@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/.exec(s) || /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/.exec(s), a, b;
+    if (m) { a = parseFloat(m[1]); b = parseFloat(m[2]); }
+    else {
+      var t = s.match(/-?\d+(?:[.,]\d+)?/g);
+      if (!t || t.length !== 2) return { erro: 'Use o formato: latitude, longitude (ex.: -22.9071, -43.1743).' };
+      a = parseFloat(t[0].replace(',', '.')); b = parseFloat(t[1].replace(',', '.'));
+    }
+    if (!isFinite(a) || !isFinite(b)) return { erro: 'Coordenada inválida.' };
+    var noBrasil = function (la, lo) { return la >= -34.5 && la <= 5.5 && lo >= -74.5 && lo <= -32; };
+    if (!noBrasil(a, b)) {
+      if (noBrasil(b, a)) return { erro: 'Parece que latitude e longitude estão invertidas. Informe primeiro a latitude (ex.: -22.9071, -43.1743).' };
+      return { erro: 'Essa coordenada está fora do Brasil. Confira os sinais (no Brasil, latitude e longitude costumam ser negativas).' };
+    }
+    return { lat: Math.round(a * 1e6) / 1e6, lon: Math.round(b * 1e6) / 1e6 };
+  }
+  function aplicarCoordLocal(end, lat, lon) {
+    if (!raw._mapaCoordMap) raw._mapaCoordMap = Object.assign({}, coordIndex().cm);
+    var ci = coordIndex(), k = ci.idx[String(end).trim().toLowerCase()] || String(end).trim();
+    raw._mapaCoordMap[k] = [lat, lon];
+    coordCache.src = null;
+    var locais = lsGet(LS_COORD_LOCAL) || {}; locais[k] = [lat, lon];
+    try { localStorage.setItem(LS_COORD_LOCAL, JSON.stringify(locais)); localStorage.setItem('trj_coordMap', JSON.stringify(raw._mapaCoordMap)); } catch (e) {}
+  }
+  async function enviarCoord(p) {
+    var corpo = { action: 'addCoordOperador', endId: p.end, lat: p.lat, lon: p.lon, site: p.site || '', os: p.os || '' };
+    var pin = ''; try { pin = localStorage.getItem(LS_PIN) || ''; } catch (e) {}
+    if (p.pin || pin) corpo.pin = p.pin || pin;
+    var resp = await fetch(URL_API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow', body: JSON.stringify(corpo) });
+    var j = JSON.parse(await resp.text());
+    if (j && j.ok === false) { var er = new Error(j.error || 'Erro no servidor.'); er.code = j.code || ''; er.server = true; throw er; }
+    return j;
+  }
+  function pendentes() { return lsGet(LS_COORD_PEND) || []; }
+  function gravarPendentes(l) { try { localStorage.setItem(LS_COORD_PEND, JSON.stringify(l)); } catch (e) {} }
+  var reenviando = false;
+  async function reenviarCoordsPendentes() {
+    if (reenviando || !URL_API) return;
+    var lista = pendentes(); if (!lista.length) return;
+    reenviando = true;
+    try {
+      var resto = [];
+      for (var i = 0; i < lista.length; i++) {
+        try { var r = await enviarCoord(lista[i]); if (r && r.exists && r.coord) aplicarCoordLocal(lista[i].end, +r.coord[0], +r.coord[1]); }
+        catch (e) { if (!e || !e.server || e.code === 'PIN') resto.push(lista[i]); }   // erro de validação do servidor: descarta; rede/PIN: tenta de novo depois
+      }
+      gravarPendentes(resto);
+    } finally { reenviando = false; }
+  }
+
+  function fecharModal() { var o = document.getElementById('op-modal-ov'); if (o) o.remove(); view.modal = false; document.removeEventListener('keydown', escModal, true); }
+  function escModal(e) { if (e.key === 'Escape') fecharModal(); }
+  function abrirCoordModal(item, onOk) {
+    fecharModal(); view.modal = true; hideTip();
+    var inp = h('input', { class: 'op-search', type: 'text', placeholder: '-22.9071, -43.1743', autocomplete: 'off', style: { maxWidth: 'none', width: '100%', fontSize: '14px', padding: '9px 11px' } });
+    var pinInp = h('input', { class: 'op-search', type: 'password', placeholder: 'PIN da equipe', autocomplete: 'off', style: { maxWidth: 'none', width: '100%', display: 'none', marginTop: '8px' } });
+    var erro = h('div', { class: 'op-modal-err' });
+    var salvar = h('button', { class: 'op-btn go', type: 'button', text: '💾 Salvar e selecionar' });
+    var gmaps = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent((item.site || item.end) + ' ' + item.end);
+    var box = h('div', { class: 'op-modal', role: 'dialog', 'aria-modal': 'true' }, [
+      h('h3', { text: '📍 Site sem coordenada' }),
+      h('p', { html: 'O site <b>' + esc(item.site || '—') + '</b> (END_ID <b>' + esc(item.end) + '</b>) ainda não tem coordenada cadastrada, então não entra na rota. Informe a coordenada para liberar a seleção — ela fica gravada no banco para todos.' }),
+      h('label', { class: 'op-modal-lb', text: 'Latitude, longitude' }), inp,
+      h('div', { class: 'op-modal-hint', html: 'Dica: no Google Maps, clique com o botão direito no local e copie os números da primeira linha. Também aceito o link do Maps. <a href="' + gmaps + '" target="_blank" rel="noopener">Abrir o Google Maps ↗</a>' }),
+      pinInp, erro,
+      h('div', { class: 'op-modal-act' }, [h('button', { class: 'op-btn', type: 'button', text: 'Cancelar', onclick: fecharModal }), salvar])
+    ]);
+    var ov = h('div', { id: 'op-modal-ov', class: 'op-modal-ov' }, [box]);
+    ov.addEventListener('mousedown', function (e) { if (e.target === ov) fecharModal(); });
+    document.body.appendChild(ov);
+    if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(ov);
+    document.addEventListener('keydown', escModal, true);
+    setTimeout(function () { inp.focus(); }, 30);
+    var ocupado = false;
+    async function confirmar() {
+      if (ocupado) return;
+      var r = lerCoord(inp.value);
+      if (r.erro) { erro.textContent = r.erro; inp.focus(); return; }
+      ocupado = true; salvar.disabled = true; salvar.textContent = 'Gravando…'; erro.textContent = '';
+      var p = { end: item.end, lat: r.lat, lon: r.lon, site: item.site, os: item.os, pin: pinInp.style.display === 'none' ? '' : pinInp.value.trim() };
+      try {
+        var res = await enviarCoord(p);
+        if (p.pin) { try { localStorage.setItem(LS_PIN, p.pin); } catch (e) {} }
+        if (res && res.exists && res.coord) { aplicarCoordLocal(item.end, +res.coord[0], +res.coord[1]); U.toast('Esse site já tinha coordenada no banco — usando a cadastrada.', 'info'); }
+        else { aplicarCoordLocal(item.end, r.lat, r.lon); U.toast('Coordenada gravada: ' + item.end, 'ok'); }
+        fecharModal(); onOk();
+      } catch (e) {
+        if (e && e.code === 'PIN') {
+          pinInp.style.display = ''; pinInp.focus(); erro.textContent = e.message || 'Informe o PIN da equipe para gravar coordenadas.';
+          ocupado = false; salvar.disabled = false; salvar.textContent = '💾 Salvar e selecionar'; return;
+        }
+        if (e && e.server) { erro.textContent = e.message; ocupado = false; salvar.disabled = false; salvar.textContent = '💾 Salvar e selecionar'; return; }
+        // sem rede / Apps Script antigo: vale nesta sessão e fica na fila para gravar quando a conexão voltar
+        aplicarCoordLocal(item.end, r.lat, r.lon);
+        var lista = pendentes(); lista.push({ end: item.end, lat: r.lat, lon: r.lon, site: item.site || '', os: item.os || '' }); gravarPendentes(lista);
+        U.toast('Sem conexão com o banco: coordenada usada agora e será gravada assim que possível.', 'err');
+        fecharModal(); onOk();
+      }
+    }
+    salvar.addEventListener('click', confirmar);
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') confirmar(); });
+    pinInp.addEventListener('keydown', function (e) { if (e.key === 'Enter') confirmar(); });
   }
   function calcularRota() {
     var ci = coordIndex(), ends = [], semCoord = [];
@@ -368,7 +571,7 @@
     if (ends.length < 2) { U.toast('É preciso pelo menos 2 sites com coordenada para calcular a rota.', 'err'); return; }
     if (ends.length > 8) { U.toast('A rota aceita até 8 pontos — usando os 8 primeiros.', 'info'); ends = ends.slice(0, 8); }
     view.rotaInicial = ends; view.rotaAtiva = true;
-    state.tab = 'mapa'; saveState(); view.pop = view.popReg = false;
+    state.tab = 'mapa'; saveState(); view.pop = false;
     render();
   }
   document.addEventListener('click', function (e) {
@@ -381,8 +584,7 @@
     hideTip();
     var fecha = false;
     if (view.pop && !e.target.closest('.op-pop') && !e.target.closest('[data-pop]')) { view.pop = false; fecha = true; }
-    if (view.popReg && !e.target.closest('.op-pop') && !e.target.closest('[data-pop]')) { view.popReg = false; fecha = true; }
-    if (fecha) render();
+    if (fecha) render(true);
   });
 
   /* ---------- componentes ---------- */
@@ -392,6 +594,7 @@
     var rest = it._rest != null ? it._rest : restOf(it, now), cor = it.pend ? COR.purple : corTempo(rest), pct = pctPrazo(it, now);
     var tags = [];
     if (it.regra.grupo) tags.push(tag(it.regra.grupo === 'FIXA' ? 'FIXA' : 'MÓVEL', it.regra.grupo === 'FIXA' ? COR.blue : COR.green, it.regra.nome));
+    if (it.fora) tags.push(tag('SITE FORA', COR.red, 'Este site está fora' + (it.fora.desde ? ' há ' + fmtDur((now - it.fora.desde.getTime()) / 60000) : '')));
     if (it.b2b) tags.push(tag('B2B', COR.purple, 'B2B / Premium'));
     if (it.pend) tags.push(tag('PEND', COR.purple, 'Pendenciada'));
     if (firstSeen[it.os] > 0 && now - firstSeen[it.os] < 300000) tags.push(tag('NOVA', COR.red, 'Entrou na fila nos últimos 5 min'));
@@ -431,15 +634,16 @@
     return row;
   }
 
-  function kpi(valor, rotulo, cor, on, onclick, sub) {
+  function kpi(valor, rotulo, cor, on, onclick, sub, key) {
+    var v = num(valor, key || ('kpi:' + rotulo), null); v.className = 'v'; v.style.color = cor;
     var b = h('button', { class: 'op-kpi' + (on ? ' on' : ''), type: 'button', onclick: onclick }, [
-      h('div', { class: 'v', style: { color: cor }, text: String(valor) }), h('div', { class: 'l', text: rotulo }), sub ? h('div', { class: 's', text: sub }) : null
+      v, h('div', { class: 'l', text: rotulo }), sub ? h('div', { class: 's', text: sub }) : null
     ]);
     b.style.borderLeftColor = cor;
     return b;
   }
-  function setSit(s) { state.situacao = state.situacao === s ? 'TODAS' : s; state.lim = {}; saveState(); state.tab = 'fila'; render(); }
-  function setTab(t) { state.tab = t; saveState(); view.pop = view.popReg = false; if (t !== 'mapa') view.rotaAtiva = false; render(); }
+  function setSit(s) { state.situacao = state.situacao === s ? 'TODAS' : s; state.lim = {}; saveState(); state.tab = 'fila'; render('lista'); }
+  function setTab(t) { state.tab = t; saveState(); view.pop = false; if (t !== 'mapa') view.rotaAtiva = false; render(); }
 
   function topBar() {
     var idade = savedAt ? Math.round((Date.now() - new Date(savedAt).getTime()) / 60000) : null, velho = idade != null && idade > STALE_MIN;
@@ -465,6 +669,7 @@
   }
   function banners() {
     var out = [], idade = savedAt ? Math.round((Date.now() - new Date(savedAt).getTime()) / 60000) : 0;
+    if (view.emCache) out.push(h('div', { class: 'op-banner', style: { background: 'rgba(31,111,181,.12)', borderColor: 'rgba(31,111,181,.45)' }, text: '⏳ Mostrando a última versão salva neste aparelho — buscando os dados mais recentes…' }));
     if (idade > STALE_MIN) out.push(h('div', { class: 'op-banner', text: '⚠ Os dados foram publicados há ' + fmtDur(idade) + '. O snapshot só é atualizado quando o Dashboard está aberto no painel do coordenador.' }));
     if (model.items.length && !model.temDJ) out.push(h('div', { class: 'op-banner', text: 'ℹ A separação FIXA / MÓVEL (coluna DJ) e os casos B2B aparecem após a próxima publicação do snapshot — basta abrir o Dashboard no painel principal.' }));
     else if (model.temDJ) {
@@ -477,7 +682,7 @@
     function t(id, label) {
       var n = counts[id];
       return h('button', { class: 'op-tab' + (state.tab === id ? ' active' : ''), type: 'button', onclick: function () { setTab(id); } },
-        [label, n != null ? h('span', { class: 'n', text: String(n) }) : null]);
+        [label, n != null ? num(n, 'tab:' + id, 'n') : null]);
     }
     return h('div', { class: 'op-tabs' }, [t('fila', 'Fazer agora'), t('sites', 'Sites fora'), t('b2b', 'B2B / Premium'), t('conc', 'Concentradores'), t('backbone', 'Backbone / LD'), t('mapa', 'Mapa')]);
   }
@@ -487,82 +692,93 @@
     var s = {}; model.items.forEach(function (it) { s[it.regiao] = 1; }); model.sites.forEach(function (x) { s[x.regiao] = 1; });
     return Object.keys(s).sort(function (a, b) { return regiaoIdx(a) - regiaoIdx(b); });
   }
+  /* por região: sites fora (total · com TSK · sem TSK) e TSKs na fila */
+  function statsRegiao() {
+    var st = {};
+    function g(r) { return st[r] || (st[r] = { tot: 0, com: 0, sem: 0, fila: 0 }); }
+    model.sites.forEach(function (s) { var o = g(s.regiao); o.tot++; if (s.tsk) o.com++; else o.sem++; });
+    model.items.forEach(function (it) { if (!it.pend) g(it.regiao).fila++; });
+    return st;
+  }
+  function chipRegiao(rotulo, key, o, on, titulo, onclick) {
+    return h('button', { class: 'op-rchip' + (on ? ' on' : ''), type: 'button', title: titulo, onclick: onclick }, [
+      h('b', { text: rotulo }),
+      num(o.tot, 'rc:' + key + ':t', 't'),
+      h('span', { class: 'ok' }, ['✓', num(o.com, 'rc:' + key + ':c')]),
+      h('span', { class: 'no' }, ['○', num(o.sem, 'rc:' + key + ':s')])
+    ]);
+  }
+  /* chips de região (seleção múltipla) na mesma linha dos botões Pendenciadas / Lado a lado / Selecionar p/ rota */
+  function linhaRegioes(tab) {
+    var row = h('div', { class: 'op-regrow' }), st = statsRegiao(), todos = { tot: 0, com: 0, sem: 0 };
+    Object.keys(st).forEach(function (r) { todos.tot += st[r].tot; todos.com += st[r].com; todos.sem += st[r].sem; });
+    row.appendChild(chipRegiao('Todas', 'all', todos, !state.regioes.length, 'Mostrar todas as regiões — ' + todos.tot + ' sites fora · ' + todos.com + ' com TSK aberta · ' + todos.sem + ' sem TSK',
+      function () { state.regioes = []; state.lim = {}; saveState(); render('lista'); }));
+    regioesDisponiveis().forEach(function (r) {
+      var o = st[r] || { tot: 0, com: 0, sem: 0, fila: 0 }, on = state.regioes.indexOf(r) >= 0;
+      row.appendChild(chipRegiao(regiaoLabel(r), r, o, on,
+        regiaoLabel(r) + ': ' + o.tot + ' sites fora · ✓ ' + o.com + ' com TSK aberta · ○ ' + o.sem + ' sem TSK · ' + o.fila + ' TSKs na fila. Clique para filtrar (pode escolher várias).',
+        function () {
+          var i = state.regioes.indexOf(r); if (i >= 0) state.regioes.splice(i, 1); else state.regioes.push(r);
+          state.lim = {}; saveState(); render('lista');
+        }));
+    });
+    var extras = h('span', { class: 'op-extras' });
+    if (tab === 'fila') {
+      var lbl = h('label', { class: 'op-chip op-tgl' }, [h('input', { type: 'checkbox' }), h('span', { text: 'Pendenciadas' })]);
+      var cb = lbl.querySelector('input'); cb.checked = !!state.pend;
+      cb.addEventListener('change', function () { state.pend = cb.checked; state.lim = {}; saveState(); render('lista'); });
+      extras.appendChild(lbl);
+    }
+    if (extras.childNodes.length) row.appendChild(extras);
+    return row;
+  }
   function filtros(tab) {
+    var wrap = h('div', { class: 'op-fwrap' });
     var bar = h('div', { class: 'op-filters' });
     var comRegra = tab === 'fila' || tab === 'outra';
     if (comRegra) {
       bar.appendChild(h('div', { class: 'op-seg' }, [['TODAS', 'Todas', ''], ['FIXA', 'FIXA', 'fixa'], ['MOVEL', 'MÓVEL', 'movel']].map(function (g) {
         var on = !state.regras.length && state.grupo === g[0];
-        return h('button', { type: 'button', class: (on ? 'on ' : '') + g[2], text: g[1], onclick: function () { state.grupo = g[0]; state.regras = []; state.lim = {}; saveState(); render(); } });
+        return h('button', { type: 'button', class: (on ? 'on ' : '') + g[2], text: g[1], onclick: function () { state.grupo = g[0]; state.regras = []; state.lim = {}; saveState(); render('lista'); } });
       })));
       bar.appendChild(h('button', { class: 'op-chip' + (state.regras.length ? ' on' : ''), type: 'button', dataset: { pop: '1' },
         text: 'Regras criadoras' + (state.regras.length ? ' (' + state.regras.length + ')' : '') + ' ▾',
-        onclick: function (e) { e.stopPropagation(); view.pop = !view.pop; view.popReg = false; render(); } }));
+        onclick: function (e) { e.stopPropagation(); view.pop = !view.pop; render(true); } }));
       bar.appendChild(h('span', { class: 'op-sep' }));
       ['P1', 'P2', 'P3', 'P4', 'P5'].forEach(function (p) {
         bar.appendChild(h('button', { class: 'op-chip' + (state.prios.indexOf(p) >= 0 ? ' on' : ''), type: 'button', text: p, onclick: function () {
-          var i = state.prios.indexOf(p); if (i >= 0) state.prios.splice(i, 1); else state.prios.push(p); state.lim = {}; saveState(); render(); } }));
+          var i = state.prios.indexOf(p); if (i >= 0) state.prios.splice(i, 1); else state.prios.push(p); state.lim = {}; saveState(); render('lista'); } }));
       });
     }
     if (tab === 'fila') {
       bar.appendChild(h('span', { class: 'op-sep' }));
-      var sit = h('select', { class: 'op-sel', title: 'Situação', onchange: function () { state.situacao = this.value; state.lim = {}; saveState(); render(); } },
+      var sit = h('select', { class: 'op-sel', title: 'Situação', onchange: function () { state.situacao = this.value; state.lim = {}; saveState(); render('lista'); } },
         [['TODAS', 'Situação: todas'], ['NO_PRAZO', 'No prazo'], ['V2H', 'Vencem em até 2h'], ['VENCIDAS', 'Vencidas'], ['SEMUPD', 'Sem update há +4h']].map(function (o) { return h('option', { value: o[0], text: o[1] }); }));
       sit.value = state.situacao; bar.appendChild(sit);
-      var ord = h('select', { class: 'op-sel', title: 'Ordenação dentro de cada região', onchange: function () { state.ordem = this.value; saveState(); render(); } },
-        [['padrao', 'Ordem: P1→P5 (no prazo, depois vencidas)'], ['venc', 'Vencimento: vão vencer → vencidas'], ['recentes', 'Mais recentes']].map(function (o) { return h('option', { value: o[0], text: o[1] }); }));
+      var ord = h('select', { class: 'op-sel', title: 'Ordenação dentro de cada região', onchange: function () { state.ordem = this.value; saveState(); render('lista'); } },
+        [['padrao', 'Ordem: P1→P5, no prazo antes'], ['venc', 'Ordem: vencimento (vão vencer)'], ['recentes', 'Ordem: mais recentes']].map(function (o) { return h('option', { value: o[0], text: o[1] }); }));
       ord.value = state.ordem; bar.appendChild(ord);
     }
-    // regiões (seleção múltipla)
-    bar.appendChild(h('button', { class: 'op-chip' + (state.regioes.length ? ' on' : ''), type: 'button', dataset: { pop: '1' },
-      text: 'Regiões' + (state.regioes.length ? ' (' + state.regioes.length + ')' : ': todas') + ' ▾',
-      onclick: function (e) { e.stopPropagation(); view.popReg = !view.popReg; view.pop = false; render(); } }));
     if (tab !== 'outra') {
       var busca = h('input', { class: 'op-search', type: 'search', placeholder: '🔍 TSK, site, END_ID…', value: state.busca });
       busca.addEventListener('input', function () { state.busca = busca.value; state.lim = {}; renderLista(); });
       bar.appendChild(busca);
+      var ex2 = h('span', { class: 'op-extras' });
+      var lado = h('label', { class: 'op-chip op-tgl', title: 'Com 2 ou mais regiões, mostra uma ao lado da outra' }, [h('input', { type: 'checkbox' }), h('span', { text: 'Lado a lado' })]);
+      var cb2 = lado.querySelector('input'); cb2.checked = !!state.lado;
+      cb2.addEventListener('change', function () { state.lado = cb2.checked; saveState(); render('lista'); });
+      ex2.appendChild(lado);
+      var selb = h('label', { class: 'op-chip op-tgl', title: 'Selecionar TSKs para a rota: no computador use Ctrl + clique; em tela de toque, marque esta opção e toque nas linhas' }, [h('input', { type: 'checkbox' }), h('span', { text: '☑ Selecionar' })]);
+      var cb3 = selb.querySelector('input'); cb3.checked = selMode;
+      cb3.addEventListener('change', function () { selMode = cb3.checked; document.body.classList.toggle('op-selmode', selMode); });
+      ex2.appendChild(selb);
+      bar.appendChild(ex2);
     }
-    var extras = h('span', { class: 'op-extras' });
-    if (tab === 'fila') {
-      var lbl = h('label', { class: 'op-chip', style: { display: 'inline-flex', gap: '6px', alignItems: 'center', cursor: 'pointer' } }, [h('input', { type: 'checkbox' }), h('span', { text: 'Pendenciadas' })]);
-      var cb = lbl.querySelector('input'); cb.checked = !!state.pend;
-      cb.addEventListener('change', function () { state.pend = cb.checked; state.lim = {}; saveState(); render(); });
-      extras.appendChild(lbl);
-    }
-    if (tab !== 'outra') {
-    var lado = h('label', { class: 'op-chip', title: 'Com 2 ou mais regiões, mostra uma ao lado da outra', style: { display: 'inline-flex', gap: '6px', alignItems: 'center', cursor: 'pointer' } }, [h('input', { type: 'checkbox' }), h('span', { text: 'Lado a lado' })]);
-    var cb2 = lado.querySelector('input'); cb2.checked = !!state.lado;
-    cb2.addEventListener('change', function () { state.lado = cb2.checked; saveState(); render(); });
-    extras.appendChild(lado);
-    var selb = h('label', { class: 'op-chip', title: 'Para tela de toque: cada toque seleciona (no computador use Ctrl + clique)', style: { display: 'inline-flex', gap: '6px', alignItems: 'center', cursor: 'pointer' } }, [h('input', { type: 'checkbox' }), h('span', { text: '☑ Selecionar p/ rota' })]);
-    var cb3 = selb.querySelector('input'); cb3.checked = selMode;
-    cb3.addEventListener('change', function () { selMode = cb3.checked; document.body.classList.toggle('op-selmode', selMode); });
-    extras.appendChild(selb);
-    }
-    bar.appendChild(extras);
     if (view.pop && comRegra) bar.appendChild(popRegras());
-    if (view.popReg) bar.appendChild(popRegioes());
-    return bar;
-  }
-
-  function popRegioes() {
-    var pop = h('div', { class: 'op-pop op-pop-sm' });
-    var cont = {}; model.items.forEach(function (it) { if (state.pend || !it.pend) cont[it.regiao] = (cont[it.regiao] || 0) + 1; });
-    pop.appendChild(h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
-      h('b', { text: 'Regiões' }),
-      h('span', null, [
-        h('button', { class: 'op-chip', type: 'button', text: 'todas', onclick: function () { state.regioes = []; state.lim = {}; saveState(); render(); } }), ' ',
-        h('button', { class: 'op-chip on', type: 'button', text: 'fechar', onclick: function () { view.popReg = false; render(); } })])
-    ]));
-    regioesDisponiveis().forEach(function (r) {
-      var cb = h('input', { type: 'checkbox' }); cb.checked = state.regioes.indexOf(r) >= 0;
-      cb.addEventListener('change', function () {
-        var i = state.regioes.indexOf(r); if (cb.checked && i < 0) state.regioes.push(r); if (!cb.checked && i >= 0) state.regioes.splice(i, 1);
-        state.lim = {}; saveState(); render();
-      });
-      pop.appendChild(h('label', null, [cb, h('span', { text: regiaoLabel(r) }), h('span', { class: 'c', text: String(cont[r] || 0) })]));
-    });
-    return pop;
+    wrap.appendChild(bar);
+    wrap.appendChild(linhaRegioes(tab));
+    return wrap;
   }
 
   function popRegras() {
@@ -572,13 +788,13 @@
       var k = regraKey(it); contagem[k] = (contagem[k] || 0) + 1;
       if (!it.regra.grupo) { var n = it.regra.dj || '(vazio)'; semDJ[n] = (semDJ[n] || 0) + 1; }
     });
-    function refaz() { buildModel(); state.lim = {}; saveState(); render(); }
-    function toggle(k, on) { var i = state.regras.indexOf(k); if (on && i < 0) state.regras.push(k); if (!on && i >= 0) state.regras.splice(i, 1); state.lim = {}; saveState(); render(); }
+    function refaz() { buildModel(); state.lim = {}; saveState(); render(true); }
+    function toggle(k, on) { var i = state.regras.indexOf(k); if (on && i < 0) state.regras.push(k); if (!on && i >= 0) state.regras.splice(i, 1); state.lim = {}; saveState(); render(true); }
     function grupo(g, titulo, cor, outro, outroTxt) {
       var lista = OP.regrasLista().filter(function (r) { return r.grupo === g; });
       var tot = lista.reduce(function (s, r) { return s + (contagem[r.nome] || 0); }, 0);
       pop.appendChild(h('h4', { style: { color: cor } }, [titulo + ' (' + tot + ')',
-        h('button', { class: 'op-chip', type: 'button', text: 'marcar todas', onclick: function () { lista.forEach(function (r) { if (state.regras.indexOf(r.nome) < 0) state.regras.push(r.nome); }); saveState(); render(); } })]));
+        h('button', { class: 'op-chip', type: 'button', text: 'marcar todas', onclick: function () { lista.forEach(function (r) { if (state.regras.indexOf(r.nome) < 0) state.regras.push(r.nome); }); saveState(); render(true); } })]));
       lista.forEach(function (r) {
         var cb = h('input', { type: 'checkbox' }); cb.checked = state.regras.indexOf(r.nome) >= 0;
         cb.addEventListener('change', function () { toggle(r.nome, cb.checked); });
@@ -592,8 +808,8 @@
     pop.appendChild(h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
       h('b', { text: 'Regra criadora (coluna DJ)' }),
       h('span', null, [
-        h('button', { class: 'op-chip', type: 'button', text: 'limpar seleção', onclick: function () { state.regras = []; saveState(); render(); } }), ' ',
-        h('button', { class: 'op-chip on', type: 'button', text: 'fechar', onclick: function () { view.pop = false; render(); } })])
+        h('button', { class: 'op-chip', type: 'button', text: 'limpar seleção', onclick: function () { state.regras = []; saveState(); render(true); } }), ' ',
+        h('button', { class: 'op-chip on', type: 'button', text: 'fechar', onclick: function () { view.pop = false; render(true); } })])
     ]));
     grupo('FIXA', 'FIXA', COR.blue, 'MOVEL', 'MÓVEL');
     grupo('MOVEL', 'MÓVEL', COR.green, 'FIXA', 'FIXA');
@@ -613,14 +829,14 @@
     // incluir regra nova (discreto)
     var rodape = h('div', { class: 'op-pop-foot' });
     if (!view.novaRegra) {
-      rodape.appendChild(h('button', { class: 'op-link', type: 'button', text: '+ incluir regra criadora', onclick: function () { view.novaRegra = true; render(); } }));
+      rodape.appendChild(h('button', { class: 'op-link', type: 'button', text: '+ incluir regra criadora', onclick: function () { view.novaRegra = true; render(true); } }));
       if (OP.temAjustes()) rodape.appendChild(h('button', { class: 'op-link', type: 'button', text: 'restaurar padrão', onclick: function () { if (confirm('Desfazer todas as regras movidas/incluídas neste navegador?')) { OP.restaurarPadrao(); state.regras = []; refaz(); } } }));
     } else {
       var inp = h('input', { class: 'op-search', type: 'text', placeholder: 'Nome exatamente como na coluna DJ', style: { maxWidth: 'none', flex: '1' } });
       var gsel = h('select', { class: 'op-sel' }, [h('option', { value: 'MOVEL', text: 'MÓVEL' }), h('option', { value: 'FIXA', text: 'FIXA' })]);
       rodape.appendChild(h('div', { class: 'op-nova' }, [inp, gsel,
         h('button', { class: 'op-btn go', type: 'button', text: 'Adicionar', onclick: function () { if (OP.adicionar(inp.value, gsel.value)) { view.novaRegra = false; refaz(); } } }),
-        h('button', { class: 'op-link', type: 'button', text: 'cancelar', onclick: function () { view.novaRegra = false; render(); } })]));
+        h('button', { class: 'op-link', type: 'button', text: 'cancelar', onclick: function () { view.novaRegra = false; render(true); } })]));
     }
     pop.appendChild(rodape);
     pop.appendChild(h('div', { class: 'op-sub', style: { whiteSpace: 'normal', marginTop: '6px' }, text: 'Os ajustes ficam salvos neste navegador. Para valer para toda a equipe, repita-os em js/operador-regras.js.' }));
@@ -628,8 +844,24 @@
   }
 
   /* ---------- listas por região ---------- */
-  function blocoEl(titulo, resumo) {
-    return h('div', { class: 'op-block' }, [h('div', { class: 'op-bh' }, [h('b', { text: titulo }), h('span', { class: 'r', html: resumo || '' })]), h('div', { class: 'op-bb' })]);
+  /* coluna = barra de ações (cópia geral) logo ACIMA + o quadrado da região */
+  function blocoEl(titulo, resumo, btnCopiar) {
+    var bloco = h('div', { class: 'op-block' }, [h('div', { class: 'op-bh' }, [h('b', { text: titulo }), h('span', { class: 'r', html: resumo || '' })]), h('div', { class: 'op-bb' })]);
+    var barra = h('div', { class: 'op-copybar' }, [btnCopiar || null]);
+    return h('div', { class: 'op-col' }, [barra, bloco]);
+  }
+  /* "Prioridade -> TSK / SITE - FALHA" */
+  function linhaCopia(it) { return (it.pend ? it.prio + ' (PEND)' : it.prio) + ' -> ' + it.os + ' / ' + (it.site || it.end || '—') + ' - ' + (it.falha || '—'); }
+  function btnCopia(texto, lista, titulo, mini) {
+    return h('button', { class: mini ? 'op-copy mini' : 'op-copy', type: 'button', title: 'Copiar no formato: Prioridade -> TSK / SITE - FALHA',
+      text: texto, onclick: function (e) {
+        e.stopPropagation();
+        if (!lista.length) return;
+        copiar(lista.map(linhaCopia).join('\n'), lista.length + ' TSK' + (lista.length > 1 ? 's' : '') + ' de ' + titulo + ' copiada' + (lista.length > 1 ? 's' : ''));
+      } });
+  }
+  function linhaCopiaSite(s) {
+    return '• ' + (s.sites.join(', ') || '—') + ' / ' + (s.end || '—') + ' - ' + (s.inc.causa || '—') + ' · ' + (s.tsk ? s.tsk.osNumero + ' (' + stInfo(s.tsk.status).l + ')' : 'SEM TSK');
   }
   function renderLista() {
     if (!view.listEl || !model) return;
@@ -641,22 +873,27 @@
       var wrap = h('div', { class: 'op-blocks' + (cols ? ' cols' : '') });
       f.blocos.forEach(function (b) {
         var venc = b.lista.filter(function (it) { return !it.pend && it._rest != null && it._rest < 0; }).length;
-        var bl = blocoEl(regiaoLabel(b.regiao), '<span>' + b.lista.length + ' TSKs</span>' + (venc ? ' · <span style="color:' + COR.red + '">' + venc + ' vencidas</span>' : ''));
-        var body = bl.lastChild, lim = state.lim[b.regiao] || PAGE, ultP = null;
+        var nome = regiaoLabel(b.regiao);
+        var col = blocoEl(nome, '<span>' + b.lista.length + ' TSKs</span>' + (venc ? ' · <span style="color:' + COR.red + '">' + venc + ' vencidas</span>' : ''),
+          b.lista.length ? btnCopia('📋 Copiar ' + nome + ' (' + b.lista.length + ')', b.lista, nome) : null);
+        var body = col.querySelector('.op-bb'), lim = state.lim[b.regiao] || PAGE, ultP = null;
         if (!b.lista.length) body.appendChild(h('div', { class: 'op-empty', style: { padding: '14px 0' }, text: 'Nada nesta região.' }));
         b.lista.slice(0, lim).forEach(function (it) {
           if (state.ordem === 'padrao') {
             var chave = it.pend ? 'PEND' : it.prio;
             if (chave !== ultP) {
               ultP = chave;
-              var n = b.lista.filter(function (x) { return (x.pend ? 'PEND' : x.prio) === chave; }).length;
-              body.appendChild(h('div', { class: 'op-ph', style: { color: it.pend ? COR.purple : (PRIO_COR[it.prio] || 'var(--trj-muted)') }, text: (it.pend ? 'PENDENCIADAS' : it.prio) + ' · ' + n }));
+              var grupo = b.lista.filter(function (x) { return (x.pend ? 'PEND' : x.prio) === chave; });
+              body.appendChild(h('div', { class: 'op-ph', style: { color: it.pend ? COR.purple : (PRIO_COR[it.prio] || 'var(--trj-muted)') } }, [
+                h('span', { text: (it.pend ? 'PENDENCIADAS' : it.prio) + ' · ' + grupo.length }),
+                btnCopia('📋', grupo, nome + ' ' + (it.pend ? 'pendenciadas' : it.prio), true)
+              ]));
             }
           }
           body.appendChild(rowFila(it, now));
         });
         if (b.lista.length > lim) body.appendChild(h('button', { class: 'op-btn op-more', type: 'button', text: 'Mostrar mais (' + (b.lista.length - lim) + ')', onclick: function () { state.lim[b.regiao] = lim + PAGE; renderLista(); } }));
-        wrap.appendChild(bl);
+        wrap.appendChild(col);
       });
       box.appendChild(wrap);
     } else if (state.tab === 'sites') {
@@ -666,86 +903,235 @@
       var regs = regioesBlocos(Object.keys(porReg)).filter(function (r) { return (porReg[r] || []).length; });
       var wrap2 = h('div', { class: 'op-blocks' + (state.lado && regs.length >= 2 ? ' cols' : '') });
       regs.forEach(function (r) {
-        var lista = porReg[r];
+        var lista = porReg[r], nomeR = regiaoLabel(r);
         var com = lista.filter(function (s) { return s.tsk; }), sem = lista.filter(function (s) { return !s.tsk; });
         function ord(a, b) { return (a.desde ? a.desde.getTime() : 9e15) - (b.desde ? b.desde.getTime() : 9e15); }
         com.sort(ord); sem.sort(ord);
-        var bl = blocoEl(regiaoLabel(r), '<span>' + lista.length + ' sites</span> · <span style="color:' + COR.red + '">' + sem.length + ' sem TSK</span>');
-        var body = bl.lastChild, lim = state.lim['S' + r] || PAGE, usados = 0;
+        var copiaSites = h('button', { class: 'op-copy', type: 'button', title: 'Copiar a lista de sites fora desta região', text: '📋 Copiar ' + nomeR + ' (' + lista.length + ')',
+          onclick: function () { copiar(com.concat(sem).map(linhaCopiaSite).join('\n'), lista.length + ' site(s) fora de ' + nomeR + ' copiado(s)'); } });
+        var col2 = blocoEl(nomeR, '<span>' + lista.length + ' sites</span> · <span style="color:' + COR.red + '">' + sem.length + ' sem TSK</span>', copiaSites);
+        var body = col2.querySelector('.op-bb'), lim = state.lim['S' + r] || PAGE, usados = 0;
         function secao(titulo, cor, arr) {
           if (!arr.length || usados >= lim) return;
-          body.appendChild(h('div', { class: 'op-ph', style: { color: cor }, text: titulo + ' · ' + arr.length }));
+          body.appendChild(h('div', { class: 'op-ph', style: { color: cor } }, [h('span', { text: titulo + ' · ' + arr.length })]));
           arr.forEach(function (s) { if (usados < lim) { body.appendChild(rowSite(s, now)); usados++; } });
         }
         secao('Com TSK aberta', COR.green, com);            // sempre no topo
         secao('Sem TSK — abrir/acionar', COR.red, sem);     // e as sem TSK logo abaixo
         if (lista.length > usados) body.appendChild(h('button', { class: 'op-btn op-more', type: 'button', text: 'Mostrar mais (' + (lista.length - usados) + ')', onclick: function () { state.lim['S' + r] = lim + PAGE; renderLista(); } }));
-        wrap2.appendChild(bl);
+        wrap2.appendChild(col2);
       });
       box.appendChild(wrap2);
     }
     refreshSelUI();
   }
 
-  /* ---------- Excel (resumo + atalhos + dados cruzados) ---------- */
-  function exportarExcel() {
-    if (!window.XLSX) { U.toast('A biblioteca de Excel não carregou. Atualize a página.', 'err'); return; }
-    var now = Date.now(), X = window.XLSX, wb = X.utils.book_new();
-    var f = filaAtual(now), itens = [];
-    f.blocos.forEach(function (b) { b.lista.forEach(function (it) { itens.push(it); }); });
-    var base = f.base.filter(function (it) { return !it.pend; });
-    var sites = sitesAtuais();
-    var conc = raw.concentradores || [];
-    var incAtivos = {}; sites.forEach(function (s) { incAtivos[up(s.end)] = s; });
+  /* ---------- Excel (ExcelJS: resumo com atalhos, backlog por região, dados cruzados) ---------- */
+  var XL = {
+    navy: 'FF1F2937', laranja: 'FFFF8C00', linha: 'FFD9DCE3', zebra: 'FFF6F7FB', branco: 'FFFFFFFF', tinta: 'FF1F2937', suave: 'FF6B7280',
+    verm: 'FFC62839', vermBg: 'FFFFC7CE', vermFg: 'FF9C0006', ambar: 'FFF5B041', verde: 'FF1E8449', verdeBg: 'FFD5F5E3', azul: 'FF1F6FB5', roxo: 'FF7D3C98', roxoBg: 'FFE8DAEF', cinza: 'FFE5E7EB'
+  };
+  var XL_PRIO = { P1: ['FFFDE2E4', 'FFB71C2E'], P2: ['FFFFE8D6', 'FFC2410C'], P3: ['FFFFF3CD', 'FF92400E'], P4: ['FFDCEBFA', 'FF1F6FB5'], P5: ['FFEDEEF1', 'FF4B5563'] };
+  var XL_SIT = { 'Vencida': [XL.verm, XL.branco], 'Vence em até 2h': [XL.ambar, XL.tinta], 'No prazo': [XL.verdeBg, XL.verde], 'Pendenciada': [XL.roxoBg, XL.roxo], 'Sem prazo': [XL.cinza, 'FF4B5563'] };
+  var XL_DATA = 'dd/mm/yyyy hh:mm';
+  function xFill(argb) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: argb } }; }
+  function xBorda(argb, estilo) { var s = { style: estilo || 'thin', color: { argb: argb || XL.linha } }; return { top: s, left: s, bottom: s, right: s }; }
+  function xd(d) { return d ? new Date(d.getTime() - d.getTimezoneOffset() * 60000) : null; }   // ExcelJS grava datas em UTC: compensa o fuso para o Excel mostrar a hora local
+  function colLetra(n) { var s = ''; while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
+
+  async function exportarExcel() {
+    if (!window.ExcelJS) { U.toast('A biblioteca de Excel não carregou. Atualize a página.', 'err'); return; }
+    U.toast('Gerando o Excel…', 'info');
+    await new Promise(function (r) { setTimeout(r, 40); });
+    try { await montarExcel(); } catch (e) { console.error(e); U.toast('Erro ao gerar o Excel: ' + (e && e.message || e), 'err'); }
+  }
+
+  async function montarExcel() {
+    var now = Date.now(), wb = new ExcelJS.Workbook();
+    wb.creator = 'Operação TRJ'; wb.created = new Date();
+    var f = filaAtual(now), base = f.base, baseNP = base.filter(function (it) { return !it.pend; });
+    var sites = sitesAtuais(), conc = raw.concentradores || [];
+    var nomesUsados = {};
+    function nomeAba(n) {
+      n = String(n).replace(/[\\\/\?\*\[\]:]/g, '-').slice(0, 31); var b = n, i = 2;
+      while (nomesUsados[n.toLowerCase()]) { n = b.slice(0, 28) + ' ' + (i++); }
+      nomesUsados[n.toLowerCase()] = 1; return n;
+    }
+    var RES = 'Resumo';
+    nomesUsados[RES.toLowerCase()] = 1;
+    function link(aba) { return "#'" + aba + "'!A1"; }
+
+    /* regras de domínio reaproveitadas pelas abas */
     function concDe(it) {
       var k1 = up(it.end), k2 = up(it.site), hit = null;
       conc.forEach(function (c) { var key = up(c.endId || c.site); if (key && (key === k1 || key === k2)) hit = c; });
       return hit;
     }
     function sitDe(it, rest) { if (it.pend) return 'Pendenciada'; if (rest == null) return 'Sem prazo'; return rest < 0 ? 'Vencida' : (rest <= 120 ? 'Vence em até 2h' : 'No prazo'); }
-    var NOMES = { resumo: 'Resumo', fila: 'Fazer agora', reg: 'Por região', regra: 'Por regra criadora', sites: 'Sites fora', b2b: 'B2B', conc: 'Concentradores', venc: 'Vencidas' };
-    function link(sheet) { return '#\'' + sheet + '\'!A1'; }
-    var DATA_FMT = 'dd/mm/yyyy hh:mm';
+    function prazoTxt(it, rest) { if (it.pend) return 'pendenciada'; if (rest == null) return 'sem prazo'; return (rest < 0 ? 'atrasada ' : 'vence em ') + fmtDur(rest); }
+    /* backlog: DENTRO do prazo no topo (por prioridade), depois as vencidas, também por prioridade */
+    function ordemExcel(a, b) {
+      function bk(it) { if (it.pend) return 3; if (it._rest == null) return 2; return it._rest >= 0 ? 0 : 1; }   // no prazo → vencidas → sem prazo → pendenciadas
+      var ba = bk(a), bb = bk(b); if (ba !== bb) return ba - bb;
+      var dp = prioNum(a.prio) - prioNum(b.prio); if (dp) return dp;
+      return restKey(a) - restKey(b);       // no prazo: vence antes primeiro · vencidas: a mais atrasada primeiro
+    }
+    baseNP.forEach(function (it) { it._rest = restOf(it, now); });
+    base.forEach(function (it) { it._rest = restOf(it, now); });
 
-    function planilha(nome, titulo, cab, linhas, larguras, colData) {
-      var aoa = [['← Voltar ao menu'], [titulo + ' — ' + linhas.length + ' linha(s)'], [], cab].concat(linhas);
-      var ws = X.utils.aoa_to_sheet(aoa, { cellDates: true });
-      ws['A1'] = { t: 's', v: '← Voltar ao menu', l: { Target: link(NOMES.resumo), Tooltip: 'Ir para o Resumo' } };
-      ws['!cols'] = larguras.map(function (w) { return { wch: w }; });
-      if (linhas.length) ws['!autofilter'] = { ref: X.utils.encode_range({ s: { r: 3, c: 0 }, e: { r: 3 + linhas.length, c: cab.length - 1 } }) };
-      (colData || []).forEach(function (c) { for (var r = 4; r < 4 + linhas.length; r++) { var a = X.utils.encode_cell({ r: r, c: c }); if (ws[a] && ws[a].t === 'd') ws[a].z = DATA_FMT; } });
+    /* ===== colunas padrão das abas de TSK ===== */
+    function colsTsk(comRegiao) {
+      var c = [];
+      if (comRegiao) c.push({ h: 'Região', w: 14, v: function (it) { return regiaoLabel(it.regiao); } });
+      return c.concat([
+        { h: 'Prioridade', w: 10, t: 'prio', v: function (it) { return it.prio; } },
+        { h: 'TSK', w: 19, t: 'bold', v: function (it) { return it.os; } },
+        { h: 'Site', w: 18, v: function (it) { return it.site; } },
+        { h: 'END_ID', w: 14, v: function (it) { return it.end; } },
+        { h: 'Cidade', w: 18, v: function (it) { return it.cidade; } },
+        { h: 'Falha', w: 24, v: function (it) { return it.falha; } },
+        { h: 'Status', w: 13, v: function (it) { return stInfo(it.t.status).l; } },
+        { h: 'Situação', w: 16, t: 'sit', v: function (it) { return sitDe(it, it._rest); } },
+        { h: 'Prazo', w: 18, v: function (it) { return prazoTxt(it, it._rest); } },
+        { h: 'Vencimento', w: 17, t: 'data', v: function (it) { return it.venc; } },
+        { h: 'Criação', w: 17, t: 'data', v: function (it) { return it.criacao; } },
+        { h: 'Site fora', w: 17, t: 'bold', v: function (it) { return it.fora ? 'FORA' + (it.fora.desde ? ' há ' + fmtDur((now - it.fora.desde.getTime()) / 60000) : '') : ''; } },
+        { h: 'Regra criadora', w: 34, v: function (it) { return it.regra.nome || ''; } },
+        { h: 'Grupo', w: 11, v: function (it) { return it.regra.grupo ? (it.regra.grupo === 'FIXA' ? 'FIXA' : 'MÓVEL') : '(sem class.)'; } },
+        { h: 'Fila atual', w: 32, v: function (it) { return it.t.filaAtual || ''; } },
+        { h: 'Último update', w: 17, t: 'data', v: function (it) { return it.upd && it.upd.estado !== 'sem' && it.upd.dt ? it.upd.dt : ''; } },
+        { h: 'Quem atualizou', w: 24, v: function (it) { return it.upd && it.upd.estado !== 'sem' ? (it.upd.autor || '') : ''; } },
+        { h: 'Mensagem do update', w: 64, t: 'wrap', v: function (it) { return it.upd && it.upd.estado !== 'sem' && it.upd.texto ? String(it.upd.texto).replace(/\s+/g, ' ').slice(0, 500) : ''; } },
+        { h: 'B2B', w: 7, t: 'ctr', v: function (it) { return it.b2b ? 'Sim' : ''; } },
+        { h: 'Concentrador', w: 13, t: 'ctr', v: function (it) { return concDe(it) ? 'Sim' : ''; } }
+      ]);
+    }
+    /* site fora COM TSK na fila = linha inteira em vermelho */
+    function estiloLinhaTsk(it) { return it.fora ? { bg: XL.vermBg, fg: XL.vermFg, bold: true } : null; }
+
+    /* ===== construtor genérico de aba ===== */
+    function aba(nome, titulo, sub, cor, cols, linhas, opt) {
+      opt = opt || {};
+      var ws = wb.addWorksheet(nome, { properties: { tabColor: { argb: cor || XL.laranja } }, views: [{ state: 'frozen', ySplit: 4, showGridLines: false }],
+        pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+      var n = cols.length;
+      cols.forEach(function (c, i) { ws.getColumn(i + 1).width = c.w; });
+      ws.mergeCells(1, 1, 1, n);
+      var t = ws.getCell(1, 1); t.value = titulo;
+      t.font = { name: 'Calibri', size: 16, bold: true, color: { argb: XL.branco } }; t.fill = xFill(XL.navy); t.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      ws.getRow(1).height = 30;
+      ws.mergeCells(2, 1, 2, n);
+      var s2 = ws.getCell(2, 1); s2.value = sub || '';
+      s2.font = { name: 'Calibri', size: 10, color: { argb: XL.suave }, italic: true }; s2.alignment = { vertical: 'middle', indent: 1 };
+      ws.getRow(2).height = 18;
+      ws.getRow(3).height = 22;
+      function botao(col, txt, destino, bg) {
+        var c = ws.getCell(3, col);
+        c.value = { text: txt, hyperlink: link(destino), tooltip: 'Ir para ' + destino };
+        c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: XL.branco }, underline: false };
+        c.fill = xFill(bg || XL.azul); c.alignment = { vertical: 'middle', horizontal: 'center' }; c.border = xBorda('FF174F82', 'medium');
+      }
+      botao(1, '← Voltar ao menu', RES, XL.azul);
+      (opt.atalhos || []).forEach(function (a, i) { botao(2 + i, a[0], a[1], XL.laranja); });
+      var hr = ws.getRow(4); hr.height = 24;
+      cols.forEach(function (c, i) {
+        var cell = hr.getCell(i + 1); cell.value = c.h;
+        cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: XL.branco } }; cell.fill = xFill(XL.navy);
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }; cell.border = { bottom: { style: 'medium', color: { argb: XL.laranja } }, top: { style: 'thin', color: { argb: XL.navy } }, left: { style: 'thin', color: { argb: 'FF374151' } }, right: { style: 'thin', color: { argb: 'FF374151' } } };
+      });
+      linhas.forEach(function (ln, i) {
+        var row = ws.getRow(5 + i), est = opt.linha ? opt.linha(ln) : null, zebra = i % 2 === 1;
+        cols.forEach(function (c, j) {
+          var cell = row.getCell(j + 1), v = c.v(ln);
+          if (v instanceof Date) { cell.value = xd(v); cell.numFmt = XL_DATA; }
+          else if (v === '' || v == null) cell.value = null;
+          else cell.value = v;
+          var fnt = { name: 'Calibri', size: 10, color: { argb: XL.tinta } }, bg = zebra ? XL.zebra : XL.branco;
+          if (c.t === 'bold') fnt.bold = true;
+          if (est) { bg = est.bg; fnt.color = { argb: est.fg }; if (est.bold) fnt.bold = true; }
+          else if (c.t === 'prio' && XL_PRIO[v]) { bg = XL_PRIO[v][0]; fnt.color = { argb: XL_PRIO[v][1] }; fnt.bold = true; }
+          else if (c.t === 'sit' && XL_SIT[v]) { bg = XL_SIT[v][0]; fnt.color = { argb: XL_SIT[v][1] }; fnt.bold = true; }
+          if (opt.celula) { var o = opt.celula(ln, c, v); if (o) { if (o.bg) bg = o.bg; if (o.fg) fnt.color = { argb: o.fg }; if (o.bold) fnt.bold = true; } }
+          cell.font = fnt; cell.fill = xFill(bg);
+          cell.alignment = { vertical: 'middle', horizontal: (c.t === 'prio' || c.t === 'sit' || c.t === 'ctr' || c.t === 'data' || c.t === 'num') ? 'center' : 'left', wrapText: c.t === 'wrap', indent: c.t === 'prio' || c.t === 'sit' || c.t === 'ctr' || c.t === 'data' || c.t === 'num' ? 0 : 0 };
+          cell.border = xBorda(est ? (est.fina || 'FFE08A93') : XL.linha);
+          if (j === 0 && est) cell.border = Object.assign({}, cell.border, { left: { style: 'thick', color: { argb: est.borda || XL.verm } } });
+          if (c.link) { var dest = c.link(ln); if (dest && v) { cell.value = { text: String(v), hyperlink: link(dest), tooltip: 'Ir para ' + dest }; fnt.color = { argb: XL.azul }; fnt.underline = true; cell.font = fnt; } }
+        });
+        row.height = 17;
+      });
+      if (linhas.length) ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4 + linhas.length, column: n } };
+      else { ws.mergeCells(5, 1, 5, n); var vz = ws.getCell(5, 1); vz.value = 'Nenhum registro com os filtros atuais.'; vz.font = { italic: true, color: { argb: XL.suave } }; vz.alignment = { horizontal: 'center' }; }
       return ws;
     }
 
-    /* Fazer agora (cruzado: regra criadora, site fora, concentrador, B2B, update) */
-    var cabFila = ['Região', 'Prioridade', 'TSK', 'Site', 'END_ID', 'Cidade', 'Falha', 'Status', 'Situação', 'Min. p/ vencer (neg.=atraso)', 'Vencimento', 'Criação', 'Regra criadora', 'Grupo', 'Fila atual', 'Último update', 'Sem update (h)', 'B2B', 'Site fora ativo', 'Concentrador', 'Obs. concentrador'];
-    var linFila = itens.map(function (it) {
-      var rest = restOf(it, now), c = concDe(it), sf = incAtivos[up(it.end)];
-      var upd = (it.upd && it.upd.estado !== 'sem' && it.upd.dt) ? it.upd.dt : null;
-      return [regiaoLabel(it.regiao), it.prio, it.os, it.site, it.end, it.cidade, it.falha, stInfo(it.t.status).l, sitDe(it, rest), rest, it.venc || '', it.criacao || '',
-        it.regra.nome || '', it.regra.grupo ? (it.regra.grupo === 'FIXA' ? 'FIXA' : 'MÓVEL') : '(sem classificação)', it.t.filaAtual || '', upd || '', upd ? Math.round(semUpdH(it, now) * 10) / 10 : '',
-        it.b2b ? 'Sim' : 'Não', sf ? 'Sim (' + fmtDur((now - (sf.desde ? sf.desde.getTime() : now)) / 60000) + ')' : 'Não', c ? 'Sim' : 'Não', c ? (c.nota || '') : ''];
+    var filtroTxt = [
+      'Grupo: ' + (state.regras.length ? state.regras.length + ' regra(s) escolhida(s)' : (state.grupo === 'TODAS' ? 'todas' : (state.grupo === 'FIXA' ? 'FIXA' : 'MÓVEL'))),
+      'Regiões: ' + (state.regioes.length ? state.regioes.map(regiaoLabel).join(', ') : 'todas'),
+      'Prioridades: ' + (state.prios.length ? state.prios.join(', ') : 'todas'),
+      'Pendenciadas: ' + (state.pend ? 'incluídas' : 'fora')
+    ].join('   |   ');
+    var carimbo = 'Gerado em ' + fmtDt(new Date()) + (savedAt ? '  ·  snapshot publicado em ' + fmtDt(new Date(savedAt)) : '') + '   |   ' + filtroTxt;
+
+    /* ===== abas de TSK ===== */
+    var porRegiao = {};
+    base.forEach(function (it) { (porRegiao[it.regiao] = porRegiao[it.regiao] || []).push(it); });
+    var regsComFila = Object.keys(porRegiao).sort(function (a, b) { return regiaoIdx(a) - regiaoIdx(b); });
+    var abaRegiao = {};
+    regsComFila.forEach(function (r) { abaRegiao[r] = nomeAba('Backlog ' + regiaoLabel(r)); });
+
+    var nomeFila = nomeAba('Fazer agora'), nomeVenc = nomeAba('Vencidas'), nomeReg = nomeAba('Por região'), nomeRg = nomeAba('Por regra criadora'),
+        nomeSites = nomeAba('Sites fora'), nomeB2B = nomeAba('B2B'), nomeConc = nomeAba('Concentradores');
+
+    /* Resumo é criado primeiro (aparece como 1ª aba) e preenchido no fim */
+    var wsRes = wb.addWorksheet(RES, { properties: { tabColor: { argb: XL.laranja } }, views: [{ showGridLines: false }] });
+
+    /* Fazer agora: todas as regiões, dentro do prazo no topo de cada região */
+    var itens = [];
+    f.blocos.forEach(function (b) { b.lista.slice().sort(ordemExcel).forEach(function (it) { it._rest = restOf(it, now); itens.push(it); }); });
+    itens.sort(function (a, b) { var d = regiaoIdx(a.regiao) - regiaoIdx(b.regiao); return d || ordemExcel(a, b); });
+    aba(nomeFila, 'Fazer agora — todas as regiões', carimbo + '   |   linhas em VERMELHO = site fora com TSK na fila', XL.laranja, colsTsk(true), itens,
+      { linha: estiloLinhaTsk, atalhos: [['Vencidas ›', nomeVenc], ['Sites fora ›', nomeSites]] });
+
+    /* Backlog de cada região */
+    regsComFila.forEach(function (r) {
+      var lista = porRegiao[r].slice().sort(ordemExcel);
+      var nv = lista.filter(function (it) { return !it.pend && it._rest != null && it._rest < 0; }).length, nf = lista.filter(function (it) { return it.fora; }).length;
+      aba(abaRegiao[r], 'Backlog — ' + regiaoLabel(r), lista.length + ' TSKs · ' + nv + ' vencidas · ' + nf + ' em site fora (linhas vermelhas)  |  dentro do prazo no topo (por prioridade), vencidas na sequência (por prioridade)',
+        XL.azul, colsTsk(false), lista, { linha: estiloLinhaTsk, atalhos: [['Sites fora ›', nomeSites]] });
     });
-    var wsFila = planilha(NOMES.fila, 'Fazer agora (filtros da tela aplicados)', cabFila, linFila, [14, 9, 18, 18, 14, 18, 22, 13, 15, 12, 17, 17, 34, 11, 32, 17, 11, 6, 16, 12, 22], [10, 11, 15]);
 
     /* Vencidas */
-    var venc = itens.filter(function (it) { return !it.pend && it._rest != null && it._rest < 0; });
-    var wsVenc = planilha(NOMES.venc, 'Somente vencidas', ['Região', 'Prioridade', 'TSK', 'Site', 'END_ID', 'Atraso (min)', 'Vencimento', 'Regra criadora', 'Grupo', 'Fila atual'],
-      venc.map(function (it) { return [regiaoLabel(it.regiao), it.prio, it.os, it.site, it.end, -it._rest, it.venc, it.regra.nome || '', it.regra.grupo === 'FIXA' ? 'FIXA' : (it.regra.grupo ? 'MÓVEL' : ''), it.t.filaAtual || '']; }),
-      [14, 9, 18, 18, 14, 12, 17, 34, 9, 32], [6]);
+    var vencidas = itens.filter(function (it) { return !it.pend && it._rest != null && it._rest < 0; }).sort(function (a, b) { return prioNum(a.prio) - prioNum(b.prio) || restKey(a) - restKey(b); });
+    aba(nomeVenc, 'Somente vencidas', carimbo, XL.verm, colsTsk(true), vencidas, { linha: estiloLinhaTsk });
 
     /* Sites fora (cruzado com a TSK aberta) */
-    var wsSites = planilha(NOMES.sites, 'Sites fora (filtro de região aplicado)', ['Região', 'Site(s)', 'END_ID', 'Cidade/UF', 'Fora há (min)', 'Causa', 'Detalhe', 'TSK aberta', 'Status TSK', 'Prioridade', 'Vencimento', 'Fila atual', 'Concentrador'],
-      sites.slice().sort(function (a, b) { return (!!a.tsk - !!b.tsk) * -1 || ((a.desde ? a.desde.getTime() : 9e15) - (b.desde ? b.desde.getTime() : 9e15)); }).map(function (s) {
-        var t = s.tsk, c = concDe({ end: s.end, site: s.sites[0] });
-        return [regiaoLabel(s.regiao), s.sites.join(', '), s.end, s.inc.cidadeUf || s.inc.cidade || '', s.desde ? Math.round((now - s.desde.getTime()) / 60000) : '', s.inc.causa || '', String(s.inc.detalhe || '').replace(/\s+/g, ' ').slice(0, 300),
-          t ? t.osNumero : 'SEM TSK', t ? stInfo(t.status).l : '', t ? up(t.prioridade) : '', t && t.vencimentoCalc ? toDate(t.vencimentoCalc) : '', t ? (t.filaAtual || '') : '', c ? 'Sim' : 'Não'];
-      }), [14, 24, 14, 24, 12, 26, 50, 18, 14, 9, 17, 32, 12], [10]);
+    var sitesOrd = sites.slice().sort(function (a, b) { return (!!b.tsk - !!a.tsk) || ((a.desde ? a.desde.getTime() : 9e15) - (b.desde ? b.desde.getTime() : 9e15)); });
+    var colsSites = [
+      { h: 'Região', w: 14, v: function (s) { return regiaoLabel(s.regiao); } },
+      { h: 'Situação', w: 15, t: 'bold', v: function (s) { return s.tsk ? 'COM TSK' : 'SEM TSK'; } },
+      { h: 'Site(s)', w: 26, t: 'bold', v: function (s) { return s.sites.join(', '); } },
+      { h: 'END_ID', w: 14, v: function (s) { return s.end; } },
+      { h: 'Cidade/UF', w: 22, v: function (s) { return s.inc.cidadeUf || s.inc.cidade || ''; } },
+      { h: 'Fora há', w: 11, t: 'ctr', v: function (s) { return s.desde ? fmtDur((now - s.desde.getTime()) / 60000) : ''; } },
+      { h: 'Fora desde', w: 17, t: 'data', v: function (s) { return s.desde || ''; } },
+      { h: 'Causa', w: 26, v: function (s) { return s.inc.causa || ''; } },
+      { h: 'Detalhe', w: 56, t: 'wrap', v: function (s) { return String(s.inc.detalhe || '').replace(/\s+/g, ' ').slice(0, 300); } },
+      { h: 'TSK aberta', w: 19, t: 'bold', v: function (s) { return s.tsk ? s.tsk.osNumero : ''; } },
+      { h: 'Status TSK', w: 13, v: function (s) { return s.tsk ? stInfo(s.tsk.status).l : ''; } },
+      { h: 'Prioridade', w: 10, t: 'prio', v: function (s) { return s.tsk ? up(s.tsk.prioridade) : ''; } },
+      { h: 'Vencimento', w: 17, t: 'data', v: function (s) { return s.tsk && s.tsk.vencimentoCalc ? toDate(s.tsk.vencimentoCalc) : ''; } },
+      { h: 'Fila atual', w: 32, v: function (s) { return s.tsk ? (s.tsk.filaAtual || '') : ''; } },
+      { h: 'Concentrador', w: 13, t: 'ctr', v: function (s) { return concDe({ end: s.end, site: s.sites[0] }) ? 'Sim' : ''; } }
+    ];
+    aba(nomeSites, 'Sites fora', carimbo + '   |   verde = com TSK aberta · vermelho = sem TSK (precisa abrir/acionar)', XL.verm, colsSites, sitesOrd, {
+      linha: function (s) { return s.tsk ? { bg: XL.verdeBg, fg: XL.verde, bold: false, borda: XL.verde, fina: 'FFA9DFBF' } : { bg: XL.vermBg, fg: XL.vermFg, bold: true }; },
+      celula: function (s, c) { if (c.h === 'Situação') return s.tsk ? { bg: XL.verde, fg: XL.branco, bold: true } : { bg: XL.verm, fg: XL.branco, bold: true }; return null; }
+    });
 
     /* B2B */
-    var b2b = base.filter(function (it) { return it.b2b; });
-    var wsB2B = planilha(NOMES.b2b, 'B2B / Premium', ['Região', 'Prioridade', 'TSK', 'Site', 'END_ID', 'Situação', 'Vencimento', 'Regra criadora', 'Fila atual'],
-      b2b.map(function (it) { return [regiaoLabel(it.regiao), it.prio, it.os, it.site, it.end, sitDe(it, it._rest), it.venc, it.regra.nome || '', it.t.filaAtual || '']; }), [14, 9, 18, 18, 14, 15, 17, 34, 32], [6]);
+    var b2bL = itens.filter(function (it) { return it.b2b && !it.pend; });
+    aba(nomeB2B, 'B2B / Premium', carimbo, XL.roxo, colsTsk(true), b2bL, { linha: estiloLinhaTsk });
 
     /* Concentradores (cruzado com TSKs e incidentes) */
     var linConc = [];
@@ -753,72 +1139,160 @@
       var key = up(c.endId || c.site); if (!key) return;
       function bate(a, b) { var ke = up(a), ks = up(b); return ke === key || ks === key || (key.length > 3 && (ke.indexOf(key) >= 0 || ks.indexOf(key) >= 0)); }
       var achou = false;
-      model.items.forEach(function (it) { if (!it.pend && bate(it.end, it.site)) { achou = true; linConc.push([c.site || '', c.endId || '', c.nota || '', 'TSK', it.os, it.prio, sitDe(it, restOf(it, now)), it.venc, regiaoLabel(it.regiao)]); } });
-      (raw.incidentsEnriched || []).forEach(function (i) { if (up(i.statusTrat) !== 'RESOLVIDO' && bate(i.enderecoId || i.endId, i.site)) { achou = true; linConc.push([c.site || '', c.endId || '', c.nota || '', 'Site fora', i.site || '', '', i.causa || '', toDate(i.horarioDt), regiaoLabel(i.regiao || 'OTHERS')]); } });
-      if (!achou) linConc.push([c.site || '', c.endId || '', c.nota || '', 'Sem alerta', '', '', '', '', '']);
+      model.items.forEach(function (it) { if (!it.pend && bate(it.end, it.site)) { achou = true; linConc.push({ c: c, tipo: 'TSK', ref: it.os, prio: it.prio, sit: sitDe(it, restOf(it, now)), quando: it.venc, regiao: regiaoLabel(it.regiao) }); } });
+      (raw.incidentsEnriched || []).forEach(function (i) { if (up(i.statusTrat) !== 'RESOLVIDO' && bate(i.enderecoId || i.endId, i.site)) { achou = true; linConc.push({ c: c, tipo: 'Site fora', ref: i.site || '', prio: '', sit: i.causa || '', quando: toDate(i.horarioDt), regiao: regiaoLabel(i.regiao || 'OTHERS') }); } });
+      if (!achou) linConc.push({ c: c, tipo: 'Sem alerta', ref: '', prio: '', sit: '', quando: '', regiao: '' });
     });
-    var wsConc = planilha(NOMES.conc, 'Concentradores — alertas ativos', ['Site', 'END_ID', 'Anotação', 'Tipo', 'TSK / Site fora', 'Prioridade', 'Situação / Causa', 'Vencimento / Desde', 'Região'], linConc, [18, 16, 26, 11, 20, 10, 30, 17, 14], [7]);
+    aba(nomeConc, 'Concentradores — alertas ativos', carimbo, XL.roxo, [
+      { h: 'Site', w: 20, t: 'bold', v: function (l) { return l.c.site || ''; } }, { h: 'END_ID', w: 16, v: function (l) { return l.c.endId || ''; } },
+      { h: 'Anotação', w: 30, v: function (l) { return l.c.nota || ''; } }, { h: 'Tipo', w: 12, t: 'ctr', v: function (l) { return l.tipo; } },
+      { h: 'TSK / Site fora', w: 22, v: function (l) { return l.ref; } }, { h: 'Prioridade', w: 10, t: 'prio', v: function (l) { return l.prio; } },
+      { h: 'Situação / Causa', w: 30, v: function (l) { return l.sit; } }, { h: 'Vencimento / Desde', w: 17, t: 'data', v: function (l) { return l.quando; } }, { h: 'Região', w: 14, v: function (l) { return l.regiao; } }
+    ], linConc, { linha: function (l) { return l.tipo === 'Sem alerta' ? null : { bg: l.tipo === 'Site fora' ? XL.vermBg : 'FFFFF3CD', fg: l.tipo === 'Site fora' ? XL.vermFg : 'FF92400E', bold: true, borda: l.tipo === 'Site fora' ? XL.verm : 'FFD68910', fina: l.tipo === 'Site fora' ? 'FFE08A93' : 'FFF2D48A' }; } });
 
     /* Por região (métricas) */
-    var regs = {}; base.forEach(function (it) { var r = it.regiao; var o = regs[r] || (regs[r] = { n: 0, v: 0, h2: 0, ok: 0, su: 0, p: { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0 } }); o.n++; if (it._rest != null && it._rest < 0) o.v++; else if (it._rest != null && it._rest <= 120) o.h2++; else if (it._rest != null) o.ok++; if (semUpdH(it, now) > 4) o.su++; if (o.p[it.prio] != null) o.p[it.prio]++; });
+    var regs = {}; baseNP.forEach(function (it) { var o = regs[it.regiao] || (regs[it.regiao] = { n: 0, v: 0, h2: 0, ok: 0, su: 0, fora: 0, p: { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0 } }); o.n++; if (it._rest != null && it._rest < 0) o.v++; else if (it._rest != null && it._rest <= 120) o.h2++; else if (it._rest != null) o.ok++; if (semUpdH(it, now) > 4) o.su++; if (it.fora) o.fora++; if (o.p[it.prio] != null) o.p[it.prio]++; });
     var sitReg = {}; sites.forEach(function (s) { var o = sitReg[s.regiao] || (sitReg[s.regiao] = { t: 0, sem: 0 }); o.t++; if (!s.tsk) o.sem++; });
     var nomesReg = Object.keys(Object.assign({}, regs, sitReg)).sort(function (a, b) { return regiaoIdx(a) - regiaoIdx(b); });
-    var linReg = nomesReg.map(function (r) { var o = regs[r] || { n: 0, v: 0, h2: 0, ok: 0, su: 0, p: { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0 } }, s = sitReg[r] || { t: 0, sem: 0 };
-      return [regiaoLabel(r), o.n, o.v, o.h2, o.ok, o.n ? Math.round(o.v / o.n * 1000) / 10 : 0, o.su, o.p.P1, o.p.P2, o.p.P3, o.p.P4, o.p.P5, s.t, s.sem]; });
-    var wsReg = planilha(NOMES.reg, 'Métricas por região (fila filtrada, sem pendenciadas)', ['Região', 'TSKs', 'Vencidas', 'Vencem ≤2h', 'No prazo', '% vencidas', 'Sem update +4h', 'P1', 'P2', 'P3', 'P4', 'P5', 'Sites fora', 'Sites fora sem TSK'], linReg, [16, 8, 10, 11, 10, 11, 14, 6, 6, 6, 6, 6, 11, 17], []);
+    var linReg = nomesReg.map(function (r) { return { r: r, o: regs[r] || { n: 0, v: 0, h2: 0, ok: 0, su: 0, fora: 0, p: { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0 } }, s: sitReg[r] || { t: 0, sem: 0 } }; });
+    aba(nomeReg, 'Métricas por região', carimbo + '   |   clique no nome da região para abrir o backlog dela', XL.azul, [
+      { h: 'Região', w: 18, t: 'bold', v: function (l) { return regiaoLabel(l.r); }, link: function (l) { return abaRegiao[l.r]; } },
+      { h: 'TSKs', w: 8, t: 'num', v: function (l) { return l.o.n; } }, { h: 'Vencidas', w: 10, t: 'num', v: function (l) { return l.o.v; } },
+      { h: 'Vencem ≤2h', w: 11, t: 'num', v: function (l) { return l.o.h2; } }, { h: 'No prazo', w: 10, t: 'num', v: function (l) { return l.o.ok; } },
+      { h: '% vencidas', w: 11, t: 'num', v: function (l) { return l.o.n ? Math.round(l.o.v / l.o.n * 1000) / 10 : 0; } },
+      { h: 'Sem update +4h', w: 14, t: 'num', v: function (l) { return l.o.su; } },
+      { h: 'P1', w: 6, t: 'num', v: function (l) { return l.o.p.P1; } }, { h: 'P2', w: 6, t: 'num', v: function (l) { return l.o.p.P2; } }, { h: 'P3', w: 6, t: 'num', v: function (l) { return l.o.p.P3; } },
+      { h: 'P4', w: 6, t: 'num', v: function (l) { return l.o.p.P4; } }, { h: 'P5', w: 6, t: 'num', v: function (l) { return l.o.p.P5; } },
+      { h: 'TSKs em site fora', w: 16, t: 'num', v: function (l) { return l.o.fora; } },
+      { h: 'Sites fora', w: 11, t: 'num', v: function (l) { return l.s.t; } }, { h: 'Sites fora sem TSK', w: 17, t: 'num', v: function (l) { return l.s.sem; } }
+    ], linReg, { celula: function (l, c, v) {
+      if (c.h === '% vencidas') return v >= 50 ? { bg: XL.verm, fg: XL.branco, bold: true } : (v >= 25 ? { bg: XL.ambar, fg: XL.tinta, bold: true } : { bg: XL.verdeBg, fg: XL.verde, bold: true });
+      if (c.h === 'Vencidas' && v > 0) return { fg: XL.verm, bold: true };
+      if (c.h === 'Sites fora sem TSK' && v > 0) return { bg: XL.vermBg, fg: XL.vermFg, bold: true };
+      return null; } });
 
     /* Por regra criadora */
-    var rg = {}; base.forEach(function (it) { var k = it.regra.nome || '(vazio)'; var o = rg[k] || (rg[k] = { g: it.regra.grupo, n: 0, v: 0, h2: 0, b: 0 }); o.n++; if (it._rest != null && it._rest < 0) o.v++; else if (it._rest != null && it._rest <= 120) o.h2++; if (it.b2b) o.b++; });
-    var linRg = Object.keys(rg).sort(function (a, b) { return rg[b].n - rg[a].n; }).map(function (k) { var o = rg[k]; return [k, o.g === 'FIXA' ? 'FIXA' : (o.g ? 'MÓVEL' : '(sem classificação)'), o.n, o.v, o.h2, o.b]; });
-    var wsRg = planilha(NOMES.regra, 'Métricas por regra criadora', ['Regra criadora (DJ)', 'Grupo', 'TSKs', 'Vencidas', 'Vencem ≤2h', 'B2B'], linRg, [42, 18, 8, 10, 11, 8], []);
+    var rg = {}; baseNP.forEach(function (it) { var k = it.regra.nome || '(vazio)'; var o = rg[k] || (rg[k] = { nome: k, g: it.regra.grupo, n: 0, v: 0, h2: 0, b: 0 }); o.n++; if (it._rest != null && it._rest < 0) o.v++; else if (it._rest != null && it._rest <= 120) o.h2++; if (it.b2b) o.b++; });
+    var linRg = Object.keys(rg).sort(function (a, b) { return rg[b].n - rg[a].n; }).map(function (k) { return rg[k]; });
+    aba(nomeRg, 'Métricas por regra criadora (coluna DJ)', carimbo, XL.azul, [
+      { h: 'Regra criadora (DJ)', w: 44, t: 'bold', v: function (o) { return o.nome; } },
+      { h: 'Grupo', w: 18, t: 'ctr', v: function (o) { return o.g === 'FIXA' ? 'FIXA' : (o.g ? 'MÓVEL' : '(sem classificação)'); } },
+      { h: 'TSKs', w: 8, t: 'num', v: function (o) { return o.n; } }, { h: 'Vencidas', w: 10, t: 'num', v: function (o) { return o.v; } },
+      { h: 'Vencem ≤2h', w: 11, t: 'num', v: function (o) { return o.h2; } }, { h: 'B2B', w: 8, t: 'num', v: function (o) { return o.b; } }
+    ], linRg, { celula: function (o, c, v) {
+      if (c.h === 'Grupo') return o.g === 'FIXA' ? { bg: 'FFDCEBFA', fg: XL.azul, bold: true } : (o.g ? { bg: XL.verdeBg, fg: XL.verde, bold: true } : null);
+      if (c.h === 'Vencidas' && v > 0) return { fg: XL.verm, bold: true };
+      return null; } });
 
-    /* Resumo (menu com atalhos + métricas) */
-    var tot = base.length, nV = base.filter(function (it) { return it._rest != null && it._rest < 0; }).length, n2 = base.filter(function (it) { return it._rest != null && it._rest >= 0 && it._rest <= 120; }).length;
-    var nOk = base.filter(function (it) { return it._rest != null && it._rest >= 0; }).length, nSU = base.filter(function (it) { return semUpdH(it, now) > 4; }).length;
-    var nFx = base.filter(function (it) { return it.regra.grupo === 'FIXA'; }).length, nMv = base.filter(function (it) { return it.regra.grupo === 'MOVEL'; }).length;
-    var filtroTxt = [
-      'Grupo: ' + (state.regras.length ? state.regras.length + ' regra(s) escolhida(s)' : (state.grupo === 'TODAS' ? 'todas' : (state.grupo === 'FIXA' ? 'FIXA' : 'MÓVEL'))),
-      'Regiões: ' + (state.regioes.length ? state.regioes.map(regiaoLabel).join(', ') : 'todas'),
-      'Prioridades: ' + (state.prios.length ? state.prios.join(', ') : 'todas'),
-      'Pendenciadas: ' + (state.pend ? 'incluídas' : 'fora')
-    ].join('  |  ');
-    var aoa = [
-      ['OPERAÇÃO TRJ — Resumo'],
-      ['Gerado em', new Date()], ['Snapshot publicado em', savedAt ? new Date(savedAt) : ''], ['Filtros aplicados', filtroTxt], [],
-      ['MÉTRICAS (refletem os filtros)', 'Valor', '% da fila'],
-      ['TSKs na fila', tot, ''], ['Vencidas', nV, tot ? Math.round(nV / tot * 1000) / 10 : 0], ['Vencem em até 2h', n2, tot ? Math.round(n2 / tot * 1000) / 10 : 0],
-      ['No prazo (inclui as de até 2h)', nOk, tot ? Math.round(nOk / tot * 1000) / 10 : 0], ['Sem update há +4h', nSU, tot ? Math.round(nSU / tot * 1000) / 10 : 0],
-      ['FIXA', nFx, tot ? Math.round(nFx / tot * 1000) / 10 : 0], ['MÓVEL', nMv, tot ? Math.round(nMv / tot * 1000) / 10 : 0],
-      ['B2B / Premium', b2b.length, tot ? Math.round(b2b.length / tot * 1000) / 10 : 0],
-      ['Sites fora', sites.length, ''], ['Sites fora sem TSK', sites.filter(function (s) { return !s.tsk; }).length, ''],
-      ['Concentradores com alerta', linConc.filter(function (l) { return l[3] !== 'Sem alerta'; }).length, ''], [],
-      ['MENU — clique para ir à aba', 'Linhas']
+    /* ===== RESUMO: cartões + menu de botões ===== */
+    var ws = wsRes, NC = 12;
+    for (var ci = 1; ci <= NC; ci++) ws.getColumn(ci).width = 14;
+    ws.mergeCells('A1:L1');
+    var c1 = ws.getCell('A1'); c1.value = 'OPERAÇÃO TRJ — Resumo';
+    c1.font = { name: 'Calibri', size: 22, bold: true, color: { argb: XL.branco } }; c1.fill = xFill(XL.navy); c1.alignment = { vertical: 'middle', indent: 1 };
+    ws.getRow(1).height = 42;
+    ws.mergeCells('A2:L2'); ws.getCell('A2').fill = xFill(XL.laranja); ws.getRow(2).height = 5;
+    ws.mergeCells('A3:L3'); var c3 = ws.getCell('A3'); c3.value = 'Gerado em ' + fmtDt(new Date()) + (savedAt ? '   ·   snapshot publicado em ' + fmtDt(new Date(savedAt)) : '');
+    c3.font = { size: 10, color: { argb: XL.suave } }; c3.alignment = { indent: 1, vertical: 'middle' }; ws.getRow(3).height = 18;
+    ws.mergeCells('A4:L4'); var c4 = ws.getCell('A4'); c4.value = 'Filtros aplicados:  ' + filtroTxt;
+    c4.font = { size: 10, bold: true, color: { argb: XL.tinta } }; c4.alignment = { indent: 1, vertical: 'middle' }; ws.getRow(4).height = 18;
+
+    var tot = baseNP.length;
+    function cnt(fn) { return baseNP.filter(fn).length; }
+    var nV = cnt(function (it) { return it._rest != null && it._rest < 0; }), n2 = cnt(function (it) { return it._rest != null && it._rest >= 0 && it._rest <= 120; });
+    var nOk = cnt(function (it) { return it._rest != null && it._rest >= 0; }), nSU = cnt(function (it) { return semUpdH(it, now) > 4; });
+    var nFx = cnt(function (it) { return it.regra.grupo === 'FIXA'; }), nMv = cnt(function (it) { return it.regra.grupo === 'MOVEL'; });
+    var nB2B = cnt(function (it) { return it.b2b; }), nSemTsk = sites.filter(function (s) { return !s.tsk; }).length;
+    var nConc = linConc.filter(function (l) { return l.tipo !== 'Sem alerta'; }).length, nForaTsk = cnt(function (it) { return it.fora; });
+    function pct(n) { return tot ? (Math.round(n / tot * 1000) / 10).toLocaleString('pt-BR') + '% da fila' : ''; }
+    function cartao(linha, col, rotulo, valor, cor, sub) {
+      ws.mergeCells(linha, col, linha, col + 1); ws.mergeCells(linha + 1, col, linha + 1, col + 1); ws.mergeCells(linha + 2, col, linha + 2, col + 1);
+      var a = ws.getCell(linha, col), b = ws.getCell(linha + 1, col), c = ws.getCell(linha + 2, col);
+      a.value = rotulo.toUpperCase(); a.font = { size: 9, bold: true, color: { argb: XL.suave } }; a.alignment = { horizontal: 'center', vertical: 'middle' };
+      b.value = valor; b.font = { size: 26, bold: true, color: { argb: cor } }; b.alignment = { horizontal: 'center', vertical: 'middle' };
+      c.value = sub || ''; c.font = { size: 9, color: { argb: XL.suave } }; c.alignment = { horizontal: 'center', vertical: 'middle' };
+      [a, b, c].forEach(function (x) { x.fill = xFill('FFF3F4F6'); });
+      var tl = { style: 'thin', color: { argb: XL.linha } };
+      for (var k = 0; k < 2; k++) {
+        var b1 = { top: { style: 'thick', color: { argb: cor } } }, b2 = {}, b3 = { bottom: tl };
+        if (k === 0) { b1.left = tl; b2.left = tl; b3.left = tl; } else { b1.right = tl; b2.right = tl; b3.right = tl; }
+        ws.getCell(linha, col + k).border = b1; ws.getCell(linha + 1, col + k).border = b2; ws.getCell(linha + 2, col + k).border = b3;
+      }
+    }
+    ws.getRow(5).height = 8;
+    [6, 7, 8, 10, 11, 12].forEach(function (r, i) { ws.getRow(r).height = [20, 38, 18, 20, 38, 18][i]; });
+    ws.getRow(9).height = 8;
+    cartao(6, 1, 'TSKs na fila', tot, XL.navy, state.pend ? 'sem as pendenciadas' : '');
+    cartao(6, 3, 'Vencidas', nV, XL.verm, pct(nV));
+    cartao(6, 5, 'Vencem em até 2h', n2, 'FFD68910', pct(n2));
+    cartao(6, 7, 'No prazo', nOk, XL.verde, pct(nOk));
+    cartao(6, 9, 'Sem update +4h', nSU, 'FFB85A00', pct(nSU));
+    cartao(6, 11, 'TSKs em site fora', nForaTsk, XL.verm, 'linhas vermelhas');
+    cartao(10, 1, 'Sites fora', sites.length, XL.verm, nSemTsk + ' sem TSK');
+    cartao(10, 3, 'Sites fora sem TSK', nSemTsk, XL.vermFg, 'abrir / acionar');
+    cartao(10, 5, 'FIXA', nFx, XL.azul, pct(nFx));
+    cartao(10, 7, 'MÓVEL', nMv, XL.verde, pct(nMv));
+    cartao(10, 9, 'B2B / Premium', nB2B, XL.roxo, pct(nB2B));
+    cartao(10, 11, 'Concentradores c/ alerta', nConc, XL.roxo, '');
+
+    var r0 = 14;
+    ws.mergeCells(r0, 1, r0, NC);
+    var mh = ws.getCell(r0, 1); mh.value = 'MENU — clique no botão para ir à aba (cada aba tem o botão “← Voltar ao menu”)';
+    mh.font = { size: 11, bold: true, color: { argb: XL.branco } }; mh.fill = xFill(XL.laranja); mh.alignment = { indent: 1, vertical: 'middle' }; ws.getRow(r0).height = 22;
+    var menu = [
+      [nomeFila, itens.length, 'Todas as TSKs filtradas, região por região — dentro do prazo no topo. Sites fora com TSK em vermelho.', XL.laranja],
+      [nomeVenc, vencidas.length, 'Só as vencidas, da prioridade mais alta para a mais baixa.', XL.verm]
     ];
-    var menu = [[NOMES.fila, linFila.length], [NOMES.venc, venc.length], [NOMES.reg, linReg.length], [NOMES.regra, linRg.length], [NOMES.sites, sites.length], [NOMES.b2b, b2b.length], [NOMES.conc, linConc.length]];
-    var wsRes = X.utils.aoa_to_sheet(aoa.concat(menu), { cellDates: true });
-    wsRes['!cols'] = [{ wch: 38 }, { wch: 22 }, { wch: 12 }];
-    ['B2', 'B3'].forEach(function (a) { if (wsRes[a]) wsRes[a].z = DATA_FMT; });
-    menu.forEach(function (m, i) { var a = 'A' + (aoa.length + 1 + i); wsRes[a] = { t: 's', v: '➜ ' + m[0], l: { Target: link(m[0]), Tooltip: 'Ir para ' + m[0] } }; });
+    regsComFila.forEach(function (r) {
+      var l = porRegiao[r], nf = l.filter(function (it) { return it.fora; }).length;
+      menu.push([abaRegiao[r], l.length, 'Backlog completo de ' + regiaoLabel(r) + (nf ? ' — ' + nf + ' TSK(s) em site fora (vermelho)' : '') + '.', XL.azul]);
+    });
+    menu.push([nomeSites, sites.length, 'Sites fora cruzados com a TSK aberta (verde = com TSK · vermelho = sem TSK).', XL.verm]);
+    menu.push([nomeB2B, b2bL.length, 'TSKs B2B / Premium da fila.', XL.roxo]);
+    menu.push([nomeConc, linConc.length, 'Concentradores e os alertas ativos neles.', XL.roxo]);
+    menu.push([nomeReg, linReg.length, 'Métricas por região (com link para o backlog de cada uma).', XL.azul]);
+    menu.push([nomeRg, linRg.length, 'Métricas por regra criadora (coluna DJ) — FIXA / MÓVEL.', XL.azul]);
+    menu.forEach(function (m, i) {
+      var r = r0 + 1 + i; ws.getRow(r).height = 25;
+      ws.mergeCells(r, 1, r, 3); ws.mergeCells(r, 5, r, NC);
+      var b = ws.getCell(r, 1); b.value = { text: '➜  ' + m[0], hyperlink: link(m[0]), tooltip: 'Ir para ' + m[0] };
+      b.font = { size: 11, bold: true, color: { argb: XL.branco }, underline: false }; b.fill = xFill(m[3]); b.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      b.border = xBorda(XL.branco, 'medium');
+      var n = ws.getCell(r, 4); n.value = m[1]; n.numFmt = '#,##0" linhas"'; n.font = { size: 10, bold: true, color: { argb: XL.tinta } }; n.alignment = { horizontal: 'center', vertical: 'middle' }; n.fill = xFill('FFF3F4F6');
+      var d = ws.getCell(r, 5); d.value = m[2]; d.font = { size: 10, color: { argb: XL.suave } }; d.alignment = { vertical: 'middle', indent: 1, wrapText: true };
+    });
+    ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
 
-    X.utils.book_append_sheet(wb, wsRes, NOMES.resumo);
-    X.utils.book_append_sheet(wb, wsFila, NOMES.fila);
-    X.utils.book_append_sheet(wb, wsVenc, NOMES.venc);
-    X.utils.book_append_sheet(wb, wsReg, NOMES.reg);
-    X.utils.book_append_sheet(wb, wsRg, NOMES.regra);
-    X.utils.book_append_sheet(wb, wsSites, NOMES.sites);
-    X.utils.book_append_sheet(wb, wsB2B, NOMES.b2b);
-    X.utils.book_append_sheet(wb, wsConc, NOMES.conc);
-    var d = new Date(), p2 = function (n) { return ('0' + n).slice(-2); };
-    X.writeFile(wb, 'Operacao_TRJ_' + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + '_' + p2(d.getHours()) + p2(d.getMinutes()) + '.xlsx', { cellDates: true });
-    U.toast('Excel exportado — abra a aba “Resumo” para o menu.', 'ok');
+    var buf = await wb.xlsx.writeBuffer();
+    var d0 = new Date(), p2 = function (n) { return ('0' + n).slice(-2); };
+    var nome = 'Operacao_TRJ_' + d0.getFullYear() + p2(d0.getMonth() + 1) + p2(d0.getDate()) + '_' + p2(d0.getHours()) + p2(d0.getMinutes()) + '.xlsx';
+    var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nome; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    U.toast('Excel exportado — a aba “Resumo” tem o menu com atalhos.', 'ok');
   }
 
   /* ---------- render ---------- */
-  function render() {
+  var animTimer = null;
+  /* escalona a entrada dos cartões, colunas e linhas (mesmo efeito do devGERAL) */
+  function marcarIndices() {
+    var ks = root.querySelectorAll('.op-kpi'), i;
+    for (i = 0; i < ks.length; i++) ks[i].style.setProperty('--i', String(i));
+    var cols = root.querySelectorAll('.op-col');
+    for (i = 0; i < cols.length; i++) {
+      cols[i].style.setProperty('--i', String(i));
+      var rows = cols[i].querySelectorAll('.op-row,.op-srow');
+      for (var j = 0; j < rows.length; j++) rows[j].style.setProperty('--i', String(Math.min(j, 14)));
+    }
+  }
+  /* modo: true = atualização automática (sem animar a entrada; só os números "rolam") · 'lista' = anima só as colunas/linhas · omitido = entrada completa */
+  function render(modo) {
+    var quiet = modo === true;
     hideTip();
     var prevMap = null;
     if (state.tab === 'mapa' && TRJ._publicMapInstance) { try { prevMap = { c: TRJ._publicMapInstance.getCenter(), z: TRJ._publicMapInstance.getZoom() }; } catch (e) {} }
     root.innerHTML = '';
+    clearTimeout(animTimer); root.classList.remove('op-anim'); root.classList.remove('op-anim-lista');
     if (!model) { root.appendChild(h('div', { class: 'op-loading', text: erroCarga || 'Carregando dados publicados...' })); renderSelBar(); return; }
     var now = Date.now();
     var f = filaAtual(now);
@@ -852,28 +1326,35 @@
     } else if (state.tab === 'b2b' || state.tab === 'conc' || state.tab === 'backbone') {
       root.appendChild(filtros('outra'));
       var box = h('div'); root.appendChild(box);
+      box.className = 'op-page';
       TRJ.pages.prioritarios(box, { categoria: state.tab, data: rawFiltrado(), app: { isPublic: true, refresh: function () { return carregarDados(false, true); }, render: function () {} } });
     } else if (state.tab === 'mapa') {
       var rota = view.rotaInicial; view.rotaInicial = null;
       if (rota) root.appendChild(h('div', { class: 'op-banner', style: { background: 'rgba(31,111,181,.12)', borderColor: 'rgba(31,111,181,.45)' }, text: '🧭 Rota calculada entre ' + rota.length + ' sites, na ordem selecionada: ' + rota.join(' → ') }));
-      var mb = h('div'); root.appendChild(mb);
+      var mb = h('div', { class: 'op-page' }); root.appendChild(mb);
       TRJ.pages.mapa(mb, { data: raw, readOnly: true, rotaInicial: rota, prevCenter: !rota && prevMap ? prevMap.c : null, prevZoom: !rota && prevMap ? prevMap.z : null,
         mapaCoordMap: raw._mapaCoordMap || null, mapaMarkers: raw._mapaMarkersSlim || null, mapaMwData: raw._mapaMwData || null, mapaFoData: raw._mapaFoData || null });
     }
     refreshSelUI();
+    if (!quiet && !REDUZIDO) {
+      marcarIndices(); root.classList.add(modo === 'lista' ? 'op-anim-lista' : 'op-anim');
+      animTimer = setTimeout(function () { root.classList.remove('op-anim'); root.classList.remove('op-anim-lista'); }, 1100);   // depois disso, listas redesenhadas (busca, "mostrar mais") não animam de novo
+    }
+    animarNumeros(root);
   }
 
   /* ---------- ciclo de atualização ---------- */
   TRJ.theme.mountToggle();
-  TRJ.theme.onChange(function () { if (model) render(); });
+  TRJ.theme.onChange(function () { if (model) render(true); });
   setInterval(function () { carregarDados(true); }, POLL_MS);
   setInterval(function () {
     if (!model) return;
     if (state.tab === 'fila' || state.tab === 'sites') {
       var a = document.activeElement;
-      if ((a && (a.classList.contains('op-search') || a.tagName === 'SELECT')) || view.pop || view.popReg) { atualizarIdade(); return; }   // não interromper
-      render();
+      if ((a && (a.classList.contains('op-search') || a.tagName === 'SELECT')) || view.pop || view.modal) { atualizarIdade(); return; }   // não interromper
+      render(true);
     } else atualizarIdade();
   }, TICK_MS);
+  abrirComCache();
   carregarDados(false);
 })();

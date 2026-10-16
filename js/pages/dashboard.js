@@ -418,13 +418,15 @@
       }
       var coordMapLS = tryLS('trj_coordMap') || {};
 
-      // Se localStorage não tem coordMap (browser novo, cache limpo), buscar do servidor
-      if (!Object.keys(coordMapLS).length && TRJ.api && TRJ.api.getMapaCoords) {
+      // Traz do servidor o que este navegador não tem: browser novo/cache limpo, e as coordenadas que os
+      // operadores cadastraram na tela do operador (o que já existe aqui tem prioridade).
+      if (TRJ.api && TRJ.api.getMapaCoords) {
         try {
           var remoto = await TRJ.api.getMapaCoords();
           if (remoto && remoto.coords && Object.keys(remoto.coords).length) {
-            coordMapLS = remoto.coords;
-            try { localStorage.setItem('trj_coordMap', JSON.stringify(coordMapLS)); } catch(e){}
+            var novas = 0;
+            Object.keys(remoto.coords).forEach(function(k) { if (!(k in coordMapLS)) { coordMapLS[k] = remoto.coords[k]; novas++; } });
+            if (novas) { try { localStorage.setItem('trj_coordMap', JSON.stringify(coordMapLS)); } catch(e){} }
           }
         } catch(e) {}
       }
