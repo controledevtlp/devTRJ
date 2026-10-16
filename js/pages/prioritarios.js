@@ -433,7 +433,7 @@
     }
 
     var concMatches = calcMatches();
-    var catAtiva = { v: null };
+    var catAtiva = { v: ctx.categoria || null };   // ctx.categoria: 'b2b' | 'backbone' | 'conc' abre direto a lista
 
     // Sincroniza com o backend ao abrir — atualiza cache, contagem e drilldown se necessário
     if (TRJ.api && TRJ.api.getConcentradores) {
@@ -451,12 +451,14 @@
       }).catch(function () {});
     }
 
-    container.appendChild(U.pageHeader('Prioritários', 'Casos especiais em monitoramento — clique em uma categoria para ver os detalhes.'));
+    var diretoCat = !!ctx.categoria;
+    if (!diretoCat) container.appendChild(U.pageHeader('Prioritários', 'Casos especiais em monitoramento — clique em uma categoria para ver os detalhes.'));
 
     var btnRow   = U.h('div', { style: { display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '20px' } });
     var drillArea = U.h('div', { style: { minHeight: '120px' } });
 
     function setCategoria(cat) {
+      if (diretoCat) cat = ctx.categoria;      // lista direta: não alterna categoria
       catAtiva.v = cat;
       btnRow.innerHTML = ''; renderBotoes();
       drillArea.innerHTML = '';
@@ -469,8 +471,9 @@
       btnRow.appendChild(btnCategoria({ icon: ICO_CONC,     label: 'Concentradores',              count: concMatches.length,   cor: '#9b59b6', ativo: catAtiva.v === 'conc',     onclick: function () { setCategoria(catAtiva.v === 'conc'     ? null : 'conc'); } }));
     }
     renderBotoes();
-    container.appendChild(btnRow);
+    if (!diretoCat) container.appendChild(btnRow);
     container.appendChild(drillArea);
+    if (diretoCat) drillArea.appendChild(renderDrill(ctx.categoria));
 
     function renderDrill(cat) {
       var card = U.h('div', { class: 'trj-card p-5', style: { animation: 'fadeIn .18s ease' } });

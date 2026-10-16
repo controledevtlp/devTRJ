@@ -268,6 +268,7 @@
     // ── Rota / distância ─────────────────────────────────────────────────
     var rotaLayer = null;
     var rotaPainelEl = null;
+    var rotaAutoRun = null;   // preenchido quando a página recebe ctx.rotaInicial (ex.: TSKs selecionadas na visão do operador)
     function haversineKm(lat1, lon1, lat2, lon2) {
       var R = 6371;
       var dLat = (lat2 - lat1) * Math.PI / 180;
@@ -556,6 +557,15 @@
                padding:'10px 14px',marginTop:'6px',marginBottom:'2px',position:'relative',zIndex:'1'}
       }, [headerEl, bodyEl]);
       container.appendChild(rotaPainelEl);
+
+      // Rota pré-definida: preenche os pontos e calcula assim que o mapa estiver pronto
+      if (ctx.rotaInicial && ctx.rotaInicial.length >= 2) {
+        var eids = ctx.rotaInicial.slice(0, 8);
+        while (pontoInputs.length < eids.length) pontosWrap.appendChild(criarLinhaPonto(pontoInputs.length));
+        eids.forEach(function (e, i) { pontoInputs[i].inp.value = e + (siteByEndId[e] ? ' — ' + siteByEndId[e] : ''); });
+        expanded = true; bodyEl.style.display = ''; toggleBtn.textContent = '▾';
+        rotaAutoRun = function () { btnCalc.click(); };
+      }
     })();
 
     // ── Container do mapa ──────────────────────────────────────
@@ -669,6 +679,7 @@
         attribution: '&copy; <a href="https://www.esri.com/">Esri</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 16
       }).addTo(mapInstance);
+      if (rotaAutoRun) setTimeout(rotaAutoRun, 700);
 
       // Garante re-render correto ao exibir em aba SPA (container pode estar oculto no primeiro render)
       setTimeout(function() { mapInstance.invalidateSize(); }, 250);
@@ -760,7 +771,17 @@
               +'</div>';
           }
           html+='</div>';
+          // atalhos para o acionamento: abrir no Google Maps e copiar o roteiro
+          var gmaps = 'https://www.google.com/maps/dir/' + pts.map(function(p){ return p.lat+','+p.lon; }).join('/');
+          var roteiro = ['*ROTA DE ATENDIMENTO*'].concat(pts.map(function(p,i){ return 'ABCDEFGHIJKLMNOP'[i]+') '+p.nome; }))
+            .concat(['Total: '+(totDist/1000).toFixed(1)+' km · '+fmtTempo(Math.round(totDur)), gmaps]).join('\n');
           resultDiv.innerHTML = html;
+          var acoes = U.h('div', { style:{display:'flex',gap:'8px',marginTop:'6px',flexWrap:'wrap'} }, [
+            U.h('a', { href:gmaps, target:'_blank', rel:'noopener', class:'trj-btn trj-btn-primary', style:{fontSize:'11px',padding:'2px 12px',textDecoration:'none'}, text:'🧭 Abrir no Google Maps' }),
+            U.h('button', { class:'trj-btn trj-btn-ghost clickable', style:{fontSize:'11px',padding:'2px 10px'}, text:'📋 Copiar roteiro',
+              onclick:function(){ if (navigator.clipboard) navigator.clipboard.writeText(roteiro).then(function(){ U.toast('Roteiro copiado!','ok'); }); } })
+          ]);
+          resultDiv.appendChild(acoes);
         })
         .catch(function(){
           // Fallback: linha reta com Haversine

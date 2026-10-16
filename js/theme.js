@@ -124,7 +124,9 @@
 
   /* Elementos com transition (abas, botões…): se a cor fosse lida no meio da animação, o cálculo
      usaria um valor intermediário. Por isso a transição é desligada só durante a leitura/aplicação. */
+  var touched = null;   /* elementos mexidos pelo passe atual (as mutações deles são nossas, não da página) */
   function process(el, memo) {
+    if (touched) touched.add(el);
     var cs = getComputedStyle(el);
     var tr = parseFloat(cs.transitionDuration) > 0;
     var o, op;
@@ -178,14 +180,30 @@
     if (!rootEl || rootEl.nodeType !== 1 || SKIP[rootEl.tagName] || inSvg(rootEl)) return;
     pageBg = getPageBg();
     var memo = new WeakMap();
-    if (shallow) { process(rootEl, memo); if (obs) obs.takeRecords(); return; }
+    touched = new WeakSet();
+    if (shallow) { process(rootEl, memo); finishPass(); return; }
     function walk(el) {
       if (SKIP[el.tagName] || inSvg(el)) return;
       process(el, memo);
       for (var c = el.firstElementChild; c; c = c.nextElementSibling) walk(c);
     }
     walk(rootEl);
-    if (obs) obs.takeRecords();   /* descarta as mutações causadas por nós mesmos */
+    finishPass();
+  }
+  /* Descarta só as mutações causadas por nós; as da página (nós novos, mudanças de estilo/classe de
+     elementos que não tocamos) voltam para a fila — descartar tudo deixava partes da tela sem ajuste. */
+  function finishPass() {
+    var t = touched; touched = null;
+    if (!obs) return;
+    var recs = obs.takeRecords();
+    handleRecs(recs, t);
+  }
+  function handleRecs(recs, ignore) {
+    recs.forEach(function (r) {
+      if (r.type === 'childList') {
+        for (var i = 0; i < r.addedNodes.length; i++) { var n = r.addedNodes[i]; if (n.nodeType === 1 && !(ignore && ignore.has(n))) schedule(n, true); }
+      } else if (r.type === 'attributes' && r.target.nodeType === 1 && !(ignore && ignore.has(r.target))) schedule(r.target, false);
+    });
   }
 
   function revertAll() {
@@ -214,10 +232,7 @@
     if (obs || !window.MutationObserver) return;
     obs = new MutationObserver(function (recs) {
       if (!isLight()) return;
-      recs.forEach(function (r) {
-        if (r.type === 'childList') { for (var i = 0; i < r.addedNodes.length; i++) if (r.addedNodes[i].nodeType === 1) schedule(r.addedNodes[i], true); }
-        else if (r.type === 'attributes' && r.target.nodeType === 1) schedule(r.target, false);
-      });
+      handleRecs(recs, null);
     });
     obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
   }
