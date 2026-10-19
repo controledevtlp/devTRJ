@@ -2,7 +2,7 @@
 (function (TRJ) {
   TRJ.pages = TRJ.pages || {};
   var U = TRJ.ui, C = TRJ.constants, Comp = TRJ.compute;
-  var state = { regiao: 'TODAS', prioridades: [] };
+  var state = { regiao: 'TODAS', prioridades: [], grupo: 'TODAS' };
 
   TRJ.pages.dashboard = function (container, ctx) {
     var data = ctx.data, app = ctx.app;
@@ -54,11 +54,23 @@
       });
       return wrap;
     }());
+    // FIXA / MÓVEL pela regra criadora (coluna DJ). Filtra as TSKs de todo o Dashboard; sites fora não têm regra criadora.
+    var selGrupo = (function () {
+      var seg = U.h('div', { style: { display: 'inline-flex', border: '1px solid var(--trj-border2, rgba(255,255,255,.2))', borderRadius: '8px', overflow: 'hidden' }, title: 'Filtra as TSKs pela regra criadora (coluna DJ). Os sites fora não têm regra criadora e não mudam.' });
+      [['TODAS', 'Todas'], ['FIXA', 'FIXA'], ['MOVEL', 'MÓVEL']].forEach(function (g) {
+        var on = state.grupo === g[0], cor = g[0] === 'FIXA' ? '#1f6fb5' : (g[0] === 'MOVEL' ? '#168a47' : 'var(--trj-primary)');
+        seg.appendChild(U.h('button', {
+          style: { padding: '4px 11px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', border: 'none', background: on ? cor : 'transparent', color: on ? '#fff' : 'var(--trj-muted)' },
+          text: g[1], onclick: function () { state.grupo = g[0]; app.render(); }
+        }));
+      });
+      return seg;
+    }());
     var btnWa = U.h('button', { class: 'trj-btn trj-btn-ghost', text: '📱 Copiar resumo', onclick: function () { copiarResumo(d); } });
     var btnExcel = U.h('button', {
       class: 'trj-btn clickable',
       style: { background: 'rgba(33,115,70,.18)', color: '#2e7d46', border: '1px solid rgba(33,115,70,.4)', fontWeight: '700', gap: '6px', transition: 'all .2s ease' },
-      onclick: function () { exportarExcelDashboard(d, data); },
+      onclick: function () { extrairExcel(d, data); },
       onmouseenter: function (ev) { ev.currentTarget.style.background = 'rgba(33,115,70,.35)'; ev.currentTarget.style.borderColor = '#2e7d46'; ev.currentTarget.style.boxShadow = '0 4px 14px rgba(33,115,70,.3)'; },
       onmouseleave: function (ev) { ev.currentTarget.style.background = 'rgba(33,115,70,.18)'; ev.currentTarget.style.borderColor = 'rgba(33,115,70,.4)'; ev.currentTarget.style.boxShadow = ''; }
     }, [
@@ -71,7 +83,7 @@
       U.h('span', { text: 'Extrair Excel' })
     ]);
     var btnRef = U.h('button', { class: 'trj-btn trj-btn-primary', html: app.icon('refresh') + ' Atualizar', onclick: function () { app.refresh(); } });
-    var right = U.h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg, selPri, btnWa, btnExcel, btnRef]);
+    var right = U.h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg, selGrupo, selPri, btnWa, btnExcel, btnRef]);
     var atualizadoEm = d.atualizadoEm ? new Date(d.atualizadoEm).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR');
     container.appendChild(U.pageHeader('Dashboard Operacional', 'Atualizado em ' + atualizadoEm, right));
 
@@ -190,6 +202,7 @@
           // Filtro de prioridade: se há filtro ativo e a TSK não bate, pular
           if (prioFiltros.length && tf && prioFiltros.indexOf(tf.prioridade) < 0) return;
           if (prioFiltros.length && !tf) return; // sem TSK e filtro de prio ativo: ignorar
+          if (state.grupo !== 'TODAS' && TRJ.operador && (!tf || TRJ.operador.classificar(tf.isocDJ).grupo !== state.grupo)) return; // FIXA/MÓVEL: só sites com TSK da regra escolhida
 
           // Só conta como "com TSK" se o tipo for Manutenção Corretiva.
           // TSK manual (outro tipo) é tratada como SEM TSK para fins de cópia.
@@ -254,6 +267,7 @@
         if (t.statusSla !== 'DENTRO DO SLA' || !t.vencimentoCalc) return false;
         if (regiaoEfetiva && (t.regiao||'OTHERS') !== regiaoEfetiva) return false;
         if (prioFiltros.length && prioFiltros.indexOf(t.prioridade) < 0) return false;
+        if (state.grupo !== 'TODAS' && TRJ.operador && TRJ.operador.classificar(t.isocDJ).grupo !== state.grupo) return false;
         var rest = Math.round((new Date(t.vencimentoCalc).getTime() - now) / 60000);
         if (rest < 0 || rest > 390) return false; // mesmo limite do gráfico (390min)
         if (bucketIdx != null) {
@@ -709,6 +723,18 @@
 
   // Extrai todos os dados do Dashboard (KPIs + todos os gráficos) num único
   // arquivo Excel, uma aba por bloco — pra quem preferir analisar fora do site.
+  // ExcelJS (visual novo, respeita os filtros); se a biblioteca não carregar, cai no Excel simples antigo.
+  async function extrairExcel(d, pageData) {
+    if (window.ExcelJS && TRJ.pages.dashboardExcel) {
+      U.toast('Gerando o Excel…', 'info');
+      try {
+        var r = await TRJ.pages.dashboardExcel(d, pageData, state);
+        U.toast('Excel exportado com ' + r.abas + ' abas — a aba “Resumo” tem o menu com atalhos.', 'ok');
+        return;
+      } catch (e) { console.error(e); U.toast('Erro no Excel novo (' + (e && e.message || e) + ') — gerando o modelo simples.', 'err'); }
+    }
+    exportarExcelDashboard(d, pageData);
+  }
   function exportarExcelDashboard(d, pageData) {
     if (typeof XLSX === 'undefined') { U.toast('Biblioteca de Excel não carregou. Recarregue a página.', 'err'); return; }
     var wb = XLSX.utils.book_new();

@@ -7,6 +7,13 @@
 
   function up(s) { return (s == null ? '' : s).toString().toUpperCase().trim(); }
 
+  // Filtro FIXA / MÓVEL pela regra criadora (coluna DJ = isocDJ). Sem o módulo operador-regras.js, não filtra.
+  function passaGrupo(t, grupo) {
+    if (!grupo || grupo === 'TODAS') return true;
+    var OP = TRJ.operador;
+    return !OP || OP.classificar(t.isocDJ).grupo === grupo;
+  }
+
   // Filtra incidentes pela região escolhida no Dashboard, mas sempre mantém
   // "OTHERS" (sem cadastro) visível, independente do filtro selecionado —
   // assim o operador não perde de vista o que falta cadastrar.
@@ -197,6 +204,7 @@
     var tasks = tasksEnriched.filter(function (t) {
       if (regiaoFiltro !== 'TODAS' && (t.regiao || 'OTHERS') !== regiaoFiltro) return false;
       if (prioFiltros.length && prioFiltros.indexOf(up(t.prioridade)) < 0) return false;
+      if (!passaGrupo(t, filtros.grupo)) return false;
       return true;
     });
 
@@ -511,6 +519,7 @@
       var _pf = filtros.prioridades && filtros.prioridades.length ? filtros.prioridades
         : (filtros.prioridade && filtros.prioridade !== 'TODAS' ? [filtros.prioridade] : []);
       if (_pf.length && _pf.indexOf(up(t.prioridade)) < 0) return false;
+      if (!passaGrupo(t, filtros.grupo)) return false;
       return true;
     });
     var sep = D.separarTicketsManuais(tasks);
