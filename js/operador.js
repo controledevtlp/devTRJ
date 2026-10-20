@@ -351,13 +351,18 @@
   };
   function stInfo(status) { return ST_INFO[D.normalize(status)] || { l: String(status || '—').toUpperCase(), cor: COR.gray }; }
   function ln(k, v) { return '<div class="ln"><span>' + k + '</span><span>' + v + '</span></div>'; }
-  function tipHtml(os) {
+  var tipCtx = null;     // dados do balão fixado (textos para copiar, END_ID...)
+  function btnTip(act, txt, title) { return '<button type="button" class="tb" data-act="' + act + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + txt + '</button>'; }
+  /* full = balão FIXADO (botão direito): textos completos, copiáveis, mapa e cadastro de coordenada */
+  function tipHtml(os, full) {
     var rows = model.byTsk[up(os)];
     if (!rows || !rows.length) return '<b>' + esc(os) + '</b><div class="tx">Sem detalhes no snapshot.</div>';
     var t = rows[0], it = model.byOs[up(os)], si = stInfo(t.status), now = Date.now();
     var reg = OP.classificar(t.isocDJ);
     var criacao = D.parsePlatformDate(t.dataCriacaoAS) || toDate(t.dataCriacao), venc = toDate(t.vencimentoCalc);
-    var out = '<div class="hd"><span>' + esc(t.osNumero) + '</span><span class="st" style="background:' + si.cor + '">' + si.l + '</span></div>';
+    tipCtx = { os: t.osNumero, end: t.enderecoId || '', site: t.siteId || '', upd: '', pend: '', lat: null, lon: null };
+    var out = '<div class="hd"><span>' + esc(t.osNumero) + '</span><span class="st" style="background:' + si.cor + '">' + si.l + '</span>' +
+      (full ? '<span class="hdb">' + btnTip('copiar-tsk', '📋 TSK', 'Copiar o número da TSK') + btnTip('fechar', '✕', 'Fechar (Esc)') + '</span>' : '') + '</div>';
     out += ln('Onde está', esc(t.filaAtual || '—'));
     if (reg.dj) out += ln('Regra criadora', esc(reg.nome) + (reg.grupo ? ' <b>(' + (reg.grupo === 'FIXA' ? 'FIXA' : 'MÓVEL') + ')</b>' : ''));
     out += ln('Site / END_ID', esc((t.siteId || '—') + ' / ' + (t.enderecoId || '—')));
@@ -367,14 +372,47 @@
     if (upd && upd.estado !== 'sem' && upd.dt) {
       out += ln('Último update', fmtDt(upd.dt) + ' <span class="tx">(há ' + fmtDur((now - upd.dt.getTime()) / 60000) + ')</span>');
       if (upd.texto) {      // a MENSAGEM que vem depois do nome de quem atualizou (não o cabeçalho "App Teleperformance - Tel.:")
-        var msg = String(upd.texto).replace(/\s+/g, ' ');
-        out += '<div class="msg">' + (upd.autor ? '<b>' + esc(upd.autor) + '</b><br>' : '') + '“' + esc(msg.slice(0, 260)) + (msg.length > 260 ? '…' : '') + '”</div>';
+        if (full) {
+          tipCtx.upd = (upd.autor ? upd.autor + ' — ' : '') + fmtDt(upd.dt) + '\n' + String(upd.texto);
+          out += '<div class="msg full">' + (upd.autor ? '<b>' + esc(upd.autor) + '</b><br>' : '') + esc(String(upd.texto)) + '</div>' +
+            '<div class="ac">' + btnTip('copiar-upd', '📋 Copiar update') + '</div>';
+        } else {
+          var msg = String(upd.texto).replace(/\s+/g, ' ');
+          out += '<div class="msg">' + (upd.autor ? '<b>' + esc(upd.autor) + '</b><br>' : '') + '“' + esc(msg.slice(0, 260)) + (msg.length > 260 ? '…' : '') + '”</div>';
+        }
       }
     } else out += ln('Último update', '<b style="color:' + COR.red + '">sem atualização do operador</b>');
-    if (t.enderecoId) out += ln('Coordenada', coordDe(t.enderecoId) ? 'cadastrada' : '<b style="color:' + COR.orange + '">sem coordenada — informe ao selecionar p/ rota</b>');
+
+    if (t.enderecoId) {
+      var cd = coordDe(t.enderecoId);
+      if (!full) out += ln('Coordenada', cd ? 'cadastrada' : '<b style="color:' + COR.orange + '">sem coordenada — botão direito para cadastrar</b>');
+      else if (cd) {
+        tipCtx.lat = cd[0]; tipCtx.lon = cd[1];
+        var gm = 'https://www.google.com/maps/search/?api=1&query=' + cd[0] + ',' + cd[1];
+        out += ln('Coordenada', '<span class="mono">' + cd[0].toFixed(6) + ', ' + cd[1].toFixed(6) + '</span>');
+        out += '<div class="ac">' + btnTip('mapa', '🗺 Abrir no mapa', 'Abre a aba Mapa já em cima deste site') +
+          '<a class="tb" href="' + gm + '" target="_blank" rel="noopener">↗ Google Maps</a>' + btnTip('copiar-coord', '📋 Copiar') + '</div>';
+      } else {
+        out += ln('Coordenada', '<b style="color:' + COR.orange + '">não cadastrada</b>');
+        out += '<div class="cad"><input type="text" data-coord placeholder="-22.9071, -43.1743 (ou link do Maps)" autocomplete="off">' +
+          '<input type="password" data-pin placeholder="PIN da equipe" autocomplete="off" style="display:none">' +
+          btnTip('salvar-coord', '💾 Cadastrar') + '<div class="err" data-err></div></div>';
+      }
+    }
+
     var bg = String(t.motivoCancelamento || ''), m = /TRAMITA[ÇC][ÃA]O OU SUSPENS[ÃA]O:/i.exec(bg);
     if (m && (D.normalize(t.status) === 'PENDENTE' || rows.some(function (r) { return D.normalize(r.status) === 'PENDENTE'; }))) {
-      out += ln('Pendência', esc(bg.slice(m.index, m.index + 200).replace(/\s+/g, ' ')) + '…');
+      if (!full) out += ln('Pendência', esc(bg.slice(m.index, m.index + 200).replace(/\s+/g, ' ')) + '…');
+      else {
+        var ptxt = '';      // o formulário de tramitação/suspensão completo (entrada mais recente do diário que o contém)
+        try {
+          var ents = U.parseEntradasDiario ? U.parseEntradasDiario(bg) : [];
+          for (var k = ents.length - 1; k >= 0 && !ptxt; k--) if (/TRAMITA[ÇC][ÃA]O OU SUSPENS[ÃA]O:/i.test(ents[k].mensagem || '')) ptxt = ents[k].mensagem;
+        } catch (e) {}
+        if (!ptxt) ptxt = bg.slice(m.index, m.index + 3000);
+        tipCtx.pend = ptxt;
+        out += '<div class="ln"><span>Pendência</span><span></span></div><div class="msg full pend">' + esc(ptxt) + '</div><div class="ac">' + btnTip('copiar-pend', '📋 Copiar pendência') + '</div>';
+      }
     }
     var mv = [], ult = '';
     rows.slice(0, 6).reverse().forEach(function (r) {
@@ -382,26 +420,68 @@
       if (s !== ult) { mv.push(s); ult = s; }
     });
     if (mv.length > 1) out += '<div class="mv"><b>Movimentação:</b><br>' + mv.map(esc).join('<br>') + '</div>';
-    out += '<div class="mv">Ctrl + clique: selecionar para rota</div>';
+    out += '<div class="mv">' + (full ? 'Fixado — clique fora ou Esc para fechar' : 'Ctrl + clique: selecionar p/ rota · Botão direito: fixar os detalhes') + '</div>';
     return out;
   }
-  var tipFor = null;
-  function showTip(el) {
-    if (!model) return;
-    var os = el.getAttribute('data-os'); if (!os) return;
-    tipFor = el; tipEl.innerHTML = tipHtml(os); tipEl.style.display = 'block';
-    if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(tipEl);
-    var r = el.getBoundingClientRect(), tw = tipEl.offsetWidth, th = tipEl.offsetHeight;
-    var x = Math.min(Math.max(8, r.left), window.innerWidth - tw - 8);
-    var y = r.bottom + 8; if (y + th > window.innerHeight - 8) y = Math.max(8, r.top - th - 8);
+  var tipFor = null, tipPin = false;
+  function posTip(el, pt) {
+    var tw = tipEl.offsetWidth, th = tipEl.offsetHeight, x, y;
+    if (pt) { x = pt.x + 6; y = pt.y + 6; }
+    else { var r = el.getBoundingClientRect(); x = r.left; y = r.bottom + 8; if (y + th > window.innerHeight - 8) y = Math.max(8, r.top - th - 8); }
+    x = Math.min(Math.max(8, x), Math.max(8, window.innerWidth - tw - 8));
+    y = Math.min(Math.max(8, y), Math.max(8, window.innerHeight - th - 8));
     tipEl.style.left = x + 'px'; tipEl.style.top = y + 'px';
   }
-  function hideTip() { tipEl.style.display = 'none'; tipFor = null; }
+  function showTip(el, fixar, pt) {
+    if (!model) return;
+    var os = el.getAttribute('data-os') || el.getAttribute('data-os-sel'); if (!os) return;
+    tipFor = el; tipPin = !!fixar;
+    tipEl.className = 'op-tip' + (fixar ? ' pin' : '');
+    tipEl.innerHTML = tipHtml(os, !!fixar); tipEl.style.display = 'block';
+    if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(tipEl);
+    posTip(el, pt);
+  }
+  /* force = fecha também o balão fixado */
+  function hideTip(force) {
+    if (tipPin && !force) return;
+    tipEl.style.display = 'none'; tipEl.classList.remove('pin'); tipFor = null; tipPin = false;
+  }
   document.addEventListener('mouseover', function (e) {
+    if (tipPin) return;       // fixado: passar o mouse em outra TSK não troca o balão
     var el = e.target.closest ? e.target.closest('[data-os]') : null;
     if (el) { if (el !== tipFor) showTip(el); } else if (tipFor) hideTip();
   });
-  window.addEventListener('scroll', hideTip, true);
+  window.addEventListener('scroll', function () { if (!tipPin) hideTip(); }, true);
+  /* botão direito na TSK (ou na linha dela): fixa o balão com os detalhes completos */
+  document.addEventListener('contextmenu', function (e) {
+    if (e.target.closest && e.target.closest('#op-tip')) return;      // dentro do balão vale o menu normal (copiar texto selecionado)
+    var el = e.target.closest ? (e.target.closest('[data-os]') || e.target.closest('[data-os-sel]')) : null;
+    if (!el || !(el.getAttribute('data-os') || el.getAttribute('data-os-sel'))) return;
+    e.preventDefault(); hideTip(true); showTip(el, true, { x: e.clientX, y: e.clientY });
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && tipPin) hideTip(true); });
+  function reabrirTipFixado() { if (tipPin && tipCtx) { var os = tipCtx.os; tipEl.innerHTML = tipHtml(os, true); if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(tipEl); } }
+  async function salvarCoordDoTip() {
+    var inp = tipEl.querySelector('[data-coord]'), pin = tipEl.querySelector('[data-pin]'), err = tipEl.querySelector('[data-err]'), btn = tipEl.querySelector('[data-act="salvar-coord"]');
+    if (!inp || !tipCtx) return;
+    err.textContent = ''; btn.disabled = true;
+    var r = await salvarCoordenada({ end: tipCtx.end, site: tipCtx.site, os: tipCtx.os }, inp.value, pin && pin.style.display !== 'none' ? pin.value.trim() : '');
+    if (r.ok) { reabrirTipFixado(); return; }
+    btn.disabled = false; err.textContent = r.erro || 'Não foi possível gravar.';
+    if (r.pin && pin) { pin.style.display = ''; pin.focus(); }
+  }
+  tipEl.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('[data-act]') : null; if (!b || !tipCtx) return;
+    var a = b.getAttribute('data-act');
+    if (a === 'fechar') hideTip(true);
+    else if (a === 'copiar-tsk') copiar(tipCtx.os);
+    else if (a === 'copiar-upd') copiar(tipCtx.upd, 'Último update copiado');
+    else if (a === 'copiar-pend') copiar(tipCtx.pend, 'Pendência copiada');
+    else if (a === 'copiar-coord') copiar(tipCtx.lat + ', ' + tipCtx.lon, 'Coordenada copiada');
+    else if (a === 'mapa') { var end = tipCtx.end; hideTip(true); view.focoEnd = end; view.rotaAtiva = false; view.pop = false; state.tab = 'mapa'; saveState(); render(); }
+    else if (a === 'salvar-coord') salvarCoordDoTip();
+  });
+  tipEl.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-coord],[data-pin]')) { e.preventDefault(); salvarCoordDoTip(); } });
 
   /* ---------- seleção para rota (Ctrl + clique) ---------- */
   function selIdx(key) { for (var i = 0; i < sel.length; i++) if (sel[i].key === key) return i; return -1; }
@@ -506,10 +586,31 @@
     } finally { reenviando = false; }
   }
 
+  /* grava a coordenada (banco + este navegador). → { ok:true } | { erro, pin?:true } */
+  async function salvarCoordenada(item, texto, pin) {
+    var r = lerCoord(texto);
+    if (r.erro) return { erro: r.erro };
+    var p = { end: item.end, lat: r.lat, lon: r.lon, site: item.site, os: item.os, pin: pin || '' };
+    try {
+      var res = await enviarCoord(p);
+      if (p.pin) { try { localStorage.setItem(LS_PIN, p.pin); } catch (e) {} }
+      if (res && res.exists && res.coord) { aplicarCoordLocal(item.end, +res.coord[0], +res.coord[1]); U.toast('Esse site já tinha coordenada no banco — usando a cadastrada.', 'info'); }
+      else { aplicarCoordLocal(item.end, r.lat, r.lon); U.toast('Coordenada gravada: ' + item.end, 'ok'); }
+      return { ok: true };
+    } catch (e) {
+      if (e && e.code === 'PIN') return { erro: e.message || 'Informe o PIN da equipe para gravar coordenadas.', pin: true };
+      if (e && e.server) return { erro: e.message };
+      // sem rede / Apps Script antigo: vale nesta sessão e fica na fila para gravar quando a conexão voltar
+      aplicarCoordLocal(item.end, r.lat, r.lon);
+      var lista = pendentes(); lista.push({ end: item.end, lat: r.lat, lon: r.lon, site: item.site || '', os: item.os || '' }); gravarPendentes(lista);
+      U.toast('Sem conexão com o banco: coordenada usada agora e será gravada assim que possível.', 'err');
+      return { ok: true, offline: true };
+    }
+  }
   function fecharModal() { var o = document.getElementById('op-modal-ov'); if (o) o.remove(); view.modal = false; document.removeEventListener('keydown', escModal, true); }
   function escModal(e) { if (e.key === 'Escape') fecharModal(); }
   function abrirCoordModal(item, onOk) {
-    fecharModal(); view.modal = true; hideTip();
+    fecharModal(); view.modal = true; hideTip(true);
     var inp = h('input', { class: 'op-search', type: 'text', placeholder: '-22.9071, -43.1743', autocomplete: 'off', style: { maxWidth: 'none', width: '100%', fontSize: '14px', padding: '9px 11px' } });
     var pinInp = h('input', { class: 'op-search', type: 'password', placeholder: 'PIN da equipe', autocomplete: 'off', style: { maxWidth: 'none', width: '100%', display: 'none', marginTop: '8px' } });
     var erro = h('div', { class: 'op-modal-err' });
@@ -532,28 +633,12 @@
     var ocupado = false;
     async function confirmar() {
       if (ocupado) return;
-      var r = lerCoord(inp.value);
-      if (r.erro) { erro.textContent = r.erro; inp.focus(); return; }
       ocupado = true; salvar.disabled = true; salvar.textContent = 'Gravando…'; erro.textContent = '';
-      var p = { end: item.end, lat: r.lat, lon: r.lon, site: item.site, os: item.os, pin: pinInp.style.display === 'none' ? '' : pinInp.value.trim() };
-      try {
-        var res = await enviarCoord(p);
-        if (p.pin) { try { localStorage.setItem(LS_PIN, p.pin); } catch (e) {} }
-        if (res && res.exists && res.coord) { aplicarCoordLocal(item.end, +res.coord[0], +res.coord[1]); U.toast('Esse site já tinha coordenada no banco — usando a cadastrada.', 'info'); }
-        else { aplicarCoordLocal(item.end, r.lat, r.lon); U.toast('Coordenada gravada: ' + item.end, 'ok'); }
-        fecharModal(); onOk();
-      } catch (e) {
-        if (e && e.code === 'PIN') {
-          pinInp.style.display = ''; pinInp.focus(); erro.textContent = e.message || 'Informe o PIN da equipe para gravar coordenadas.';
-          ocupado = false; salvar.disabled = false; salvar.textContent = '💾 Salvar e selecionar'; return;
-        }
-        if (e && e.server) { erro.textContent = e.message; ocupado = false; salvar.disabled = false; salvar.textContent = '💾 Salvar e selecionar'; return; }
-        // sem rede / Apps Script antigo: vale nesta sessão e fica na fila para gravar quando a conexão voltar
-        aplicarCoordLocal(item.end, r.lat, r.lon);
-        var lista = pendentes(); lista.push({ end: item.end, lat: r.lat, lon: r.lon, site: item.site || '', os: item.os || '' }); gravarPendentes(lista);
-        U.toast('Sem conexão com o banco: coordenada usada agora e será gravada assim que possível.', 'err');
-        fecharModal(); onOk();
-      }
+      var r = await salvarCoordenada(item, inp.value, pinInp.style.display === 'none' ? '' : pinInp.value.trim());
+      if (r.ok) { fecharModal(); onOk(); return; }
+      erro.textContent = r.erro || 'Não foi possível gravar.';
+      if (r.pin) { pinInp.style.display = ''; pinInp.focus(); } else inp.focus();
+      ocupado = false; salvar.disabled = false; salvar.textContent = '💾 Salvar e selecionar';
     }
     salvar.addEventListener('click', confirmar);
     inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') confirmar(); });
@@ -575,6 +660,8 @@
     render();
   }
   document.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('#op-tip')) return;      // cliques dentro do balão são tratados nele
+    if (tipPin) hideTip(true);
     var row = e.target.closest ? e.target.closest('[data-sel]') : null;
     if (row && (e.ctrlKey || e.metaKey || selMode) && !e.target.closest('button,a,input,select,label')) {
       e.preventDefault(); toggleSel(row); if (window.getSelection) window.getSelection().removeAllRanges(); return;
@@ -1330,9 +1417,11 @@
       TRJ.pages.prioritarios(box, { categoria: state.tab, data: rawFiltrado(), app: { isPublic: true, refresh: function () { return carregarDados(false, true); }, render: function () {} } });
     } else if (state.tab === 'mapa') {
       var rota = view.rotaInicial; view.rotaInicial = null;
+      var foco = view.focoEnd; view.focoEnd = null;
+      if (foco) root.appendChild(h('div', { class: 'op-banner', style: { background: 'rgba(31,111,181,.12)', borderColor: 'rgba(31,111,181,.45)' }, text: '📍 Mapa centralizado em ' + foco })); 
       if (rota) root.appendChild(h('div', { class: 'op-banner', style: { background: 'rgba(31,111,181,.12)', borderColor: 'rgba(31,111,181,.45)' }, text: '🧭 Rota calculada entre ' + rota.length + ' sites, na ordem selecionada: ' + rota.join(' → ') }));
       var mb = h('div', { class: 'op-page' }); root.appendChild(mb);
-      TRJ.pages.mapa(mb, { data: raw, readOnly: true, rotaInicial: rota, prevCenter: !rota && prevMap ? prevMap.c : null, prevZoom: !rota && prevMap ? prevMap.z : null,
+      TRJ.pages.mapa(mb, { data: raw, readOnly: true, rotaInicial: rota, focoEnd: foco || null, prevCenter: !rota && !foco && prevMap ? prevMap.c : null, prevZoom: !rota && !foco && prevMap ? prevMap.z : null,
         mapaCoordMap: raw._mapaCoordMap || null, mapaMarkers: raw._mapaMarkersSlim || null, mapaMwData: raw._mapaMwData || null, mapaFoData: raw._mapaFoData || null });
     }
     refreshSelUI();
@@ -1351,7 +1440,7 @@
     if (!model) return;
     if (state.tab === 'fila' || state.tab === 'sites') {
       var a = document.activeElement;
-      if ((a && (a.classList.contains('op-search') || a.tagName === 'SELECT')) || view.pop || view.modal) { atualizarIdade(); return; }   // não interromper
+      if ((a && (a.classList.contains('op-search') || a.tagName === 'SELECT')) || view.pop || view.modal || tipPin) { atualizarIdade(); return; }   // não interromper
       render(true);
     } else atualizarIdade();
   }, TICK_MS);

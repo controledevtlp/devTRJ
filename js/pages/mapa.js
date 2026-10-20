@@ -680,6 +680,15 @@
         maxZoom: 16
       }).addTo(mapInstance);
       if (rotaAutoRun) setTimeout(rotaAutoRun, 700);
+      // Foco num site (ex.: "Abrir no mapa" do balão da TSK na visão do operador)
+      if (ctx.focoEnd) setTimeout(function () {
+        var k = ctx.focoEnd, c = coordMap[k];
+        if (!c) { var lk = String(k).toLowerCase(); Object.keys(coordMap).some(function (x) { if (x.toLowerCase() === lk) { c = coordMap[x]; k = x; return true; } return false; }); }
+        if (!c || !mapInstance) return;
+        mapInstance.setView([c[0], c[1]], 15);
+        window.L.circleMarker([c[0], c[1]], { radius: 18, color: '#ff8c00', weight: 3, fillColor: '#ff8c00', fillOpacity: 0.12 }).addTo(mapInstance)
+          .bindPopup('<b>' + k + '</b>' + (siteByEndId[k] ? '<br>' + siteByEndId[k] : '')).openPopup();
+      }, 500);
 
       // Garante re-render correto ao exibir em aba SPA (container pode estar oculto no primeiro render)
       setTimeout(function() { mapInstance.invalidateSize(); }, 250);
