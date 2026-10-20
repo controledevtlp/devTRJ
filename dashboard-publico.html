@@ -7,6 +7,7 @@
 <link rel="icon" href="assets/logo-trj.png">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
@@ -21,9 +22,11 @@
 <script src="js/config.js"></script>
 <script src="js/constants.js"></script>
 <script src="js/domain.js"></script>
+<script src="js/operador-regras.js"></script>
 <script src="js/compute.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/pages/mapa.js"></script>
+<script src="js/pages/dashboard-excel.js"></script>
 <script src="js/pages/sla.js"></script>
 <script src="js/pages/regional.js"></script>
 <script src="js/pages/sites-fora.js"></script>
@@ -91,7 +94,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
   var savedAt = null;
   var lastSavedAt = null; // controla re-render silencioso
   var view = 'welcome';
-  var state = { regiao: 'TODAS', prioridades: [] };
+  var state = { regiao: 'TODAS', prioridades: [], grupo: 'TODAS' };
   var activeTab = 'dashboard';
 
   var REGIAO_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 0 0-8 8c0 6 8 14 8 14s8-8 8-14a8 8 0 0 0-8-8z"/></svg>';
@@ -411,6 +414,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
         var tf = tsk ? tasks.filter(function (t) { return t.osNumero === tsk.osNumero; })[0] : null;
         if (prioFiltros.length && tf && prioFiltros.indexOf(tf.prioridade) < 0) return;
         if (prioFiltros.length && !tf) return;
+        if (state.grupo !== 'TODAS' && TRJ.operador && (!tf || TRJ.operador.classificar(tf.isocDJ).grupo !== state.grupo)) return;   // FIXA/MÓVEL
         if (tsk) comTSK.push({ grupo: grupo, tsk: tsk, tf: tf });
         else semTSK.push(grupo);
       });
@@ -443,7 +447,8 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     var tasksVenc = (raw.tasksEnriched || []).filter(function (t) {
       return t.statusSla === 'DENTRO DO SLA' && t.vencimentoCalc &&
         (!regiaoEfetiva || (t.regiao || 'OTHERS') === regiaoEfetiva) &&
-        (!prioFiltros.length || prioFiltros.indexOf(t.prioridade) >= 0);
+        (!prioFiltros.length || prioFiltros.indexOf(t.prioridade) >= 0) &&
+        (state.grupo === 'TODAS' || !TRJ.operador || TRJ.operador.classificar(t.isocDJ).grupo === state.grupo);
     });
     var regioesMapa = {};
     tasksVenc.forEach(function (t) {
@@ -472,6 +477,19 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     return linhas.join('\n').trim();
   }
   function gerarTextoPrazosTodasRegioes() { return gerarTextoPrazosRegiao(null); }
+
+  // ExcelJS (visual novo, respeita região/prioridade/FIXA-MÓVEL); se não carregar, cai no Excel simples abaixo.
+  async function extrairExcelPublico(d, tasksEnriched, incEnriched) {
+    if (window.ExcelJS && TRJ.pages && TRJ.pages.dashboardExcel) {
+      U.toast('Gerando o Excel…', 'info');
+      try {
+        var r = await TRJ.pages.dashboardExcel(d, { tasksEnriched: tasksEnriched || [], incidentsEnriched: incEnriched || [] }, state);
+        U.toast('Excel exportado com ' + r.abas + ' abas — a aba “Resumo” tem o menu com atalhos.', 'ok');
+        return;
+      } catch (e) { console.error(e); U.toast('Erro no Excel novo (' + (e && e.message || e) + ') — gerando o modelo simples.', 'err'); }
+    }
+    exportarExcelPublico(d, tasksEnriched, incEnriched);
+  }
 
   // ── Export Excel (versão simplificada para dashboard público) ──────────
   function exportarExcelPublico(d, tasksEnriched, incEnriched) {
@@ -577,15 +595,28 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       return wrap;
     }());
 
+    // FIXA / MÓVEL pela regra criadora (coluna DJ) — filtra as TSKs; sites fora não têm regra criadora
+    var grupoSelect = (function () {
+      var seg = U.h('div', { style: { display: 'inline-flex', border: '1px solid rgba(255,255,255,.2)', borderRadius: '8px', overflow: 'hidden' }, title: 'Filtra as TSKs pela regra criadora (coluna DJ). Os sites fora não têm regra criadora e não mudam.' });
+      [['TODAS', 'Todas'], ['FIXA', 'FIXA'], ['MOVEL', 'MÓVEL']].forEach(function (g) {
+        var on = state.grupo === g[0], cor = g[0] === 'FIXA' ? '#1f6fb5' : (g[0] === 'MOVEL' ? '#168a47' : 'var(--trj-primary)');
+        seg.appendChild(U.h('button', {
+          style: { padding: '3px 10px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', border: 'none', background: on ? cor : 'transparent', color: on ? '#fff' : 'var(--trj-muted)' },
+          text: g[1], onclick: function () { state.grupo = g[0]; root.innerHTML = ''; renderDashboard(); }
+        }));
+      });
+      return seg;
+    }());
     root.appendChild(U.h('div', { class: 'pub-topbar' }, [
       btnVoltar,
       liveEl,
       U.h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, [
+        grupoSelect,
         prioSelect,
         U.h('button', {
           class: 'trj-btn clickable',
           style: { fontSize: '11px', padding: '3px 8px', background: 'rgba(46,204,113,.15)', color: '#2ecc71', border: '1px solid rgba(46,204,113,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace:'nowrap' },
-          onclick: function () { exportarExcelPublico(d, raw.tasksEnriched, raw.incidentsEnriched); }
+          onclick: function () { extrairExcelPublico(d, raw.tasksEnriched, raw.incidentsEnriched); }
         }, [U.h('span', {text:'📊'}), U.h('span', {text:'Excel'})])
       ])
     ]));
@@ -981,7 +1012,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
         style: { fontSize: '11px', padding: '3px 8px', background: 'rgba(46,204,113,.15)', color: '#2ecc71', border: '1px solid rgba(46,204,113,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' },
         onclick: function () {
           var d = Comp.dashboard(rawFiltrado.tasksEnriched, rawFiltrado.incidentsEnriched, state) || {};
-          exportarExcelPublico(d, rawFiltrado.tasksEnriched, rawFiltrado.incidentsEnriched);
+          extrairExcelPublico(d, rawFiltrado.tasksEnriched, rawFiltrado.incidentsEnriched);
         }
       }, [U.h('span', { text: '📊' }), U.h('span', { text: 'Excel' })])
     ]));
