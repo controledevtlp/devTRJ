@@ -84,7 +84,8 @@
       g.forEach(function (x) { var da = toDate(a.horarioDt), db = toDate(x.horarioDt); if (db && (!da || db < da)) a = x; });
       var nomes = []; g.forEach(function (x) { if (x.site && nomes.indexOf(x.site) < 0) nomes.push(x.site); });
       var op = aberta[up(a.enderecoId)];
-      return { end: a.enderecoId || '', nomes: nomes, qtd: g.length, regiao: a.regiao || 'OTHERS', desde: toDate(a.horarioDt), tsk: op ? tskInfo(op.t) : null };
+      var causas = []; g.forEach(function (x) { if (x.causa && causas.indexOf(x.causa) < 0) causas.push(x.causa); });
+      return { end: a.enderecoId || '', nomes: nomes, qtd: g.length, regiao: a.regiao || 'OTHERS', desde: toDate(a.horarioDt), causas: causas, tsk: op ? tskInfo(op.t) : null };
     });
   };
 
@@ -108,8 +109,15 @@
   }
   function chaveG(g) { return up(g.end) || (g.nomes || []).join(','); }
 
-  CC.analisar = function (sites) {
+  /* falhas que NÃO valem para ponto comum (são do próprio site, não de transporte): Sistema Irradiante e Predição de Indisponibilidade */
+  var RE_IGNORA = /IRRADIANTE|PREDICAO INDISP/;
+  function semAcento(x) { return up(x).normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+  function falhaIgnorada(g) { return RE_IGNORA.test([g.tsk && g.tsk.falha].concat(g.causas || []).map(semAcento).join(' | ')); }
+
+  CC.analisar = function (todos) {
     var ix = indice(); if (!ix) return null;
+    var sites = [], ignorados = [];
+    todos.forEach(function (g) { if (falhaIgnorada(g)) ignorados.push(g); else sites.push(g); });
     var falha = {};           // id do nó → [{ g, via }]
     var semMatch = [], totSites = 0, totMapeados = 0, gruposMapeados = 0;
     sites.forEach(function (g) {
@@ -132,7 +140,7 @@
     var cand = Object.keys(failDesc).map(function (id) {
       var total = ix.desc[id] || 1;
       return { id: id, falhos: failDesc[id], diretos: direto[id] || 0, filhos: (ix.kids[id] || []).length, total: total, pct: failDesc[id] / total };
-    }).filter(function (c) { return c.diretos >= 2; })      // concentrador = nó com 2+ filhos DIRETAMENTE ligados a ele fora (não basta ter netos fora)
+    }).filter(function (c) { return c.diretos >= 2 && !!falha[c.id]; })      // concentrador = site que está FORA e tem 2+ filhos DIRETAMENTE ligados a ele fora (uma central como o ARJO01 não conta)
       .sort(function (a, b) { return b.falhos - a.falhos || b.pct - a.pct; });
     function ehAncestral(anc, desc) { var n = ix.nodes[desc], d = 0; while (n && n.pid && d++ < 40) { if (n.pid === anc) return true; n = ix.nodes[n.pid]; } return false; }
     // se a cadeia acima do candidato também está fora (cada nó até o ancestral candidato falhou), a falha vem de cima: fica o ancestral
@@ -150,7 +158,7 @@
       });
       (falha[c.id] || []).forEach(function (r) { if (!tskNo && r.g.tsk) tskNo = r.g.tsk; });
       var fr = c.filhos ? c.diretos / c.filhos : 0;
-      var conf = (c.diretos >= 3 && (fr >= 0.5 || falha[c.id])) ? 'alta' : (c.diretos >= 2 && (fr >= 0.5 || falha[c.id]) ? 'média' : 'baixa');
+      var conf = (c.diretos >= 3 && fr >= 0.5) ? 'alta' : (fr >= 0.5 || c.diretos >= 3 ? 'média' : 'baixa');
       return { id: c.id, nome: n.nome.split('|')[0], aliases: n.nome, rotulo: n.rotulo, caminho: caminho(ix, c.id), total: c.total, falhos: c.falhos, diretos: c.diretos, filhos: c.filhos, pct: c.pct,
         proprioFora: !!falha[c.id], grupos: lista, nSites: nSites, comTsk: comTsk, semTsk: semTsk, confianca: conf, tsks: tsks, tskNo: tskNo, idsFalha: ids, falhaPorNo: falha };
     });
@@ -163,7 +171,7 @@
       if (gs.length >= 2) aneis.push({ nome: r.nome, total: r.nos.length, grupos: gs });
     });
     var isolados = Object.keys(falha).filter(function (id) { return !cobertos[id]; }).length;
-    return { suspeitos: suspeitos, aneis: aneis, semMatch: semMatch, stats: { totSites: totSites, totMapeados: totMapeados, gruposTot: sites.length, gruposMapeados: gruposMapeados, isolados: isolados } };
+    return { suspeitos: suspeitos, aneis: aneis, semMatch: semMatch, ignorados: ignorados, stats: { totSites: totSites, totMapeados: totMapeados, gruposTot: sites.length, gruposMapeados: gruposMapeados, isolados: isolados, totIgnorados: ignorados.reduce(function (a, g) { return a + (g.qtd || 1); }, 0) } };
   };
 
   /* ================= duplicidades / eventos múltiplos por nota de abertura (coluna CP) ================= */
@@ -227,29 +235,42 @@
   };
   CC.msgAssociar = function (filho, principal) { return 'Associa o "' + filho + '" ao "' + principal + '"'; };
 
-  var ESCOLHA = {};     // chave do bloco → TSK principal digitada/escolhida
-  /* bloco de associação: TSKs, TSK principal editável, botões de máscara / mensagem */
+  var ESCOLHA = {};     // chave do bloco → { p: TSK principal (null = padrão), x: { TSK: true } = TSKs que NÃO serão associadas }
+  /* bloco de associação: TSKs, principal e "associar" editáveis por linha, máscara / mensagem */
   function blocoAssoc(h, A, chave, tsks, principalPadrao, rotuloVazio) {
     var cor = A.COR;
+    var st = ESCOLHA[chave] || (ESCOLHA[chave] = { p: null, x: {} });
     var wrap = h('div', { class: 'cc-assoc' });
-    var inp = h('input', { type: 'text', class: 'cc-inp', placeholder: rotuloVazio || 'TSK principal', value: ESCOLHA[chave] != null ? ESCOLHA[chave] : (principalPadrao || '') });
-    inp.addEventListener('input', function () { ESCOLHA[chave] = inp.value; pinta(); });
+    var inp = h('input', { type: 'text', class: 'cc-inp', placeholder: rotuloVazio || 'TSK principal', value: st.p != null ? st.p : (principalPadrao || '') });
+    inp.addEventListener('input', function () { st.p = inp.value; pinta(); });
     var tab = h('table', { class: 'cc-tab' });
-    tab.appendChild(h('thead', null, [h('tr', null, ['Papel', 'TSK', 'Site', 'Falha', 'Prio', 'Fim do SLA'].map(function (t) { return h('th', { text: t }); }))]));
+    tab.appendChild(h('thead', null, [h('tr', null, ['Papel', 'TSK', 'Site', 'Falha', 'Prio', 'Criada', 'Fim do SLA'].map(function (t) { return h('th', { text: t }); }))]));
     var tb = h('tbody'); tab.appendChild(tb);
+    var resumo = h('div', { class: 'cc-resumo' });
     function principal() { return (inp.value || '').trim(); }
-    function filhos() { var p = up(principal()); return tsks.filter(function (t) { return up(t.os) !== p; }); }
+    function filhos() { var p = up(principal()); return tsks.filter(function (t) { return up(t.os) !== p && !st.x[t.os]; }); }
     function pinta() {
       tb.innerHTML = ''; var p = up(principal());
       tsks.slice().sort(function (a, b) { return tsMs(a) - tsMs(b); }).forEach(function (t) {
-        var eh = up(t.os) === p;
-        var vt = vencTxt(t.venc);
-        tb.appendChild(h('tr', { class: eh ? 'prin' : '', dataset: { osSel: t.os } }, [
-          h('td', null, [h('span', { class: 'op-tag', style: { background: eh ? cor.green : cor.orange }, text: eh ? 'PRINCIPAL' : 'ASSOCIAR' })]),
-          h('td', null, [h('span', { class: 'op-tsk', dataset: { os: t.os }, text: t.os })]), h('td', { text: t.site || '', title: 'END_ID ' + (t.end || '') }), h('td', { text: t.falha || '—' }),
-          h('td', { text: t.prio || '' }), h('td', { class: 'cc-venc', style: { color: vt.cor }, title: fmtDt(t.venc), text: vt.txt })
+        var eh = up(t.os) === p, excl = !eh && !!st.x[t.os], vt = vencTxt(t.venc);
+        var papel = h('td', { class: 'cc-papel' });
+        if (eh) papel.appendChild(h('span', { class: 'cc-pb prin', text: '★ PRINCIPAL' }));
+        else {
+          papel.appendChild(h('button', { type: 'button', class: 'cc-pb ' + (excl ? 'off' : 'on'), title: excl ? 'Marcar para associar' : 'Desmarcar (não associar esta TSK)', text: excl ? '☐ NÃO ASSOCIAR' : '☑ ASSOCIAR',
+            onclick: function () { if (st.x[t.os]) delete st.x[t.os]; else st.x[t.os] = true; pinta(); } }));
+          papel.appendChild(h('button', { type: 'button', class: 'cc-pb star', title: 'Tornar esta TSK a principal', text: '★',
+            onclick: function () { inp.value = t.os; st.p = t.os; delete st.x[t.os]; pinta(); } }));
+        }
+        tb.appendChild(h('tr', { class: (eh ? 'prin' : '') + (excl ? ' excl' : ''), dataset: { osSel: t.os } }, [
+          papel,
+          h('td', null, [h('span', { class: 'op-tsk', dataset: { os: t.os }, text: t.os })]),
+          h('td', { text: t.site || '', title: 'END_ID ' + (t.end || '') }), h('td', { text: t.falha || '—' }),
+          h('td', { text: t.prio || '' }), h('td', { text: t.criacao ? fmtDt(t.criacao) : '—' }),
+          h('td', { class: 'cc-venc', style: { color: vt.cor }, title: fmtDt(t.venc), text: vt.txt })
         ]));
       });
+      var n = filhos().length;
+      resumo.textContent = n + ' TSK(s) a associar' + (principal() ? ' ao ' + principal() : '') + (tsks.length - n - (tsks.some(function (t) { return up(t.os) === p; }) ? 1 : 0) > 0 ? ' · ' + (tsks.length - n - (tsks.some(function (t) { return up(t.os) === p; }) ? 1 : 0)) + ' desmarcada(s)' : '');
     }
     pinta();
     var vazio = rotuloVazio || 'TSK PRINCIPAL';
@@ -262,11 +283,13 @@
       h('button', { class: 'op-btn', type: 'button', title: 'Máscara do diário de trabalho (ISOC) para cada TSK a associar', text: '📋 Máscaras de associação', onclick: function () {
         var f = filhos(); if (!f.length) { A.copiar('', 'Nada a associar'); return; }
         A.copiar(f.map(function (t) { return CC.mascara(t.siteId || t.site, t.os); }).join('\n\n'), f.length + ' máscara(s) copiada(s)');
-      } })
+      } }),
+      resumo
     ]);
     wrap.appendChild(acts); wrap.appendChild(tab);
     return wrap;
   }
+
   /* vencimento simplificado: "VENCE EM 1h20min" / "VENCIDO A 10h10min" */
   function durTxt(min) {
     var a = Math.abs(Math.round(min)); if (a < 60) return a + 'min';
@@ -285,39 +308,57 @@
   var SVGNS = 'http://www.w3.org/2000/svg';
   function svg(tag, attrs, txt) { var e = document.createElementNS(SVGNS, tag); Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); }); if (txt != null) e.textContent = txt; return e; }
   function cortaTxt(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  var PAN_OFF = null;   // remove os ouvintes de arrastar do diagrama anterior
 
   function desenharDiagrama(box, res, s, A, voltar) {
     var U = TRJ.ui, h = U.h, ix = indice();
+    if (PAN_OFF) PAN_OFF();
     CC.vendoDiagrama = true;
     box.innerHTML = '';
     var falhaIds = {}; s.idsFalha.forEach(function (id) { falhaIds[id] = 1; });
     var memo = {};
     function temFalha(id) { if (memo[id] != null) return memo[id]; var r = !!falhaIds[id]; if (!r) (ix.kids[id] || []).forEach(function (k) { if (temFalha(k)) r = true; }); return (memo[id] = r); }
-    var mostrarTodos = false;
+    var mostrarTodos = false, escala = 1, base = { w: 1, h: 1, susX: 0 }, svgEl = null;
+    var area = h('div', { class: 'cc-dg-area' });
+    function sair() { if (PAN_OFF) PAN_OFF(); CC.vendoDiagrama = false; voltar(); }
+    function aplicaEscala(centro) {
+      if (!svgEl) return;
+      var antes = { sl: area.scrollLeft, st: area.scrollTop, cw: area.clientWidth, ch: area.clientHeight, e: svgEl.__e || 1 };
+      svgEl.__e = escala; svgEl.setAttribute('width', Math.round(base.w * escala)); svgEl.setAttribute('height', Math.round(base.h * escala));
+      if (centro) { var f = escala / antes.e; area.scrollLeft = (antes.sl + antes.cw / 2) * f - antes.cw / 2; area.scrollTop = (antes.st + antes.ch / 2) * f - antes.ch / 2; }
+    }
+    function zoom(f) { escala = Math.max(0.35, Math.min(2.2, escala * f)); aplicaEscala(true); }
+    function ajustar() { escala = Math.max(0.35, Math.min(1.2, (area.clientWidth - 8) / base.w)); aplicaEscala(false); area.scrollLeft = 0; area.scrollTop = 0; }
+
     var barra = h('div', { class: 'cc-dg-bar' });
-    barra.appendChild(h('button', { class: 'op-btn go', type: 'button', text: '← Voltar à Causa comum', onclick: function () { CC.vendoDiagrama = false; voltar(); } }));
+    barra.appendChild(h('button', { class: 'op-btn go', type: 'button', text: '← Voltar à Causa comum', onclick: sair }));
     barra.appendChild(h('b', { class: 'cc-nome', text: s.nome }));
     barra.appendChild(h('span', { class: 'cc-meta', text: s.falhos + ' de ' + s.total + ' pontos abaixo fora · ' + s.nSites + ' site(s)' }));
-    var lbl = h('label', { class: 'op-chip op-tgl' }, [h('input', { type: 'checkbox' }), h('span', { text: 'Mostrar todos os pontos (não só os ramos com falha)' })]);
+    var lbl = h('label', { class: 'op-chip op-tgl' }, [h('input', { type: 'checkbox' }), h('span', { text: 'Mostrar todos os pontos' })]);
     lbl.querySelector('input').addEventListener('change', function (e) { mostrarTodos = e.target.checked; desenha(); });
     barra.appendChild(lbl);
+    barra.appendChild(h('span', { class: 'cc-zoom' }, [
+      h('button', { class: 'op-btn', type: 'button', title: 'Reduzir', text: '−', onclick: function () { zoom(0.85); } }),
+      h('button', { class: 'op-btn', type: 'button', title: 'Ajustar à tela', text: 'Ajustar', onclick: ajustar }),
+      h('button', { class: 'op-btn', type: 'button', title: 'Ampliar', text: '+', onclick: function () { zoom(1.18); } })
+    ]));
     box.appendChild(barra);
     box.appendChild(h('div', { class: 'cc-legend' }, [
-      h('span', { class: 'lg rota', text: 'caminho até a raiz (sem falha própria)' }), h('span', { class: 'lg sus', text: 'suspeito' }),
-      h('span', { class: 'lg fora', text: 'site fora sem TSK' }), h('span', { class: 'lg tsk', text: 'site fora com TSK' }), h('span', { class: 'lg ok', text: 'sem falha' })
+      h('span', { class: 'lg sus', text: 'Concentrador (cai e derruba os filhos)' }), h('span', { class: 'lg fora', text: 'Site fora SEM TSK' }), h('span', { class: 'lg tsk', text: 'Site fora COM TSK' }),
+      h('span', { class: 'lg ok', text: 'Sem falha' }), h('span', { class: 'lg rota', text: 'Caminho até a raiz' }),
+      h('span', { class: 'cc-dica', text: 'Arraste para mover · Ctrl + roda do mouse (ou + / −) para zoom · passe o mouse ou clique numa TSK para ver os detalhes' })
     ]));
-    var area = h('div', { class: 'cc-dg-area' }); box.appendChild(area);
+    box.appendChild(area);
 
     function desenha() {
       area.innerHTML = '';
-      // rota até o suspeito: últimos 4 ancestrais
       var anc = [], n = ix.nodes[s.id], d = 0;
       while (n && n.pid && d++ < 40) { n = ix.nodes[n.pid]; if (n) anc.unshift(n); }
       var acima = Math.max(0, anc.length - 4); anc = anc.slice(-4);
-      var colW = 214, rowH = 40, nodeW = 196, nodeH = 32, pad = 14;
+      var colW = 224, rowH = 46, nodeW = 200, nodeH = 36, pad = 16;
       var itens = [], arestas = [], folha = 0, maxCol = 0;
       anc.forEach(function (a, i) { itens.push({ id: a.id, col: i + (acima ? 1 : 0), y: 0, tipo: 'rota' }); });
-      var base = anc.length + (acima ? 1 : 0);
+      var b0 = anc.length + (acima ? 1 : 0);
       function visita(id, col) {
         var it = { id: id, col: col, tipo: id === s.id ? 'sus' : (falhaIds[id] ? 'falha' : 'ok'), ocultos: 0 };
         maxCol = Math.max(maxCol, col);
@@ -329,38 +370,66 @@
         }
         itens.push(it); return it;
       }
-      var raiz = visita(s.id, base);
+      var raiz = visita(s.id, b0);
       var cadeia = itens.filter(function (x) { return x.tipo === 'rota'; });
       cadeia.forEach(function (x, i) { x.y = raiz.y; if (i > 0) arestas.push([cadeia[i - 1].id, x.id]); });
       if (cadeia.length) arestas.push([cadeia[cadeia.length - 1].id, s.id]);
-      var W = (maxCol + 1) * colW + pad * 2, H = Math.max(1, folha) * rowH + pad * 2 + 6;
-      var el = svg('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, class: 'cc-svg' });
+      var W = (maxCol + 1) * colW + pad * 2, H = Math.max(1, folha) * rowH + pad * 2;
+      var el = svg('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'cc-svg' });
       var pos = {}; itens.forEach(function (x) { pos[x.id] = { x: pad + x.col * colW, y: pad + x.y * rowH }; });
       if (acima) {
-        el.appendChild(svg('text', { x: pad, y: pad + raiz.y * rowH + 20, class: 'cc-acima' }, '… +' + acima + ' nível(is) acima'));
+        el.appendChild(svg('text', { x: pad, y: pad + raiz.y * rowH + 22, class: 'cc-acima' }, '… +' + acima + ' nível(is) acima'));
         arestas.push(['__acima__', cadeia.length ? cadeia[0].id : s.id]); pos.__acima__ = { x: pad - 6, y: pad + raiz.y * rowH };
       }
       arestas.forEach(function (a) {
         var p = pos[a[0]], q = pos[a[1]]; if (!p || !q) return;
         var x1 = p.x + (a[0] === '__acima__' ? 90 : nodeW), y1 = p.y + nodeH / 2, x2 = q.x, y2 = q.y + nodeH / 2, mx = (x1 + x2) / 2;
-        el.appendChild(svg('path', { d: 'M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2, class: 'cc-edge' + (falhaIds[a[1]] || a[1] === s.id || memo[a[1]] ? ' f' : '') }));
+        var forte = a[0] === s.id || (falhaIds[a[0]] && falhaIds[a[1]]);
+        el.appendChild(svg('path', { d: 'M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2, class: 'cc-edge' + (forte ? ' f' : '') }));
       });
       itens.forEach(function (x) {
-        var n2 = ix.nodes[x.id], p = pos[x.id], r = (falhaIds[x.id] && res.suspeitos.length >= 0 && s.falhaPorNo[x.id]) || null, g = r && r[0] && r[0].g;
+        var n2 = ix.nodes[x.id], p = pos[x.id], regs = s.falhaPorNo[x.id], g = (falhaIds[x.id] && regs && regs[0] && regs[0].g) || null;
         var cls = 'cc-nd ' + x.tipo + (g ? (g.tsk ? ' tsk' : ' sem') : '');
         var gr = svg('g', { class: cls, transform: 'translate(' + p.x + ',' + p.y + ')' });
-        var tit = n2.nome + (n2.rotulo ? '\n' + n2.rotulo : '') + (g ? '\nEND_ID ' + g.end + ' · ' + (g.tsk ? g.tsk.os + ' (' + g.tsk.prio + ')' : 'SEM TSK') : '');
-        gr.appendChild(svg('title', {}, tit));
-        gr.appendChild(svg('rect', { width: nodeW, height: nodeH, rx: 7 }));
-        gr.appendChild(svg('text', { x: 9, y: 14, class: 'n1' }, cortaTxt(n2.nome.split('|')[0], 24)));
-        var l2 = g ? (g.tsk ? g.tsk.os + ' · ' + g.tsk.prio : 'SEM TSK') : cortaTxt(n2.rotulo.replace(/^\(\d+\)\s*/, ''), 30);
-        gr.appendChild(svg('text', { x: 9, y: 26, class: 'n2' }, l2));
-        if (x.ocultos) gr.appendChild(svg('text', { x: nodeW - 6, y: 14, class: 'n3', 'text-anchor': 'end' }, '+' + x.ocultos));
+        if (g && g.tsk) { gr.setAttribute('data-os', g.tsk.os); gr.setAttribute('data-end', g.end || ''); }
+        gr.appendChild(svg('title', {}, n2.nome + (n2.rotulo ? '\n' + n2.rotulo : '') + (g ? '\nEND_ID ' + g.end + ' · ' + (g.tsk ? g.tsk.os + ' (' + g.tsk.prio + ')' : 'SEM TSK') : '')));
+        gr.appendChild(svg('rect', { width: nodeW, height: nodeH, rx: 8 }));
+        gr.appendChild(svg('text', { x: 10, y: 15, class: 'n1' }, cortaTxt(n2.nome.split('|')[0], 22)));
+        var l2 = g ? (g.tsk ? g.tsk.os + ' · ' + g.tsk.prio : 'SEM TSK') : cortaTxt(n2.rotulo.replace(/^\(\d+\)\s*/, ''), 32);
+        if (x.tipo === 'sus') l2 = 'CONCENTRADOR · ' + l2;
+        gr.appendChild(svg('text', { x: 10, y: 29, class: 'n2' }, l2));
+        if (x.ocultos) gr.appendChild(svg('text', { x: nodeW - 8, y: 15, class: 'n3', 'text-anchor': 'end' }, '+' + x.ocultos));
         el.appendChild(gr);
       });
-      area.appendChild(el);
+      area.appendChild(el); svgEl = el; base = { w: W, h: H, susX: pad + b0 * colW };
+      aplicaEscala(false);
+      area.scrollLeft = Math.max(0, base.susX * escala - 60); area.scrollTop = 0;
     }
     desenha();
+
+    /* arrastar para mover (sem barra de rolagem) + roda do mouse; clique sem arrastar abre os detalhes da TSK */
+    var pan = { on: false, x: 0, y: 0, sl: 0, st: 0, mov: false };
+    function down(e) { if (e.button !== 0) return; pan.on = true; pan.mov = false; pan.x = e.clientX; pan.y = e.clientY; pan.sl = area.scrollLeft; pan.st = area.scrollTop; area.classList.add('arr'); e.preventDefault(); }
+    function move(e) {
+      if (!pan.on) return; var dx = e.clientX - pan.x, dy = e.clientY - pan.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) pan.mov = true;
+      area.scrollLeft = pan.sl - dx; area.scrollTop = pan.st - dy;
+    }
+    function up2() { pan.on = false; area.classList.remove('arr'); }
+    function roda(e) {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) zoom(e.deltaY < 0 ? 1.12 : 0.89);
+      else { area.scrollTop += e.deltaY; area.scrollLeft += e.deltaX || (e.shiftKey ? e.deltaY : 0); }
+    }
+    function clique(e) {
+      if (pan.mov) { pan.mov = false; e.stopPropagation(); return; }
+      var g = e.target.closest ? e.target.closest('[data-os]') : null; if (!g) return;
+      e.stopPropagation();       // não deixa o clique "fora" fechar o balão que vai ser fixado agora
+      g.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY }));
+    }
+    area.addEventListener('mousedown', down); window.addEventListener('mousemove', move); window.addEventListener('mouseup', up2);
+    area.addEventListener('wheel', roda, { passive: false }); area.addEventListener('click', clique);
+    PAN_OFF = function () { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up2); PAN_OFF = null; };
     if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(box);
   }
 
@@ -379,17 +448,17 @@
     var st = res.stats, pctMap = st.totSites ? Math.round(st.totMapeados / st.totSites * 100) : 0;
     box.appendChild(h('div', { class: 'cc-intro' }, [
       h('b', { text: 'Pontos comuns de falha (piloto). ' }),
-      h('span', { text: 'Cruza os sites fora de agora com a árvore do diagrama de topologia: se vários sites debaixo do mesmo hub/enlace caíram juntos, o suspeito é o hub ou o enlace de subida — comece por ele. ' }),
-      h('span', { class: 'cc-cov', text: st.totMapeados + ' de ' + st.totSites + ' sites (' + pctMap + '%) têm correspondência no diagrama · ' + res.suspeitos.length + ' suspeito' + (res.suspeitos.length !== 1 ? 's' : '') })
+      h('span', { text: 'Cruza os sites fora de agora com a árvore do diagrama de topologia. Só vale como concentrador o site que está FORA e derrubou 2 ou mais sites ligados diretamente a ele (como o ROST01) — centrais com a planta quase toda fora, como o ARJO01, não entram. Falhas de Sistema Irradiante e Predição de Indisponibilidade são desconsideradas. ' }),
+      h('span', { class: 'cc-cov', text: st.totMapeados + ' de ' + st.totSites + ' sites (' + pctMap + '%) têm correspondência no diagrama · ' + res.suspeitos.length + ' concentrador' + (res.suspeitos.length !== 1 ? 'es' : '') + (st.totIgnorados ? ' · ' + st.totIgnorados + ' site(s) desconsiderado(s) pelo tipo de falha' : '') })
     ]));
-    if (!res.suspeitos.length) box.appendChild(h('div', { class: 'op-empty', text: 'Nenhum ponto comum de falha encontrado com os filtros atuais. 👏' }));
+    if (!res.suspeitos.length) box.appendChild(h('div', { class: 'op-empty', text: 'Nenhum concentrador fora encontrado com os filtros atuais. 👏' }));
     res.suspeitos.forEach(function (s, i) {
       var cor = s.confianca === 'alta' ? A.COR.red : (s.confianca === 'média' ? A.COR.amber : A.COR.gray);
       var card = h('div', { class: 'cc-card', style: { borderLeftColor: cor } });
       card.appendChild(h('div', { class: 'cc-top' }, [
         h('span', { class: 'cc-rank', text: '#' + (i + 1) }),
         h('b', { class: 'cc-nome', text: s.nome }),
-        s.proprioFora ? h('span', { class: 'op-tag', style: { background: A.COR.red }, text: 'ELE MESMO ESTÁ FORA' }) : null,
+        h('span', { class: 'op-tag', style: { background: A.COR.red }, title: 'O próprio site está fora e derrubou os filhos ligados diretamente a ele', text: 'CONCENTRADOR FORA' }),
         h('span', { class: 'op-tag', style: { background: cor }, title: 'Confiança da hipótese', text: 'confiança ' + s.confianca }),
         h('span', { class: 'cc-sp' }),
         h('button', { class: 'op-btn', type: 'button', title: 'Mostra a rota em comum e os ramos com falha', text: '🌳 Ver no diagrama', onclick: function () { desenharDiagrama(box, res, s, A, lista); } }),
@@ -444,7 +513,7 @@
     }
     var grupos = qual === 'controlador' ? dup.controladores : (qual === 'mesmoEnd' ? dup.mesmoEnd : dup.iguais);
     var intro = qual === 'controlador'
-      ? 'TSKs de END_IDs diferentes que nasceram do mesmo controlador/MME e do mesmo alarme (ex.: S1ap Link Down no MME DMRJO3). Podem ser filhas de um mesmo evento — avalie antes de associar.'
+      ? 'Várias TSKs de sites diferentes abertas pelo MESMO alarme do MESMO equipamento central (controlador/MME/BSC/RNC) citado na nota de abertura — por exemplo, 16 sites com “S1ap Link Down” no MME DMRJO3. Em geral é um evento só no equipamento central, e cada site abriu uma TSK. Avalie antes de associar: se a causa for única, mantenha uma TSK principal e associe as demais.'
       : (qual === 'mesmoEnd'
         ? 'Mais de uma TSK aberta no mesmo END_ID, mas com notas de abertura diferentes — avalie se são o mesmo evento.'
         : 'Mesmo END_ID e a mesma nota de abertura (coluna CP): é a mesma falha duplicada. A de fim de SLA mais longo fica como principal (ganha tempo) e as demais são associadas a ela.');

@@ -313,7 +313,7 @@
   /* sites fora (já filtrados por região/busca) no formato da análise de causa comum */
   function dadosCausa() {
     return sitesAtuais().map(function (s) {
-      return { end: s.end, nomes: s.sites, qtd: s.qtd || 1, regiao: s.regiao, desde: s.desde, tsk: s.tsk ? { os: s.tsk.osNumero, prio: up(s.tsk.prioridade), status: s.tsk.status, venc: toDate(s.tsk.vencimentoCalc), criacao: D.parsePlatformDate(s.tsk.dataCriacaoAS) || toDate(s.tsk.dataCriacao), siteId: s.tsk.siteId || '', end: s.tsk.enderecoId || '', regiao: s.tsk.regiao || 'OTHERS', falha: s.tsk.tipoFalha || '' } : null };
+      return { end: s.end, nomes: s.sites, qtd: s.qtd || 1, regiao: s.regiao, desde: s.desde, causas: s.inc && s.inc.causa ? [s.inc.causa] : [], tsk: s.tsk ? { os: s.tsk.osNumero, prio: up(s.tsk.prioridade), status: s.tsk.status, venc: toDate(s.tsk.vencimentoCalc), criacao: D.parsePlatformDate(s.tsk.dataCriacaoAS) || toDate(s.tsk.dataCriacao), siteId: s.tsk.siteId || '', end: s.tsk.enderecoId || '', regiao: s.tsk.regiao || 'OTHERS', falha: s.tsk.tipoFalha || '' } : null };
     });
   }
   function sitesAtuais() {
