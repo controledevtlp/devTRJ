@@ -49,6 +49,7 @@
     ['isocDJ',            114, 's'],   // DJ — tipo de cliente (ex.: "ISOC SERVICOS FIXO PREMIUM CLASS")
     ['dataCriacaoAS',      45, 'd'],   // AS — data original de criação (usada para Aging do Backlog)
     ['dataCriacao',       176, 'd'],
+    ['notaAbertura',       94, 's700'],  // CP — nota de abertura (alarme que originou a TSK): base das duplicidades / eventos múltiplos
     ['quemEncerrou',      180, 's'],
     ['prioridade',        191, 's']
   ];
@@ -96,6 +97,7 @@
   }
   function cell(type, v) {
     if (type === 'n') return numv(v);
+    if (type === 's700') { var x7 = sv(v); return x7 && x7.length > 700 ? x7.slice(0, 700) : x7; }
     if (type === 'd') return dtv(v);
     if (type === 'ds') return (v instanceof Date || typeof v === 'number') ? dtv(v) : sv(v);
     return sv(v);

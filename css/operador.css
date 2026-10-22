@@ -217,3 +217,39 @@ body.op-tv .op-kpi .v { font-size: 40px; }
 .cc-sem-match { margin-top: 14px; background: var(--trj-card); border: 1px solid var(--trj-border); border-radius: 12px; padding: 8px 14px; font-size: 12px; color: var(--trj-muted); }
 .cc-sem-match summary { cursor: pointer; font-weight: 700; }
 .cc-sem-match .cc-sites { margin-top: 8px; }
+
+/* ---- Causa comum: associação, tabela, diagrama ---- */
+.cc-assoc-t { font-size: 12px; margin: 10px 0 4px; color: var(--trj-muted); }
+.cc-assoc-t b { color: var(--trj-fg); }
+.cc-assoc { margin-top: 6px; }
+.cc-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.cc-lbl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--trj-muted); }
+.cc-inp { background: var(--trj-popover); color: var(--trj-fg); border: 1px solid var(--trj-border2); border-radius: 8px; padding: 5px 9px; font-size: 12px; min-width: 210px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.cc-tab { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cc-tab th { text-align: left; font-size: 10px; letter-spacing: .6px; text-transform: uppercase; color: var(--trj-muted); padding: 4px 8px; border-bottom: 1px solid var(--trj-border2); }
+.cc-tab td { padding: 5px 8px; border-bottom: 1px solid var(--trj-line, var(--trj-border)); }
+.cc-tab tr.prin td { background: rgba(22,138,71,.10); }
+.cc-nota { font-size: 11px; color: var(--trj-muted); margin: 4px 0 6px; font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-word; }
+.cc-dg-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.cc-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; margin-bottom: 8px; color: var(--trj-muted); }
+.cc-legend .lg::before { content: ''; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; border: 2px solid; }
+.cc-legend .rota::before { border-color: #ff8c00; background: rgba(255,140,0,.18); }
+.cc-legend .sus::before { border-color: #ff8c00; background: #ff8c00; }
+.cc-legend .fora::before { border-color: #c62839; background: rgba(198,40,57,.22); }
+.cc-legend .tsk::before { border-color: #168a47; background: rgba(198,40,57,.22); }
+.cc-legend .ok::before { border-color: var(--trj-border2); background: var(--trj-card2); }
+.cc-dg-area { overflow: auto; max-height: 72vh; background: var(--trj-card); border: 1px solid var(--trj-border); border-radius: 12px; padding: 6px; }
+.cc-svg { display: block; }
+.cc-edge { fill: none; stroke: var(--trj-border2); stroke-width: 1.5; }
+.cc-edge.f { stroke: #ff8c00; stroke-width: 2; }
+.cc-acima { fill: var(--trj-muted); font-size: 11px; }
+.cc-nd rect { fill: var(--trj-card2); stroke: var(--trj-border2); stroke-width: 1.5; }
+.cc-nd .n1 { fill: var(--trj-fg); font-size: 12px; font-weight: 800; }
+.cc-nd .n2 { fill: var(--trj-muted); font-size: 10px; }
+.cc-nd .n3 { fill: var(--trj-muted); font-size: 10px; font-weight: 700; }
+.cc-nd.rota rect { stroke: #ff8c00; fill: rgba(255,140,0,.12); }
+.cc-nd.sus rect { stroke: #ff8c00; stroke-width: 3; fill: rgba(255,140,0,.22); }
+.cc-nd.falha rect, .cc-nd.sus.sem rect { stroke: #c62839; fill: rgba(198,40,57,.18); }
+.cc-nd.falha.tsk rect, .cc-nd.sus.tsk rect { stroke: #168a47; stroke-width: 3; fill: rgba(198,40,57,.18); }
+.cc-nd.sem .n2 { fill: #c62839; font-weight: 800; }
+.cc-nd.tsk .n2 { fill: #168a47; font-weight: 800; }

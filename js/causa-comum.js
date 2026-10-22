@@ -1,26 +1,32 @@
 /* =====================================================================
- * causa-comum.js — PILOTO: pontos comuns de falha (topologia MW/FO × sites fora)
+ * causa-comum.js — PILOTO: pontos comuns de falha + associação de TSKs
  * ---------------------------------------------------------------------
- * Usa a árvore do diagrama de topologia (js/data/topologia-trj.js, gerada por
- * diagrama-topologia/gerar_topologia_operador.js) para achar, entre os sites fora de agora, os nós
- * (hubs / enlaces de subida) debaixo dos quais vários sites caíram juntos.
+ * 1) Topologia × sites fora: usa a árvore do diagrama (js/data/topologia-trj.js, gerada por
+ *    diagrama-topologia/gerar_topologia_operador.js) para achar os nós (hubs / enlaces de subida) debaixo
+ *    dos quais vários sites caíram juntos. Regra (a mesma do "colar falhas" do diagrama): nó com 2+ filhos
+ *    diretos fora, ou com metade ou mais dos pontos abaixo fora; se um filho explica o grupo, o ancestral cai.
+ * 2) Associação: sugere qual TSK fica como PRINCIPAL e quais devem ser associadas a ela (falha por evento,
+ *    não por tarefa) — pelos filhos de um ponto comum, por duplicidade (mesmo END_ID + mesma nota de abertura,
+ *    coluna CP) e por controlador/alarme em comum. Gera a máscara do diário e a mensagem para a equipe.
+ * 3) Diagrama: mostra a rota em comum e os ramos com falha de cada suspeito (SVG).
  *
- * Regra (a mesma do "colar falhas" do diagrama): um nó vira suspeito quando 2+ filhos diretos estão fora,
- * ou quando metade ou mais dos pontos abaixo dele estão fora. Se um suspeito mais específico (filho)
- * explica quase todo o grupo, o ancestral mais alto é descartado.
- *
- * API:  TRJ.causaComum.disponivel()
- *       TRJ.causaComum.analisar(sites)  — sites = [{ end, nomes[], qtd, regiao, tsk, desde }]
- *       TRJ.causaComum.render(container, resultado, ajudas)
+ * API: TRJ.causaComum.disponivel() · gruposSites(data) · analisar(grupos) · duplicidades(tasks)
+ *      render(box, res, ajudas) · renderAssociacoes(box, dup, ajudas, qual)
+ * ajudas = { COR, copiar(txt,msg), autenticado: bool }
  * ===================================================================== */
 (function (TRJ) {
   'use strict';
   var CC = TRJ.causaComum = {};
+  var D = TRJ.domain;
 
   function up(s) { return (s == null ? '' : String(s)).trim().toUpperCase(); }
   /* tira prefixos de tecnologia/rádio: "SR-PRTI12", "4G-VITR09", "18NLRJIG08" → "PRTI12", "VITR09", "RJIG08" */
   function strip(k) { return k.replace(/^(?:(?:SR|4G|5G|5D|3G|2G|NR|LTE)[-_ ]|\d{0,2}NL)/, ''); }
+  function toDate(v) { if (!v) return null; var d = v instanceof Date ? v : new Date(v); return isNaN(d.getTime()) ? null : d; }
+  function fmtDt(d) { return d ? (D && D.formatarDataCompacta ? D.formatarDataCompacta(d) : d.toLocaleString('pt-BR')) : '—'; }
+  function tsMs(t) { return t && t.venc ? t.venc.getTime() : -8.64e15; }
 
+  /* ================= índice da topologia ================= */
   var IDX = null, IDX_DE = null;
   function indice() {
     var T = TRJ.topologia; if (!T) return null;
@@ -41,7 +47,6 @@
         o.enlaces.push(r);
       });
     });
-    // quantidade de descendentes por nó
     var desc = {};
     function calc(id, prof) { if (desc[id] != null) return desc[id]; if (prof > 60) return 0; var c = 0; (kids[id] || []).forEach(function (k) { c += 1 + calc(k, prof + 1); }); return (desc[id] = c); }
     Object.keys(nodes).forEach(function (id) { calc(id, 0); });
@@ -50,7 +55,40 @@
   }
   CC.disponivel = function () { return !!TRJ.topologia && !!indice(); };
 
-  /* nós do diagrama que correspondem a um grupo (END_ID) de sites fora */
+  /* ================= grupos de sites fora (dashboard autenticado) ================= */
+  function tskInfo(t) {
+    return { os: t.osNumero || '', prio: up(t.prioridade) || '—', status: t.status || '', venc: toDate(t.vencimentoCalc),
+      criacao: (D && D.parsePlatformDate ? D.parsePlatformDate(t.dataCriacaoAS) : null) || toDate(t.dataCriacao), siteId: t.siteId || '', end: t.enderecoId || '', regiao: t.regiao || 'OTHERS' };
+  }
+  /* um grupo por END_ID: { end, nomes[], qtd, regiao, desde, tsk } — igual ao que o operador monta */
+  CC.gruposSites = function (data) {
+    var tasks = (data && data.tasksEnriched) || [], inc = (data && data.incidentsEnriched) || [];
+    var aberta = {};
+    D.dedupPorTsk(tasks).forEach(function (t) {
+      var st = D.normalize(t.status), eid = up(t.enderecoId); if (!eid) return;
+      var back = st === 'NAO INICIADO' || st === 'INICIADO', pend = st === 'PENDENTE';
+      if (!back && !pend) return;
+      var corr = D.isTicketCorretiva(t.tipoAtividade), cur = aberta[eid];
+      if (!cur || (corr && !cur.corr)) aberta[eid] = { t: t, corr: corr };
+    });
+    var grupos = {}, ordem = [];
+    inc.forEach(function (i) {
+      if (up(i.statusTrat || 'ATIVO') === 'RESOLVIDO') return;
+      var k = up(i.enderecoId);
+      if (!k) { ordem.push([i]); return; }
+      if (!grupos[k]) { grupos[k] = []; ordem.push(grupos[k]); }
+      grupos[k].push(i);
+    });
+    return ordem.map(function (g) {
+      var a = g[0];
+      g.forEach(function (x) { var da = toDate(a.horarioDt), db = toDate(x.horarioDt); if (db && (!da || db < da)) a = x; });
+      var nomes = []; g.forEach(function (x) { if (x.site && nomes.indexOf(x.site) < 0) nomes.push(x.site); });
+      var op = aberta[up(a.enderecoId)];
+      return { end: a.enderecoId || '', nomes: nomes, qtd: g.length, regiao: a.regiao || 'OTHERS', desde: toDate(a.horarioDt), tsk: op ? tskInfo(op.t) : null };
+    });
+  };
+
+  /* ================= casamento sites × topologia ================= */
   function casar(ix, g) {
     var achou = {}, via = {};
     function tenta(nome, origem) {
@@ -68,10 +106,11 @@
     while (n && n.pid && d++ < 40) { n = ix.nodes[n.pid]; if (n) p.unshift(n.nome.split('|')[0]); }
     return p;
   }
+  function chaveG(g) { return up(g.end) || (g.nomes || []).join(','); }
 
   CC.analisar = function (sites) {
     var ix = indice(); if (!ix) return null;
-    var falha = {};           // id do nó → [grupos]
+    var falha = {};           // id do nó → [{ g, via }]
     var semMatch = [], totSites = 0, totMapeados = 0, gruposMapeados = 0;
     sites.forEach(function (g) {
       var q = g.qtd || 1; totSites += q;
@@ -80,7 +119,6 @@
       gruposMapeados++; totMapeados += q;
       m.ids.forEach(function (id) { (falha[id] = falha[id] || []).push({ g: g, via: m.via[id] }); });
     });
-    // contadores por ancestral
     var failDesc = {}, direto = {}, dentro = {};
     Object.keys(falha).forEach(function (id) {
       var n = ix.nodes[id], d = 0;
@@ -96,7 +134,6 @@
       return { id: id, falhos: failDesc[id], diretos: direto[id] || 0, filhos: (ix.kids[id] || []).length, total: total, pct: failDesc[id] / total };
     }).filter(function (c) { return c.falhos >= 2 && (c.diretos >= 2 || c.pct >= 0.5); })
       .sort(function (a, b) { return b.falhos - a.falhos || b.pct - a.pct; });
-    // descarta o ancestral quando um filho mais específico explica quase todo o grupo
     function ehAncestral(anc, desc) { var n = ix.nodes[desc], d = 0; while (n && n.pid && d++ < 40) { if (n.pid === anc) return true; n = ix.nodes[n.pid]; } return false; }
     var mantidos = [];
     cand.forEach(function (c) {
@@ -105,24 +142,25 @@
     });
     var cobertos = {};
     var suspeitos = mantidos.slice(0, 40).map(function (c) {
-      var n = ix.nodes[c.id], grupos = {}, ids = dentro[c.id] || [];
-      var lista = [];
-      ids.forEach(function (fid) { cobertos[fid] = 1; (falha[fid] || []).forEach(function (r) { var k = up(r.g.end) || r.g.nomes.join(','); if (!grupos[k]) { grupos[k] = 1; lista.push(r.g); } }); });
-      if (falha[c.id]) (falha[c.id]).forEach(function (r) { var k = up(r.g.end) || r.g.nomes.join(','); if (!grupos[k]) { grupos[k] = 1; lista.push(r.g); } });
-      var nSites = 0, comTsk = 0, semTsk = 0;
-      lista.forEach(function (g) { var q = g.qtd || 1; nSites += q; if (g.tsk) comTsk += q; else semTsk += q; });
-      var fr = c.filhos ? c.diretos / c.filhos : 0;   // fração dos filhos diretos que caíram
+      var n = ix.nodes[c.id], vistos = {}, lista = [], ids = (dentro[c.id] || []).slice();
+      if (falha[c.id]) ids.push(c.id);
+      ids.forEach(function (fid) { cobertos[fid] = 1; (falha[fid] || []).forEach(function (r) { var k = chaveG(r.g); if (!vistos[k]) { vistos[k] = 1; lista.push(r.g); } }); });
+      var nSites = 0, comTsk = 0, semTsk = 0, tsks = [], vt = {}, tskNo = null;
+      lista.forEach(function (g) {
+        var q = g.qtd || 1; nSites += q; if (g.tsk) comTsk += q; else semTsk += q;
+        if (g.tsk && !vt[g.tsk.os]) { vt[g.tsk.os] = 1; tsks.push(Object.assign({ site: g.nomes[0] || g.end, end: g.end }, g.tsk)); }
+      });
+      (falha[c.id] || []).forEach(function (r) { if (!tskNo && r.g.tsk) tskNo = r.g.tsk; });
+      var fr = c.filhos ? c.diretos / c.filhos : 0;
       var conf = (c.diretos >= 3 && (fr >= 0.5 || falha[c.id])) || (c.falhos >= 3 && c.pct >= 0.5) ? 'alta' : ((c.diretos >= 2 || c.pct >= 0.5) ? 'média' : 'baixa');
       return { id: c.id, nome: n.nome.split('|')[0], aliases: n.nome, rotulo: n.rotulo, caminho: caminho(ix, c.id), total: c.total, falhos: c.falhos, diretos: c.diretos, filhos: c.filhos, pct: c.pct,
-        proprioFora: !!falha[c.id], grupos: lista, nSites: nSites, comTsk: comTsk, semTsk: semTsk, confianca: conf };
+        proprioFora: !!falha[c.id], grupos: lista, nSites: nSites, comTsk: comTsk, semTsk: semTsk, confianca: conf, tsks: tsks, tskNo: tskNo, idsFalha: ids, falhaPorNo: falha };
     });
-    // anéis lógicos do diagrama com 2+ pontos fora
     var aneis = [];
     ((TRJ.topologia && TRJ.topologia.aneis) || []).forEach(function (r) {
       var gs = [], vistos = {};
       r.nos.forEach(function (nm) {
-        var ids = ix.byName[up(nm)] || [];
-        ids.forEach(function (id) { (falha[id] || []).forEach(function (x) { var k = up(x.g.end) || x.g.nomes.join(','); if (!vistos[k]) { vistos[k] = 1; gs.push(x.g); } }); });
+        (ix.byName[up(nm)] || []).forEach(function (id) { (falha[id] || []).forEach(function (x) { var k = chaveG(x.g); if (!vistos[k]) { vistos[k] = 1; gs.push(x.g); } }); });
       });
       if (gs.length >= 2) aneis.push({ nome: r.nome, total: r.nos.length, grupos: gs });
     });
@@ -130,7 +168,193 @@
     return { suspeitos: suspeitos, aneis: aneis, semMatch: semMatch, stats: { totSites: totSites, totMapeados: totMapeados, gruposTot: sites.length, gruposMapeados: gruposMapeados, isolados: isolados } };
   };
 
-  /* ---------- tela ---------- */
+  /* ================= duplicidades / eventos múltiplos por nota de abertura (coluna CP) ================= */
+  function normNota(s) { return up(s).replace(/\s+/g, ' ').slice(0, 300); }
+  var RE_CTRL = /(?:Node:\s*|Nome da BSC:\s*)([A-Za-z0-9_\-]{3,24})/;
+  var RE_SUM = /Sum:\s*([^,|\)\]\[]{3,40}?)(?=\s+(?:NEName|MME|Node|Sev)|\s*[,|\)\]]|$)/i;
+  var RE_ALM = /(S1ap Link Down|NodeB Unavailable|GSM BTS DOWN|NG-RAN Link Fault|Cell Unavailable|UMTS NODEB DOWN|gNodeB Out of Service|CELL FAULTY|Link Down|Interface Down|Board Power Off)/i;
+  function chaveControlador(nota) {
+    var c = RE_CTRL.exec(nota || ''); if (!c) return null;
+    var ctrl = up(c[1]); if (ctrl === 'NULL') return null;
+    var a = RE_SUM.exec(nota) || RE_ALM.exec(nota); if (!a) return null;
+    return { ctrl: ctrl, alarme: up(a[1]).replace(/\s+/g, ' ').trim() };
+  }
+  CC.duplicidades = function (tasks) {
+    var lista = D.dedupPorTsk(tasks || []).filter(function (t) {
+      var st = D.normalize(t.status);
+      return (st === 'NAO INICIADO' || st === 'INICIADO' || st === 'PENDENTE') && D.isTicketCorretiva(t.tipoAtividade);
+    }).map(function (t) { return Object.assign(tskInfo(t), { site: t.siteId || '', nota: t.notaAbertura || '' }); });
+    var temNota = lista.some(function (t) { return !!t.nota; });
+    function ordena(a) { return a.slice().sort(function (x, y) { return tsMs(x) - tsMs(y); }); }
+    function monta(extra, ts) {
+      var o = ordena(ts), principal = o[o.length - 1];           // fim do SLA mais longo = principal (ganha tempo)
+      return Object.assign(extra, { tsks: o, principal: principal });
+    }
+    // 1) mesmo END_ID + mesma nota de abertura
+    var gi = {}, porEnd = {};
+    lista.forEach(function (t) {
+      if (!t.end) return;
+      (porEnd[up(t.end)] = porEnd[up(t.end)] || []).push(t);
+      if (!t.nota) return;
+      var k = up(t.end) + '|' + normNota(t.nota); (gi[k] = gi[k] || []).push(t);
+    });
+    var iguais = [], emIguais = {};
+    Object.keys(gi).forEach(function (k) { var ts = gi[k]; if (ts.length < 2) return; ts.forEach(function (t) { emIguais[t.os] = 1; }); iguais.push(monta({ tipo: 'igual', end: ts[0].end, site: ts[0].site, nota: ts[0].nota }, ts)); });
+    // 2) mesmo END_ID, notas diferentes (avaliar)
+    var mesmoEnd = [];
+    Object.keys(porEnd).forEach(function (e) {
+      var ts = porEnd[e]; if (ts.length < 2) return;
+      if (ts.every(function (t) { return emIguais[t.os]; })) return;
+      mesmoEnd.push(monta({ tipo: 'mesmoEnd', end: ts[0].end, site: ts[0].site, nota: '' }, ts));
+    });
+    // 3) mesmo controlador + mesmo alarme em 3+ END_IDs
+    var gc = {};
+    lista.forEach(function (t) { var c = chaveControlador(t.nota); if (!c) return; var k = c.ctrl + '|' + c.alarme; (gc[k] = gc[k] || { ctrl: c.ctrl, alarme: c.alarme, ts: [] }).ts.push(t); });
+    var controladores = [];
+    Object.keys(gc).forEach(function (k) {
+      var g = gc[k], ends = {}; g.ts.forEach(function (t) { ends[up(t.end)] = 1; });
+      if (Object.keys(ends).length < 3) return;
+      controladores.push(monta({ tipo: 'controlador', ctrl: g.ctrl, alarme: g.alarme, nEnds: Object.keys(ends).length }, g.ts));
+    });
+    iguais.sort(function (a, b) { return b.tsks.length - a.tsks.length; });
+    mesmoEnd.sort(function (a, b) { return b.tsks.length - a.tsks.length; });
+    controladores.sort(function (a, b) { return b.tsks.length - a.tsks.length; });
+    return { iguais: iguais, mesmoEnd: mesmoEnd, controladores: controladores, temNota: temNota, totalTsks: lista.length };
+  };
+
+  /* ================= textos de associação ================= */
+  CC.mascara = function (neId, ticket) {
+    return ['iSOC (ASSOCIAÇÃO DE ATIVIDADES)', 'Área a ser contatada: ISOC MONITORACAO ACESSO', 'NE ID / ELEMENTO: ' + (neId || '—'), 'TICKET: ' + (ticket || '—'),
+      'OBS: Chamado envolvido em evento múltiplo, solicitado associação conforme premissa contratual de tratativa de falha por evento e não por tarefa.'].join('\n');
+  };
+  CC.msgAssociar = function (filho, principal) { return 'Associa o "' + filho + '" ao "' + principal + '"'; };
+
+  var ESCOLHA = {};     // chave do bloco → TSK principal digitada/escolhida
+  /* bloco de associação: TSKs, TSK principal editável, botões de máscara / mensagem */
+  function blocoAssoc(h, A, chave, tsks, principalPadrao, rotuloVazio) {
+    var cor = A.COR;
+    var wrap = h('div', { class: 'cc-assoc' });
+    var inp = h('input', { type: 'text', class: 'cc-inp', placeholder: rotuloVazio || 'TSK principal', value: ESCOLHA[chave] != null ? ESCOLHA[chave] : (principalPadrao || '') });
+    inp.addEventListener('input', function () { ESCOLHA[chave] = inp.value; pinta(); });
+    var tab = h('table', { class: 'cc-tab' });
+    tab.appendChild(h('thead', null, [h('tr', null, ['Papel', 'TSK', 'Site', 'END_ID', 'Prio', 'Status', 'Fim do SLA'].map(function (t) { return h('th', { text: t }); }))]));
+    var tb = h('tbody'); tab.appendChild(tb);
+    function principal() { return (inp.value || '').trim(); }
+    function filhos() { var p = up(principal()); return tsks.filter(function (t) { return up(t.os) !== p; }); }
+    function pinta() {
+      tb.innerHTML = ''; var p = up(principal());
+      tsks.slice().sort(function (a, b) { return tsMs(a) - tsMs(b); }).forEach(function (t) {
+        var eh = up(t.os) === p;
+        tb.appendChild(h('tr', { class: eh ? 'prin' : '' }, [
+          h('td', null, [h('span', { class: 'op-tag', style: { background: eh ? cor.green : cor.orange }, text: eh ? 'PRINCIPAL' : 'ASSOCIAR' })]),
+          h('td', null, [h('span', { class: 'op-tsk', dataset: { os: t.os }, text: t.os })]), h('td', { text: t.site || '' }), h('td', { text: t.end || '' }),
+          h('td', { text: t.prio || '' }), h('td', { text: t.status || '' }), h('td', { text: fmtDt(t.venc) })
+        ]));
+      });
+    }
+    pinta();
+    var vazio = rotuloVazio || 'TSK PRINCIPAL';
+    var acts = h('div', { class: 'cc-acts' }, [
+      h('label', { class: 'cc-lbl' }, [h('span', { text: 'TSK principal:' }), inp]),
+      A.autenticado ? h('button', { class: 'op-btn', type: 'button', title: 'Texto de sinalização para a equipe: uma linha por TSK a associar', text: '📋 Mensagem p/ equipe', onclick: function () {
+        var f = filhos(); if (!f.length) { A.copiar('', 'Nada a associar'); return; }
+        A.copiar(f.map(function (t) { return CC.msgAssociar(t.os, principal() || vazio); }).join('\n'), f.length + ' linha(s) copiada(s)');
+      } }) : null,
+      h('button', { class: 'op-btn', type: 'button', title: 'Máscara do diário de trabalho (ISOC) para cada TSK a associar', text: '📋 Máscaras de associação', onclick: function () {
+        var f = filhos(); if (!f.length) { A.copiar('', 'Nada a associar'); return; }
+        A.copiar(f.map(function (t) { return CC.mascara(t.siteId || t.site, t.os); }).join('\n\n'), f.length + ' máscara(s) copiada(s)');
+      } })
+    ]);
+    wrap.appendChild(acts); wrap.appendChild(tab);
+    return wrap;
+  }
+  function principalDe(tsks) { var m = null; tsks.forEach(function (t) { if (!m || tsMs(t) > tsMs(m)) m = t; }); return m; }
+
+  /* ================= diagrama (SVG) ================= */
+  CC.vendoDiagrama = false;
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  function svg(tag, attrs, txt) { var e = document.createElementNS(SVGNS, tag); Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); }); if (txt != null) e.textContent = txt; return e; }
+  function cortaTxt(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+  function desenharDiagrama(box, res, s, A, voltar) {
+    var U = TRJ.ui, h = U.h, ix = indice();
+    CC.vendoDiagrama = true;
+    box.innerHTML = '';
+    var falhaIds = {}; s.idsFalha.forEach(function (id) { falhaIds[id] = 1; });
+    var memo = {};
+    function temFalha(id) { if (memo[id] != null) return memo[id]; var r = !!falhaIds[id]; if (!r) (ix.kids[id] || []).forEach(function (k) { if (temFalha(k)) r = true; }); return (memo[id] = r); }
+    var mostrarTodos = false;
+    var barra = h('div', { class: 'cc-dg-bar' });
+    barra.appendChild(h('button', { class: 'op-btn go', type: 'button', text: '← Voltar à Causa comum', onclick: function () { CC.vendoDiagrama = false; voltar(); } }));
+    barra.appendChild(h('b', { class: 'cc-nome', text: s.nome }));
+    barra.appendChild(h('span', { class: 'cc-meta', text: s.falhos + ' de ' + s.total + ' pontos abaixo fora · ' + s.nSites + ' site(s)' }));
+    var lbl = h('label', { class: 'op-chip op-tgl' }, [h('input', { type: 'checkbox' }), h('span', { text: 'Mostrar todos os pontos (não só os ramos com falha)' })]);
+    lbl.querySelector('input').addEventListener('change', function (e) { mostrarTodos = e.target.checked; desenha(); });
+    barra.appendChild(lbl);
+    box.appendChild(barra);
+    box.appendChild(h('div', { class: 'cc-legend' }, [
+      h('span', { class: 'lg rota', text: 'rota em comum (acima do suspeito)' }), h('span', { class: 'lg sus', text: 'suspeito' }),
+      h('span', { class: 'lg fora', text: 'site fora sem TSK' }), h('span', { class: 'lg tsk', text: 'site fora com TSK' }), h('span', { class: 'lg ok', text: 'sem falha' })
+    ]));
+    var area = h('div', { class: 'cc-dg-area' }); box.appendChild(area);
+
+    function desenha() {
+      area.innerHTML = '';
+      // rota até o suspeito: últimos 4 ancestrais
+      var anc = [], n = ix.nodes[s.id], d = 0;
+      while (n && n.pid && d++ < 40) { n = ix.nodes[n.pid]; if (n) anc.unshift(n); }
+      var acima = Math.max(0, anc.length - 4); anc = anc.slice(-4);
+      var colW = 214, rowH = 40, nodeW = 196, nodeH = 32, pad = 14;
+      var itens = [], arestas = [], folha = 0, maxCol = 0;
+      anc.forEach(function (a, i) { itens.push({ id: a.id, col: i + (acima ? 1 : 0), y: 0, tipo: 'rota' }); });
+      var base = anc.length + (acima ? 1 : 0);
+      function visita(id, col) {
+        var it = { id: id, col: col, tipo: id === s.id ? 'sus' : (falhaIds[id] ? 'falha' : 'ok'), ocultos: 0 };
+        maxCol = Math.max(maxCol, col);
+        var fs = (ix.kids[id] || []), vis = fs.filter(function (k) { return mostrarTodos || temFalha(k); });
+        it.ocultos = fs.length - vis.length;
+        if (!vis.length) it.y = folha++; else {
+          var ys = vis.map(function (k) { var c = visita(k, col + 1); arestas.push([id, k]); return c.y; });
+          it.y = (ys[0] + ys[ys.length - 1]) / 2;
+        }
+        itens.push(it); return it;
+      }
+      var raiz = visita(s.id, base);
+      var cadeia = itens.filter(function (x) { return x.tipo === 'rota'; });
+      cadeia.forEach(function (x, i) { x.y = raiz.y; if (i > 0) arestas.push([cadeia[i - 1].id, x.id]); });
+      if (cadeia.length) arestas.push([cadeia[cadeia.length - 1].id, s.id]);
+      var W = (maxCol + 1) * colW + pad * 2, H = Math.max(1, folha) * rowH + pad * 2 + 6;
+      var el = svg('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, class: 'cc-svg' });
+      var pos = {}; itens.forEach(function (x) { pos[x.id] = { x: pad + x.col * colW, y: pad + x.y * rowH }; });
+      if (acima) {
+        el.appendChild(svg('text', { x: pad, y: pad + raiz.y * rowH + 20, class: 'cc-acima' }, '… +' + acima + ' nível(is) acima'));
+        arestas.push(['__acima__', cadeia.length ? cadeia[0].id : s.id]); pos.__acima__ = { x: pad - 6, y: pad + raiz.y * rowH };
+      }
+      arestas.forEach(function (a) {
+        var p = pos[a[0]], q = pos[a[1]]; if (!p || !q) return;
+        var x1 = p.x + (a[0] === '__acima__' ? 90 : nodeW), y1 = p.y + nodeH / 2, x2 = q.x, y2 = q.y + nodeH / 2, mx = (x1 + x2) / 2;
+        el.appendChild(svg('path', { d: 'M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2, class: 'cc-edge' + (falhaIds[a[1]] || a[1] === s.id || memo[a[1]] ? ' f' : '') }));
+      });
+      itens.forEach(function (x) {
+        var n2 = ix.nodes[x.id], p = pos[x.id], r = (falhaIds[x.id] && res.suspeitos.length >= 0 && s.falhaPorNo[x.id]) || null, g = r && r[0] && r[0].g;
+        var cls = 'cc-nd ' + x.tipo + (g ? (g.tsk ? ' tsk' : ' sem') : '');
+        var gr = svg('g', { class: cls, transform: 'translate(' + p.x + ',' + p.y + ')' });
+        var tit = n2.nome + (n2.rotulo ? '\n' + n2.rotulo : '') + (g ? '\nEND_ID ' + g.end + ' · ' + (g.tsk ? g.tsk.os + ' (' + g.tsk.prio + ')' : 'SEM TSK') : '');
+        gr.appendChild(svg('title', {}, tit));
+        gr.appendChild(svg('rect', { width: nodeW, height: nodeH, rx: 7 }));
+        gr.appendChild(svg('text', { x: 9, y: 14, class: 'n1' }, cortaTxt(n2.nome.split('|')[0], 24)));
+        var l2 = g ? (g.tsk ? g.tsk.os + ' · ' + g.tsk.prio : 'SEM TSK') : cortaTxt(n2.rotulo.replace(/^\(\d+\)\s*/, ''), 30);
+        gr.appendChild(svg('text', { x: 9, y: 26, class: 'n2' }, l2));
+        if (x.ocultos) gr.appendChild(svg('text', { x: nodeW - 6, y: 14, class: 'n3', 'text-anchor': 'end' }, '+' + x.ocultos));
+        el.appendChild(gr);
+      });
+      area.appendChild(el);
+    }
+    desenha();
+    if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(box);
+  }
+
+  /* ================= tela: pontos comuns (topologia) ================= */
   function textoCopia(s) {
     var l = ['*CAUSA COMUM PROVÁVEL: ' + s.nome + '*' + (s.rotulo ? ' (' + s.rotulo + ')' : ''), s.falhos + ' de ' + s.total + ' pontos abaixo estão fora (' + Math.round(s.pct * 100) + '%)'];
     if (s.caminho.length) l.push('Caminho: ' + s.caminho.join(' > ') + ' > ' + s.nome);
@@ -138,7 +362,8 @@
     return l.join('\n');
   }
   CC.render = function (box, res, A) {
-    var U = TRJ.ui, h = U.h, esc = U.esc;
+    var U = TRJ.ui, h = U.h;
+    function lista() { CC.vendoDiagrama = false; CC.render(box, res, A); }
     box.innerHTML = '';
     if (!res) { box.appendChild(h('div', { class: 'op-empty', text: 'Topologia não carregada.' })); return; }
     var st = res.stats, pctMap = st.totSites ? Math.round(st.totMapeados / st.totSites * 100) : 0;
@@ -157,6 +382,7 @@
         s.proprioFora ? h('span', { class: 'op-tag', style: { background: A.COR.red }, text: 'ELE MESMO ESTÁ FORA' }) : null,
         h('span', { class: 'op-tag', style: { background: cor }, title: 'Confiança da hipótese', text: 'confiança ' + s.confianca }),
         h('span', { class: 'cc-sp' }),
+        h('button', { class: 'op-btn', type: 'button', title: 'Mostra a rota em comum e os ramos com falha', text: '🌳 Ver no diagrama', onclick: function () { desenharDiagrama(box, res, s, A, lista); } }),
         h('button', { class: 'op-copy mini', type: 'button', style: { order: 0, opacity: 1 }, text: '📋 Copiar', onclick: function () { A.copiar(textoCopia(s), 'Resumo copiado'); } })
       ]));
       if (s.rotulo) card.appendChild(h('div', { class: 'op-sub', text: s.rotulo }));
@@ -171,6 +397,12 @@
         ]));
       });
       card.appendChild(chips);
+      // associação ao evento principal
+      if (s.tsks.length) {
+        var padrao = s.tskNo ? s.tskNo.os : (s.tsks.length >= 2 ? principalDe(s.tsks).os : '');
+        card.appendChild(h('div', { class: 'cc-assoc-t', html: '<b>Associação ao evento principal</b> — ' + (s.tskNo ? 'o próprio ' + s.nome + ' tem TSK.' : (s.tsks.length >= 2 ? s.nome + ' está sem TSK; sugerida a de fim de SLA mais longo como principal.' : s.nome + ' está sem TSK na fila: informe a TSK principal do evento (ou abra uma) e associe a TSK abaixo a ela.')) }));
+        card.appendChild(blocoAssoc(h, A, 'topo|' + s.id, s.tsks, padrao, 'TSK principal do ' + s.nome));
+      }
       box.appendChild(card);
     });
     if (res.aneis.length) {
@@ -183,13 +415,42 @@
       });
     }
     if (res.semMatch.length) {
-      var det = h('details', { class: 'cc-sem-match' }, [
+      box.appendChild(h('details', { class: 'cc-sem-match' }, [
         h('summary', { text: 'Sem correspondência no diagrama: ' + res.semMatch.reduce(function (a, g) { return a + (g.qtd || 1); }, 0) + ' site(s) em ' + res.semMatch.length + ' END_ID(s) — não entram na análise (podem ser pontas de rádio fora da árvore MW/FO, ou falta cadastrar no diagrama)' }),
         h('div', { class: 'cc-sites' }, res.semMatch.map(function (g) {
           return h('span', { class: 'cc-site sem', title: g.end }, [h('b', { text: (g.nomes[0] || '—') + (g.nomes.length > 1 ? ' +' + (g.nomes.length - 1) : '') }), h('span', { class: 'cc-sem', text: g.end || '' })]);
         }))
-      ]);
-      box.appendChild(det);
+      ]));
     }
+    if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(box);
+  };
+
+  /* ================= tela: associações por duplicidade / controlador ================= */
+  CC.renderAssociacoes = function (box, dup, A, qual) {
+    var U = TRJ.ui, h = U.h, cor = A.COR;
+    box.innerHTML = '';
+    if (!dup.temNota) {
+      box.appendChild(h('div', { class: 'op-banner', text: 'ℹ A coluna CP (“Nota de Abertura”) ainda não está nos dados carregados. Reimporte os arquivos de atividades em “Importar dados” para habilitar as duplicidades e os eventos por controlador.' }));
+    }
+    var grupos = qual === 'controlador' ? dup.controladores : (qual === 'mesmoEnd' ? dup.mesmoEnd : dup.iguais);
+    var intro = qual === 'controlador'
+      ? 'TSKs de END_IDs diferentes que nasceram do mesmo controlador/MME e do mesmo alarme (ex.: S1ap Link Down no MME DMRJO3). Podem ser filhas de um mesmo evento — avalie antes de associar.'
+      : (qual === 'mesmoEnd'
+        ? 'Mais de uma TSK aberta no mesmo END_ID, mas com notas de abertura diferentes — avalie se são o mesmo evento.'
+        : 'Mesmo END_ID e a mesma nota de abertura (coluna CP): é a mesma falha duplicada. A de fim de SLA mais longo fica como principal (ganha tempo) e as demais são associadas a ela.');
+    box.appendChild(h('div', { class: 'cc-intro', text: intro }));
+    if (!grupos.length) { box.appendChild(h('div', { class: 'op-empty', text: 'Nada neste radar com os filtros atuais. 👏' })); return; }
+    grupos.forEach(function (g, i) {
+      var titulo = g.tipo === 'controlador' ? g.ctrl + ' · ' + g.alarme : (g.end + (g.site ? ' · ' + g.site : ''));
+      var card = h('div', { class: 'cc-card', style: { borderLeftColor: g.tipo === 'igual' ? cor.red : cor.amber } });
+      card.appendChild(h('div', { class: 'cc-top' }, [
+        h('span', { class: 'cc-rank', text: '#' + (i + 1) }), h('b', { class: 'cc-nome', text: titulo }),
+        h('span', { class: 'op-tag', style: { background: g.tipo === 'igual' ? cor.red : cor.amber }, text: g.tsks.length + ' TSKs' + (g.tipo === 'controlador' ? ' em ' + g.nEnds + ' END_IDs' : '') })
+      ]));
+      if (g.nota) card.appendChild(h('div', { class: 'cc-nota', title: g.nota, text: 'Nota de abertura: ' + String(g.nota).replace(/\s+/g, ' ').slice(0, 260) }));
+      card.appendChild(blocoAssoc(h, A, g.tipo + '|' + (g.end || g.ctrl) + '|' + (g.alarme || '') , g.tsks, g.principal ? g.principal.os : '', 'TSK principal'));
+      box.appendChild(card);
+    });
+    if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(box);
   };
 })(window.TRJ = window.TRJ || {});
