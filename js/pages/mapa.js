@@ -681,8 +681,9 @@
       }).addTo(mapInstance);
       if (rotaAutoRun) setTimeout(rotaAutoRun, 700);
       // Foco num site (ex.: "Abrir no mapa" do balão da TSK na visão do operador)
-      if (ctx.focoEnd) setTimeout(function () {
-        var k = ctx.focoEnd, c = coordMap[k];
+      var focoEnd = ctx.focoEnd || TRJ._mapaFocoEnd || null; TRJ._mapaFocoEnd = null;     // vem do balão de detalhes do dashboard autenticado
+      if (focoEnd) setTimeout(function () {
+        var k = focoEnd, c = coordMap[k];
         if (!c) { var lk = String(k).toLowerCase(); Object.keys(coordMap).some(function (x) { if (x.toLowerCase() === lk) { c = coordMap[x]; k = x; return true; } return false; }); }
         if (!c || !mapInstance) return;
         mapInstance.setView([c[0], c[1]], 15);

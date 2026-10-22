@@ -253,3 +253,7 @@ body.op-tv .op-kpi .v { font-size: 40px; }
 .cc-nd.falha.tsk rect, .cc-nd.sus.tsk rect { stroke: #168a47; stroke-width: 3; fill: rgba(198,40,57,.18); }
 .cc-nd.sem .n2 { fill: #c62839; font-weight: 800; }
 .cc-nd.tsk .n2 { fill: #168a47; font-weight: 800; }
+/* caminho até a raiz: neutro (só o suspeito e os sites fora ficam em destaque) */
+.cc-nd.rota rect { stroke: var(--trj-border2); fill: var(--trj-card2); stroke-dasharray: 5 3; }
+.cc-legend .rota::before { border-color: var(--trj-border2); background: var(--trj-card2); border-style: dashed; }
+.cc-venc { font-weight: 800; white-space: nowrap; }

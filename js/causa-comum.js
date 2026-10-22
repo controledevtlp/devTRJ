@@ -58,7 +58,7 @@
   /* ================= grupos de sites fora (dashboard autenticado) ================= */
   function tskInfo(t) {
     return { os: t.osNumero || '', prio: up(t.prioridade) || '—', status: t.status || '', venc: toDate(t.vencimentoCalc),
-      criacao: (D && D.parsePlatformDate ? D.parsePlatformDate(t.dataCriacaoAS) : null) || toDate(t.dataCriacao), siteId: t.siteId || '', end: t.enderecoId || '', regiao: t.regiao || 'OTHERS' };
+      criacao: (D && D.parsePlatformDate ? D.parsePlatformDate(t.dataCriacaoAS) : null) || toDate(t.dataCriacao), siteId: t.siteId || '', end: t.enderecoId || '', regiao: t.regiao || 'OTHERS', falha: t.tipoFalha || '' };
   }
   /* um grupo por END_ID: { end, nomes[], qtd, regiao, desde, tsk } — igual ao que o operador monta */
   CC.gruposSites = function (data) {
@@ -132,14 +132,12 @@
     var cand = Object.keys(failDesc).map(function (id) {
       var total = ix.desc[id] || 1;
       return { id: id, falhos: failDesc[id], diretos: direto[id] || 0, filhos: (ix.kids[id] || []).length, total: total, pct: failDesc[id] / total };
-    }).filter(function (c) { return c.falhos >= 2 && (c.diretos >= 2 || c.pct >= 0.5); })
+    }).filter(function (c) { return c.diretos >= 2; })      // concentrador = nó com 2+ filhos DIRETAMENTE ligados a ele fora (não basta ter netos fora)
       .sort(function (a, b) { return b.falhos - a.falhos || b.pct - a.pct; });
     function ehAncestral(anc, desc) { var n = ix.nodes[desc], d = 0; while (n && n.pid && d++ < 40) { if (n.pid === anc) return true; n = ix.nodes[n.pid]; } return false; }
-    var mantidos = [];
-    cand.forEach(function (c) {
-      var superado = cand.some(function (o) { return o !== c && ehAncestral(c.id, o.id) && o.falhos >= c.falhos - 1; });
-      if (!superado) mantidos.push(c);
-    });
+    // se a cadeia acima do candidato também está fora (cada nó até o ancestral candidato falhou), a falha vem de cima: fica o ancestral
+    function cadeiaFora(anc, id) { var n = ix.nodes[id], d = 0; if (!falha[id]) return false; while (n && n.pid && d++ < 40) { if (n.pid === anc) return true; if (!falha[n.pid]) return false; n = ix.nodes[n.pid]; } return false; }
+    var mantidos = cand.filter(function (c) { return !cand.some(function (o) { return o !== c && ehAncestral(o.id, c.id) && cadeiaFora(o.id, c.id); }); });
     var cobertos = {};
     var suspeitos = mantidos.slice(0, 40).map(function (c) {
       var n = ix.nodes[c.id], vistos = {}, lista = [], ids = (dentro[c.id] || []).slice();
@@ -152,7 +150,7 @@
       });
       (falha[c.id] || []).forEach(function (r) { if (!tskNo && r.g.tsk) tskNo = r.g.tsk; });
       var fr = c.filhos ? c.diretos / c.filhos : 0;
-      var conf = (c.diretos >= 3 && (fr >= 0.5 || falha[c.id])) || (c.falhos >= 3 && c.pct >= 0.5) ? 'alta' : ((c.diretos >= 2 || c.pct >= 0.5) ? 'média' : 'baixa');
+      var conf = (c.diretos >= 3 && (fr >= 0.5 || falha[c.id])) ? 'alta' : (c.diretos >= 2 && (fr >= 0.5 || falha[c.id]) ? 'média' : 'baixa');
       return { id: c.id, nome: n.nome.split('|')[0], aliases: n.nome, rotulo: n.rotulo, caminho: caminho(ix, c.id), total: c.total, falhos: c.falhos, diretos: c.diretos, filhos: c.filhos, pct: c.pct,
         proprioFora: !!falha[c.id], grupos: lista, nSites: nSites, comTsk: comTsk, semTsk: semTsk, confianca: conf, tsks: tsks, tskNo: tskNo, idsFalha: ids, falhaPorNo: falha };
     });
@@ -237,7 +235,7 @@
     var inp = h('input', { type: 'text', class: 'cc-inp', placeholder: rotuloVazio || 'TSK principal', value: ESCOLHA[chave] != null ? ESCOLHA[chave] : (principalPadrao || '') });
     inp.addEventListener('input', function () { ESCOLHA[chave] = inp.value; pinta(); });
     var tab = h('table', { class: 'cc-tab' });
-    tab.appendChild(h('thead', null, [h('tr', null, ['Papel', 'TSK', 'Site', 'END_ID', 'Prio', 'Status', 'Fim do SLA'].map(function (t) { return h('th', { text: t }); }))]));
+    tab.appendChild(h('thead', null, [h('tr', null, ['Papel', 'TSK', 'Site', 'Falha', 'Prio', 'Fim do SLA'].map(function (t) { return h('th', { text: t }); }))]));
     var tb = h('tbody'); tab.appendChild(tb);
     function principal() { return (inp.value || '').trim(); }
     function filhos() { var p = up(principal()); return tsks.filter(function (t) { return up(t.os) !== p; }); }
@@ -245,10 +243,11 @@
       tb.innerHTML = ''; var p = up(principal());
       tsks.slice().sort(function (a, b) { return tsMs(a) - tsMs(b); }).forEach(function (t) {
         var eh = up(t.os) === p;
-        tb.appendChild(h('tr', { class: eh ? 'prin' : '' }, [
+        var vt = vencTxt(t.venc);
+        tb.appendChild(h('tr', { class: eh ? 'prin' : '', dataset: { osSel: t.os } }, [
           h('td', null, [h('span', { class: 'op-tag', style: { background: eh ? cor.green : cor.orange }, text: eh ? 'PRINCIPAL' : 'ASSOCIAR' })]),
-          h('td', null, [h('span', { class: 'op-tsk', dataset: { os: t.os }, text: t.os })]), h('td', { text: t.site || '' }), h('td', { text: t.end || '' }),
-          h('td', { text: t.prio || '' }), h('td', { text: t.status || '' }), h('td', { text: fmtDt(t.venc) })
+          h('td', null, [h('span', { class: 'op-tsk', dataset: { os: t.os }, text: t.os })]), h('td', { text: t.site || '', title: 'END_ID ' + (t.end || '') }), h('td', { text: t.falha || '—' }),
+          h('td', { text: t.prio || '' }), h('td', { class: 'cc-venc', style: { color: vt.cor }, title: fmtDt(t.venc), text: vt.txt })
         ]));
       });
     }
@@ -267,6 +266,17 @@
     ]);
     wrap.appendChild(acts); wrap.appendChild(tab);
     return wrap;
+  }
+  /* vencimento simplificado: "VENCE EM 1h20min" / "VENCIDO A 10h10min" */
+  function durTxt(min) {
+    var a = Math.abs(Math.round(min)); if (a < 60) return a + 'min';
+    var hh = Math.floor(a / 60), mm = a % 60; if (hh < 48) return hh + 'h' + ('0' + mm).slice(-2) + 'min';
+    return Math.floor(hh / 24) + 'd' + (hh % 24) + 'h';
+  }
+  function vencTxt(venc) {
+    if (!venc) return { txt: 'SEM PRAZO', cor: '#6b7280' };
+    var min = Math.round((venc.getTime() - Date.now()) / 60000);
+    return min < 0 ? { txt: 'VENCIDO A ' + durTxt(min), cor: '#c62839' } : { txt: 'VENCE EM ' + durTxt(min), cor: min <= 120 ? '#d68910' : '#168a47' };
   }
   function principalDe(tsks) { var m = null; tsks.forEach(function (t) { if (!m || tsMs(t) > tsMs(m)) m = t; }); return m; }
 
@@ -293,7 +303,7 @@
     barra.appendChild(lbl);
     box.appendChild(barra);
     box.appendChild(h('div', { class: 'cc-legend' }, [
-      h('span', { class: 'lg rota', text: 'rota em comum (acima do suspeito)' }), h('span', { class: 'lg sus', text: 'suspeito' }),
+      h('span', { class: 'lg rota', text: 'caminho até a raiz (sem falha própria)' }), h('span', { class: 'lg sus', text: 'suspeito' }),
       h('span', { class: 'lg fora', text: 'site fora sem TSK' }), h('span', { class: 'lg tsk', text: 'site fora com TSK' }), h('span', { class: 'lg ok', text: 'sem falha' })
     ]));
     var area = h('div', { class: 'cc-dg-area' }); box.appendChild(area);
