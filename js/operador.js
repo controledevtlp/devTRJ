@@ -23,7 +23,8 @@
   var LS_KEY = 'trj_operador_v2';
   var POLL_MS = 60000, TICK_MS = 30000, STALE_MIN = 20, PAGE = 40;
   var SEMKEY = '__SEM__';
-  var TABS = ['fila', 'sites', 'b2b', 'conc', 'backbone', 'mapa'];
+  var TABS = ['fila', 'sites', 'causa', 'b2b', 'conc', 'backbone', 'mapa'];
+  function temCausa() { return !!(TRJ.causaComum && TRJ.causaComum.disponivel()); }   // piloto: só onde há topologia carregada
   var COR = { red: '#c62839', amber: '#d68910', green: '#168a47', blue: '#1f6fb5', purple: '#7d3c98', gray: '#6b7280', orange: '#b85a00' };
   var PRIO_COR = { P1: '#c62839', P2: '#d35400', P3: '#b85a00', P4: '#1f6fb5', P5: '#6b7280' };
 
@@ -42,7 +43,7 @@
   var state = (function () {
     var d = { tab: 'fila', grupo: 'TODAS', regras: [], prios: [], situacao: 'TODAS', regioes: [], ordem: 'padrao', pend: false, lado: true };
     try { var s = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); if (s) Object.keys(d).forEach(function (k) { if (s[k] !== undefined) d[k] = s[k]; }); } catch (e) {}
-    if (TABS.indexOf(d.tab) < 0) d.tab = 'fila';
+    if (TABS.indexOf(d.tab) < 0 || (d.tab === 'causa' && !temCausa())) d.tab = 'fila';
     d.busca = ''; d.lim = {};
     return d;
   })();
@@ -309,6 +310,12 @@
   }
   /* total de SITES (um END_ID pode agrupar vários sites; s.qtd = quantos) */
   function somaSites(lista, fn) { var n = 0; lista.forEach(function (s) { if (!fn || fn(s)) n += (s.qtd || 1); }); return n; }
+  /* sites fora (já filtrados por região/busca) no formato da análise de causa comum */
+  function dadosCausa() {
+    return sitesAtuais().map(function (s) {
+      return { end: s.end, nomes: s.sites, qtd: s.qtd || 1, regiao: s.regiao, desde: s.desde, tsk: s.tsk ? { os: s.tsk.osNumero, prio: up(s.tsk.prioridade), status: s.tsk.status } : null };
+    });
+  }
   function sitesAtuais() {
     var q = up(state.busca);
     return model.sites.filter(function (s) {
@@ -773,7 +780,7 @@
       return h('button', { class: 'op-tab' + (state.tab === id ? ' active' : ''), type: 'button', onclick: function () { setTab(id); } },
         [label, n != null ? num(n, 'tab:' + id, 'n') : null]);
     }
-    return h('div', { class: 'op-tabs' }, [t('fila', 'Fazer agora'), t('sites', 'Sites fora'), t('b2b', 'B2B / Premium'), t('conc', 'Concentradores'), t('backbone', 'Backbone / LD'), t('mapa', 'Mapa')]);
+    return h('div', { class: 'op-tabs' }, [t('fila', 'Fazer agora'), t('sites', 'Sites fora'), temCausa() ? t('causa', 'Causa comum') : null, t('b2b', 'B2B / Premium'), t('conc', 'Concentradores'), t('backbone', 'Backbone / LD'), t('mapa', 'Mapa')]);
   }
 
   /* ---------- barra de filtros ---------- */
@@ -1393,7 +1400,8 @@
 
     root.appendChild(topBar());
     banners().forEach(function (b) { root.appendChild(b); });
-    root.appendChild(tabs({ fila: f.filtrada.length, sites: nSitesTot, b2b: b2b, conc: raw.concentradores ? conc : null, backbone: bb }));
+    var resCausa = temCausa() ? TRJ.causaComum.analisar(dadosCausa()) : null;
+    root.appendChild(tabs({ fila: f.filtrada.length, sites: nSitesTot, causa: resCausa ? resCausa.suspeitos.length : null, b2b: b2b, conc: raw.concentradores ? conc : null, backbone: bb }));
 
     if (state.tab === 'fila' || state.tab === 'sites') {
       var v2h = baseNP.filter(function (it) { return it._rest != null && it._rest >= 0 && it._rest <= 120; }).length;
@@ -1412,6 +1420,10 @@
       view.listEl = h('div', { class: 'op-list' });
       root.appendChild(view.listEl);
       renderLista();
+    } else if (state.tab === 'causa' && resCausa) {
+      var fw = h('div', { class: 'op-fwrap' }); fw.appendChild(linhaRegioes('causa')); root.appendChild(fw);
+      var cbox = h('div', { class: 'op-page cc-box' }); root.appendChild(cbox);
+      TRJ.causaComum.render(cbox, resCausa, { COR: COR, copiar: copiar });
     } else if (state.tab === 'b2b' || state.tab === 'conc' || state.tab === 'backbone') {
       root.appendChild(filtros('outra'));
       var box = h('div'); root.appendChild(box);
