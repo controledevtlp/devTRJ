@@ -307,6 +307,8 @@
     if (!state.regioes.length) blocos = blocos.filter(function (b) { return b.lista.length; });
     return { base: base, filtrada: filtrada, blocos: blocos };
   }
+  /* total de SITES (um END_ID pode agrupar vários sites; s.qtd = quantos) */
+  function somaSites(lista, fn) { var n = 0; lista.forEach(function (s) { if (!fn || fn(s)) n += (s.qtd || 1); }); return n; }
   function sitesAtuais() {
     var q = up(state.busca);
     return model.sites.filter(function (s) {
@@ -783,7 +785,7 @@
   function statsRegiao() {
     var st = {};
     function g(r) { return st[r] || (st[r] = { tot: 0, com: 0, sem: 0, fila: 0 }); }
-    model.sites.forEach(function (s) { var o = g(s.regiao); o.tot++; if (s.tsk) o.com++; else o.sem++; });
+    model.sites.forEach(function (s) { var o = g(s.regiao), q = s.qtd || 1; o.tot += q; if (s.tsk) o.com += q; else o.sem += q; });
     model.items.forEach(function (it) { if (!it.pend) g(it.regiao).fila++; });
     return st;
   }
@@ -996,7 +998,7 @@
         com.sort(ord); sem.sort(ord);
         var copiaSites = h('button', { class: 'op-copy', type: 'button', title: 'Copiar a lista de sites fora desta região', text: '📋 Copiar ' + nomeR + ' (' + lista.length + ')',
           onclick: function () { copiar(com.concat(sem).map(linhaCopiaSite).join('\n'), lista.length + ' site(s) fora de ' + nomeR + ' copiado(s)'); } });
-        var col2 = blocoEl(nomeR, '<span>' + lista.length + ' sites</span> · <span style="color:' + COR.red + '">' + sem.length + ' sem TSK</span>', copiaSites);
+        var col2 = blocoEl(nomeR, '<span>' + somaSites(lista) + ' sites' + (somaSites(lista) !== lista.length ? ' em ' + lista.length + ' END_IDs' : '') + '</span> · <span style="color:' + COR.red + '">' + somaSites(sem) + ' sem TSK</span>', copiaSites);
         var body = col2.querySelector('.op-bb'), lim = state.lim['S' + r] || PAGE, usados = 0;
         function secao(titulo, cor, arr) {
           if (!arr.length || usados >= lim) return;
@@ -1239,7 +1241,7 @@
 
     /* Por região (métricas) */
     var regs = {}; baseNP.forEach(function (it) { var o = regs[it.regiao] || (regs[it.regiao] = { n: 0, v: 0, h2: 0, ok: 0, su: 0, fora: 0, p: { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0 } }); o.n++; if (it._rest != null && it._rest < 0) o.v++; else if (it._rest != null && it._rest <= 120) o.h2++; else if (it._rest != null) o.ok++; if (semUpdH(it, now) > 4) o.su++; if (it.fora) o.fora++; if (o.p[it.prio] != null) o.p[it.prio]++; });
-    var sitReg = {}; sites.forEach(function (s) { var o = sitReg[s.regiao] || (sitReg[s.regiao] = { t: 0, sem: 0 }); o.t++; if (!s.tsk) o.sem++; });
+    var sitReg = {}; sites.forEach(function (s) { var o = sitReg[s.regiao] || (sitReg[s.regiao] = { t: 0, sem: 0 }), q = s.qtd || 1; o.t += q; if (!s.tsk) o.sem += q; });
     var nomesReg = Object.keys(Object.assign({}, regs, sitReg)).sort(function (a, b) { return regiaoIdx(a) - regiaoIdx(b); });
     var linReg = nomesReg.map(function (r) { return { r: r, o: regs[r] || { n: 0, v: 0, h2: 0, ok: 0, su: 0, fora: 0, p: { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0 } }, s: sitReg[r] || { t: 0, sem: 0 } }; });
     aba(nomeReg, 'Métricas por região', carimbo + '   |   clique no nome da região para abrir o backlog dela', XL.azul, [
@@ -1289,7 +1291,7 @@
     var nV = cnt(function (it) { return it._rest != null && it._rest < 0; }), n2 = cnt(function (it) { return it._rest != null && it._rest >= 0 && it._rest <= 120; });
     var nOk = cnt(function (it) { return it._rest != null && it._rest >= 0; }), nSU = cnt(function (it) { return semUpdH(it, now) > 4; });
     var nFx = cnt(function (it) { return it.regra.grupo === 'FIXA'; }), nMv = cnt(function (it) { return it.regra.grupo === 'MOVEL'; });
-    var nB2B = cnt(function (it) { return it.b2b; }), nSemTsk = sites.filter(function (s) { return !s.tsk; }).length;
+    var nB2B = cnt(function (it) { return it.b2b; }), nSemTsk = somaSites(sites, function (s) { return !s.tsk; });
     var nConc = linConc.filter(function (l) { return l.tipo !== 'Sem alerta'; }).length, nForaTsk = cnt(function (it) { return it.fora; });
     function pct(n) { return tot ? (Math.round(n / tot * 1000) / 10).toLocaleString('pt-BR') + '% da fila' : ''; }
     function cartao(linha, col, rotulo, valor, cor, sub) {
@@ -1315,7 +1317,7 @@
     cartao(6, 7, 'No prazo', nOk, XL.verde, pct(nOk));
     cartao(6, 9, 'Sem update +4h', nSU, 'FFB85A00', pct(nSU));
     cartao(6, 11, 'TSKs em site fora', nForaTsk, XL.verm, 'linhas vermelhas');
-    cartao(10, 1, 'Sites fora', sites.length, XL.verm, nSemTsk + ' sem TSK');
+    cartao(10, 1, 'Sites fora', somaSites(sites), XL.verm, nSemTsk + ' sem TSK · ' + sites.length + ' END_IDs');
     cartao(10, 3, 'Sites fora sem TSK', nSemTsk, XL.vermFg, 'abrir / acionar');
     cartao(10, 5, 'FIXA', nFx, XL.azul, pct(nFx));
     cartao(10, 7, 'MÓVEL', nMv, XL.verde, pct(nMv));
@@ -1334,7 +1336,7 @@
       var l = porRegiao[r], nf = l.filter(function (it) { return it.fora; }).length;
       menu.push([abaRegiao[r], l.length, 'Backlog completo de ' + regiaoLabel(r) + (nf ? ' — ' + nf + ' TSK(s) em site fora (vermelho)' : '') + '.', XL.azul]);
     });
-    menu.push([nomeSites, sites.length, 'Sites fora cruzados com a TSK aberta (verde = com TSK · vermelho = sem TSK).', XL.verm]);
+    menu.push([nomeSites, sites.length, 'Sites fora cruzados com a TSK aberta (uma linha por END_ID; verde = com TSK · vermelho = sem TSK).', XL.verm]);
     menu.push([nomeB2B, b2bL.length, 'TSKs B2B / Premium da fila.', XL.roxo]);
     menu.push([nomeConc, linConc.length, 'Concentradores e os alertas ativos neles.', XL.roxo]);
     menu.push([nomeReg, linReg.length, 'Métricas por região (com link para o backlog de cada uma).', XL.azul]);
@@ -1383,7 +1385,7 @@
     if (!model) { root.appendChild(h('div', { class: 'op-loading', text: erroCarga || 'Carregando dados publicados...' })); renderSelBar(); return; }
     var now = Date.now();
     var f = filaAtual(now);
-    var sitesTodos = sitesAtuais(), nSem = sitesTodos.filter(function (s) { return !s.tsk; }).length;
+    var sitesTodos = sitesAtuais(), nSem = somaSites(sitesTodos, function (s) { return !s.tsk; }), nSitesTot = somaSites(sitesTodos);
     var baseNP = f.base.filter(function (it) { return !it.pend; });
     var nVenc = baseNP.filter(function (it) { return it._rest != null && it._rest < 0; }).length;
     document.title = (nVenc ? '(' + nVenc + ') ' : '') + 'Operação TRJ';
@@ -1391,7 +1393,7 @@
 
     root.appendChild(topBar());
     banners().forEach(function (b) { root.appendChild(b); });
-    root.appendChild(tabs({ fila: f.filtrada.length, sites: sitesTodos.length, b2b: b2b, conc: raw.concentradores ? conc : null, backbone: bb }));
+    root.appendChild(tabs({ fila: f.filtrada.length, sites: nSitesTot, b2b: b2b, conc: raw.concentradores ? conc : null, backbone: bb }));
 
     if (state.tab === 'fila' || state.tab === 'sites') {
       var v2h = baseNP.filter(function (it) { return it._rest != null && it._rest >= 0 && it._rest <= 120; }).length;
@@ -1402,7 +1404,7 @@
         kpi(v2h, 'Vencem em até 2h', COR.amber, state.situacao === 'V2H', function () { setSit('V2H'); }),
         kpi(prazo, 'No prazo', COR.green, state.situacao === 'NO_PRAZO', function () { setSit('NO_PRAZO'); }),
         kpi(semUpd, 'Sem update +4h', COR.orange, state.situacao === 'SEMUPD', function () { setSit('SEMUPD'); }),
-        kpi(sitesTodos.length, 'Sites fora', COR.red, state.tab === 'sites', function () { setTab(state.tab === 'sites' ? 'fila' : 'sites'); }, nSem + ' sem TSK'),
+        kpi(nSitesTot, 'Sites fora', COR.red, state.tab === 'sites', function () { setTab(state.tab === 'sites' ? 'fila' : 'sites'); }, nSem + ' sem TSK · ' + sitesTodos.length + ' END_IDs'),
         kpi(b2b, 'B2B / Premium', COR.purple, false, function () { setTab('b2b'); }),
         kpi(raw.concentradores ? conc : '—', 'Concentradores', COR.purple, false, function () { setTab('conc'); })
       ]));
