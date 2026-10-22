@@ -50,7 +50,13 @@
     ['dataCriacaoAS',      45, 'd'],   // AS — data original de criação (usada para Aging do Backlog)
     ['dataCriacao',       176, 'd'],
     ['notaAbertura',       94, 's700'],  // CP — nota de abertura (alarme que originou a TSK): base das duplicidades / eventos múltiplos
-    ['quemEncerrou',      180, 's'],
+    ['areaSusp',           27, 's'],     // AA — caminho usado na tramitação/suspensão (Acesso, FIELD, FMO, Gestão de Acesso, Retorno Centralizado, Transporte…)
+    ['dataReinicio',       49, 'd'],     // AW — data/hora de retorno solicitada no ato da suspensão
+    ['notaSuspensao',      97, 's'],     // CS — motivo escolhido pelo operador na suspensão
+    ['responsabilidade',  115, 's'],     // DK — 1º caminho (iSOC, Parceira de Campo, Outro Contrato, Gestão de Acesso…)
+    ['subArea',           126, 's'],     // DV — 2º caminho (FIELD, ACESSO, FIBRA_Txx, Retorno Centralizado…)
+    ['motivoTramitacao',  179, 's'],     // FW — 3ª escolha da árvore (Tramitação autorizada, Ausência de sinal TX alugada…)
+    ['quemEncerrou',      180, 's'],     // FX — Usuário Executor (quem suspendeu/tramitou, em linhas pendente)
     ['prioridade',        191, 's']
   ];
   F.COLUNAS = COLUNAS;

@@ -171,5 +171,33 @@
     });
     tipEl.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-coord]')) { e.preventDefault(); salvarCoord(); } });
   };
+  /* instalação pronta para as páginas do dashboard autenticado: linhas por TSK, coordenadas (navegador + banco), abrir no mapa */
+  var LS_COORDS = 'trj_coordMap';
+  function lsCoords() { try { return JSON.parse(localStorage.getItem(LS_COORDS) || 'null'); } catch (e) { return null; } }
+  API.instalarAuth = function (data, app, copiar) {
+    var porTsk = {};
+    (data.tasksEnriched || []).forEach(function (t) { var k = String(t.osNumero || '').toUpperCase(); if (k) (porTsk[k] = porTsk[k] || []).push(t); });
+    Object.keys(porTsk).forEach(function (k) { porTsk[k].sort(function (a, b) { return (Number(b.sequenciaId) || 0) - (Number(a.sequenciaId) || 0); }); });
+    API.instalar({
+      rows: function (os) { return porTsk[String(os).toUpperCase()] || []; },
+      copiar: copiar,
+      coord: {
+        get: function (end) {
+          var cm = lsCoords() || TRJ.defaultCoordMap || {}, e = String(end || '').trim().toLowerCase(), v = null;
+          Object.keys(cm).some(function (k) { if (k.toLowerCase() === e) { v = cm[k]; return true; } return false; });
+          return v && v.length >= 2 && isFinite(+v[0]) && isFinite(+v[1]) ? [+v[0], +v[1]] : null;
+        },
+        salvar: async function (end, lat, lon) {
+          var cm = lsCoords() || {}; cm[end] = [lat, lon];
+          try { localStorage.setItem(LS_COORDS, JSON.stringify(cm)); } catch (e) {}
+          var falhou = null;
+          try { if (TRJ.api && TRJ.api.saveMapaCoords) await TRJ.api.saveMapaCoords(cm); } catch (e) { falhou = e; }       // o servidor junta com o que já existe
+          try { if (TRJ.api && TRJ.api.saveCoordVALID_CAD) await TRJ.api.saveCoordVALID_CAD([{ endId: end, coord: lat.toFixed(6) + ', ' + lon.toFixed(6) }]); } catch (e) {}
+          if (falhou) throw new Error('Gravada neste navegador, mas não no banco: ' + (falhou.message || falhou));
+        }
+      },
+      abrirMapa: function (end) { TRJ._mapaFocoEnd = end; app.navigate('#/mapa'); }
+    });
+  };
   API.fechar = function () { if (tipEl) hide(true); };
 })(window.TRJ = window.TRJ || {});

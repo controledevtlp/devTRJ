@@ -383,6 +383,17 @@
     }));
   };
 
+  // séries empilhadas genéricas (qualquer nº de séries/cores). series = [{label, data[], cor}], opts: { horizontal, onSeg(index, datasetIndex), empilhado }
+  U.seriesChart = function (canvas, labels, series, opts) {
+    opts = opts || {};
+    var o = baseOpts({ horizontal: !!opts.horizontal });
+    if (opts.empilhado !== false) { o.scales.x.stacked = true; o.scales.y.stacked = true; }
+    o.plugins.legend.display = true;
+    if (opts.onSeg) o.onClick = function (ev, els) { if (els && els.length) opts.onSeg(els[0].index, els[0].datasetIndex); };
+    var datasets = series.map(function (s) { return { label: s.label, data: s.data, backgroundColor: s.cor, borderRadius: 4, maxBarThickness: opts.horizontal ? 26 : 40 }; });
+    return register(new Chart(canvas, { type: 'bar', data: { labels: labels, datasets: hoverDatasets(datasets) }, options: o }));
+  };
+
   // donut. data = [{name,value}], onSlice(index) — com hover de cor mais clara + borda branca
   U.donutChart = function (canvas, data, opts) {
     opts = opts || {};
