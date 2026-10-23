@@ -277,7 +277,8 @@ button.cc-pb:hover { filter: brightness(1.15); } button.cc-pb:active { transform
 
 /* ---- Controle de Retorno ---- */
 .cr-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; align-items: center; }
-.cr-sw { display: inline-flex; gap: 4px; }
+.cr-sw { display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.cr-sw-dim { display: flex; justify-content: flex-start; margin: -4px 0 10px; }
 .cr-live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--trj-muted); font-weight: 700; }
 .cr-live i { width: 8px; height: 8px; border-radius: 50%; background: #2ecc71; box-shadow: 0 0 8px #2ecc71; animation: cr-pulse 1.6s ease-in-out infinite; }
 @keyframes cr-pulse { 50% { opacity: .35; } }
