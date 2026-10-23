@@ -44,7 +44,9 @@
       // Motivo da Suspensão (GJ) do caminho iSOC > FIELD > FIELD
       'ATIVIDADE TORRE HORÁRIO NOTURNO', 'Acesso ETD', 'Aguardando terceiros / Chave', 'Anatel - Greve', 'Anatel - Impedimento de Acesso (Segurança Pública)', 'DESLOCAMENTO DE GMG', 'DESLOCAMENTO DE SOBRESSALENTE',
       'ELABORAÇÃO DE ORÇAMENTO', 'FALHA DE ENERGIA CONCESSIONÁRIA', 'GMG ATIVO NO SITE', 'INTEMPÉRIE CLIMATICA', 'RECUPERAÇÃO DE VANDALISMO', 'RESTRIÇÃO DE ACESSO', 'ÁREA DE RISCO'],
-    tram: ['Tramitação autorizada', 'Ausência de sinal TX alugada', 'Atividade de implantação', 'Acesso depende de ação do Layer'],
+    tram: ['Tramitação autorizada', 'Ausência de sinal TX alugada', 'Atividade de implantação', 'Acesso depende de ação do Layer',
+      // motivos de TRAMITAÇÃO (Motivo da Tramitação, FW) listados pelo Lucas
+      'Anatel - Greve', 'Anatel - Impedimento de Acesso (Segurança Pública)', 'Corte de Energia pela Concessionaria', 'Não possui sobressalente no CM', 'Orçamento Entregue', 'Queda de Torre'],
     area: ['Acesso', 'FIELD', 'FMO', 'Gestão de Acesso', 'Retorno Centralizado', 'Transporte']
   };
   var CONH_SET = {}; Object.keys(CONHECIDOS).forEach(function (k) { CONH_SET[k] = {}; CONHECIDOS[k].forEach(function (v) { CONH_SET[k][sa(v)] = 1; }); });
@@ -59,8 +61,14 @@
   };
 
   /* iSOC > FIELD > FIELD (Responsabilidade > Sub área > Área) = SUSPENSÃO; qualquer outro caminho = TRAMITAÇÃO */
-  function ehSuspensao(dk, dv, area) { return sa(dk) === 'ISOC' && sa(dv) === 'FIELD' && sa(area) === 'FIELD'; }
-  R.TIPOS = { SUSPENSAO: { rot: 'Suspensão (iSOC > FIELD > FIELD)', cor: '#7d3c98' }, TRAMITACAO: { rot: 'Tramitação', cor: '#1f6fb5' } };
+  /* SUSPENSÃO só para os motivos da lista abaixo (coluna GJ "Motivo da Suspensão"). Os 3 últimos são os nomes antigos usados na Nota de Suspensão (CS).
+     "Anatel - Greve" e "Anatel - Impedimento de Acesso" existem nas DUAS listas: quem decide é a coluna em que vieram (GJ = suspensão, FW = tramitação). */
+  var MOTIVOS_SUSP = ['ATIVIDADE TORRE HORÁRIO NOTURNO', 'Acesso ETD', 'Aguardando terceiros / Chave', 'Anatel - Greve', 'Anatel - Impedimento de Acesso (Segurança Pública)', 'DESLOCAMENTO DE GMG', 'DESLOCAMENTO DE SOBRESSALENTE',
+    'ELABORAÇÃO DE ORÇAMENTO', 'FALHA DE ENERGIA CONCESSIONÁRIA', 'GMG ATIVO NO SITE', 'INTEMPÉRIE CLIMATICA', 'RECUPERAÇÃO DE VANDALISMO', 'RESTRIÇÃO DE ACESSO', 'ÁREA DE RISCO',
+    'Condições Climáticas', 'Atividade em Torre', 'Aguardando Sobressalente'];
+  var SUSP_SET = {}; MOTIVOS_SUSP.forEach(function (m) { SUSP_SET[sa(m)] = 1; });
+  R.ehMotivoSusp = function (m) { return !!SUSP_SET[sa(m)]; };
+  R.TIPOS = { SUSPENSAO: { rot: 'Suspensão', cor: '#7d3c98' }, TRAMITACAO: { rot: 'Tramitação', cor: '#1f6fb5' } };
   /* tempo até voltar para a fila */
   R.FAIXAS = [['inst', 'Instantâneo (até 5 min)', 5], ['1h', 'Até 1 h', 60], ['4h', '1 a 4 h', 240], ['12h', '4 a 12 h', 720], ['24h', '12 a 24 h', 1440], ['mais', 'Mais de 24 h', Infinity]];
   R.faixaDe = function (min) { if (min == null) return null; for (var i = 0; i < R.FAIXAS.length; i++) if (min <= R.FAIXAS[i][2]) return R.FAIXAS[i][0]; return 'mais'; };
@@ -90,9 +98,10 @@
         else if (nxt && (st === 'NAO INICIADO' || st === 'INICIADO')) { ret = parseDt(nxt.dataCriacao); retPor = pessoa(nxt.quemEncerrou); }
         if (ret) classe = prev ? ((ret.getTime() < prev.getTime() - 60000) ? 'ANTECIPADO' : 'NO_PRAZO') : 'SEM_PREVISAO';
         else classe = nxt ? 'ENCERRADA' : 'SUSPENSA';
-        var motivo = txt(rp.motivoSuspensao) || txt(rp.notaSuspensao), fimMs = ret ? ret.getTime() : now;
+        var gj = txt(rp.motivoSuspensao), fw = txt(rp.motivoTramitacao), nota = txt(rp.notaSuspensao);
+        var tipo = gj ? 'SUSPENSAO' : (fw ? 'TRAMITACAO' : (R.ehMotivoSusp(nota) ? 'SUSPENSAO' : 'TRAMITACAO'));
+        var motivo = tipo === 'SUSPENSAO' ? (gj || nota) : (fw || nota || gj), fimMs = ret ? ret.getTime() : now;
         var susMin = ini ? Math.round((fimMs - ini.getTime()) / 60000) : null;
-        var tipo = ehSuspensao(dk, dv, area) ? 'SUSPENSAO' : ((!dk && !dv && !area && (R.conhecido('motivo', motivo) || R.conhecido('motivo', txt(rp.notaSuspensao)))) ? 'SUSPENSAO' : 'TRAMITACAO');
         eventos.push({
           os: ri.osNumero, site: rp.siteId || last.siteId || '', end: rp.enderecoId || last.enderecoId || '', regiao: rp.regiao || last.regiao || 'OTHERS',
           prio: up(rp.prioridade) || prioFallback || '—', tipo: tipo, origem: inf ? 'inferida' : 'historico', caminho: caminho, dk: dk, dv: dv, area: area,
@@ -101,7 +110,7 @@
           deltaMin: prev && ret ? Math.round((prev.getTime() - ret.getTime()) / 60000) : null, suspensaMin: susMin, faixa: ret ? R.faixaDe(susMin) : null,
           vencidoSemRetorno: classe === 'SUSPENSA' && !!prev && prev.getTime() < now, statusAtual: last.status || '', fila: last.filaAtual || ''
         });
-        reg('caminho', caminho === '(sem caminho)' ? '' : caminho); reg('motivo', motivo); reg('tram', txt(rp.motivoTramitacao)); reg('area', area);
+        reg('caminho', caminho === '(sem caminho)' ? '' : caminho); reg(tipo === 'SUSPENSAO' ? 'motivo' : 'tram', motivo); reg('area', area);
       }
 
       for (var i = 0; i < rows.length; i++) {

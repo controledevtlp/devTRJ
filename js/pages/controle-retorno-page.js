@@ -5,7 +5,7 @@
   var U = TRJ.ui, C = TRJ.constants, D = TRJ.domain, R = TRJ.retorno, h = U.h;
   var CL = R.CLASSES;
   var state = { regiao: 'TODAS', prios: [], op: 'TODAS', periodo: 'tudo', horaBase: 'retorno', aba: 'suspensas', classe: 'TODAS', tipo: 'TODOS' };
-  var timer = null, APEL = null, apelCarregando = false;
+  var APEL = null, apelCarregando = false;
   var LS_APEL = 'trj_retorno_apelidos';
 
   /* ---------- apelidos (nomes curtos para caminhos / motivos não listados) — compartilhados via CONFIG da planilha ---------- */
@@ -47,14 +47,25 @@
     return tag(t, e.vencidoSemRetorno ? '#c62839' : c.cor, c.rot);
   }
 
+  /* a tela não pula para o topo: guarda a posição de rolagem e a devolve depois de redesenhar (inclusive quando a importação redesenha a página) */
+  var ROLAGEM = { top: 0, hash: '' };
+  function paiRolavel() {
+    var el = document.getElementById('page'), n = el;
+    while (n && n !== document.body) { var o = getComputedStyle(n).overflowY; if ((o === 'auto' || o === 'scroll') && n.scrollHeight > n.clientHeight) return n; n = n.parentElement; }
+    return document.scrollingElement || document.documentElement;
+  }
+  function reRenderMantendoRolagem(app) { var sp = paiRolavel(), top = sp.scrollTop; ROLAGEM.top = top; ROLAGEM.hash = location.hash; app.render(); restauraRolagem(); }
+  function restauraRolagem() { [0, 60, 250].forEach(function (ms) { setTimeout(function () { if (location.hash !== ROLAGEM.hash) return; var sp = paiRolavel(); if (sp.scrollTop !== ROLAGEM.top) sp.scrollTop = ROLAGEM.top; }, ms); }); }
+  window.addEventListener('scroll', function (e) { if (location.hash !== '#/controle-retorno') return; var t = e.target === document ? (document.scrollingElement || document.documentElement) : e.target; if (t && t.scrollTop != null && (t === paiRolavel())) { ROLAGEM.top = t.scrollTop; ROLAGEM.hash = location.hash; } }, true);
+
   TRJ.pages.controleRetorno = function (container, ctx) {
     var data = ctx.data, app = ctx.app;
     if (!data) { container.appendChild(h('div', { class: 'trj-card p-6', text: 'Sem dados carregados.' })); return; }
-    carregaApelidos(function () { if (location.hash === '#/controle-retorno') app.render(); });
+    function rerender() { reRenderMantendoRolagem(app); }
+    carregaApelidos(function () { if (location.hash === '#/controle-retorno') reRenderMantendoRolagem(app); });
     if (TRJ.tipTsk && TRJ.tipTsk.instalarAuth) TRJ.tipTsk.instalarAuth(data, app, copiar);
-    clearInterval(timer);
-    timer = setInterval(function () { if (location.hash !== '#/controle-retorno') { clearInterval(timer); return; } var a = document.activeElement; if (a && a.tagName === 'INPUT') return; app.render(); }, 30000);
 
+    if (ROLAGEM.hash === location.hash && ROLAGEM.top) restauraRolagem();      // redesenho vindo de fora (ex.: importação): volta para onde você estava
     var res = R.analisar(data.tasksEnriched), todos = res.eventos, agora = new Date();
     function noPeriodo(e) {
       var d = refData(e); if (!d || state.periodo === 'tudo') return true;
@@ -74,17 +85,17 @@
     var operadores = {}; todos.filter(function (e) { return passa(e, true); }).forEach(function (e) { operadores[e.quem] = (operadores[e.quem] || 0) + 1; });
 
     /* ---------- cabeçalho / filtros ---------- */
-    var selReg = h('select', { class: 'trj-select', style: { width: 'auto' }, onchange: function () { state.regiao = this.value; app.render(); } },
+    var selReg = h('select', { class: 'trj-select', style: { width: 'auto' }, onchange: function () { state.regiao = this.value; rerender(); } },
       [h('option', { value: 'TODAS', text: 'Todas as regiões' })].concat(C.REGIOES.map(function (r) { return h('option', { value: r, text: regLabel(r), selected: state.regiao === r ? 'selected' : null }); })));
-    var selOp = h('select', { class: 'trj-select', style: { width: 'auto', maxWidth: '230px' }, onchange: function () { state.op = this.value; app.render(); } },
+    var selOp = h('select', { class: 'trj-select', style: { width: 'auto', maxWidth: '230px' }, onchange: function () { state.op = this.value; rerender(); } },
       [h('option', { value: 'TODAS', text: 'Todos os operadores' })].concat(Object.keys(operadores).sort().map(function (n) { return h('option', { value: n, text: n + ' (' + operadores[n] + ')', selected: state.op === n ? 'selected' : null }); })));
     function chips(opcoes, ativoFn, clique) {
-      return h('div', { class: 'cr-chips' }, opcoes.map(function (o) { return h('button', { type: 'button', class: 'op-chip' + (ativoFn(o[0]) ? ' on' : ''), text: o[1], onclick: function () { clique(o[0]); app.render(); } }); }));
+      return h('div', { class: 'cr-chips' }, opcoes.map(function (o) { return h('button', { type: 'button', class: 'op-chip' + (ativoFn(o[0]) ? ' on' : ''), text: o[1], onclick: function () { clique(o[0]); rerender(); } }); }));
     }
     var chTipo = chips([['TODOS', 'Suspensões + tramitações'], ['SUSPENSAO', 'Só suspensões'], ['TRAMITACAO', 'Só tramitações']], function (v) { return state.tipo === v; }, function (v) { state.tipo = v; });
     var chPer = chips([['hoje', 'Hoje'], ['24h', '24 h'], ['7d', '7 dias'], ['tudo', 'Todo o período']], function (v) { return state.periodo === v; }, function (v) { state.periodo = v; });
     var chPrio = chips([['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3'], ['P4', 'P4'], ['P5', 'P5']], function (v) { return state.prios.indexOf(v) >= 0; }, function (v) { var i = state.prios.indexOf(v); if (i >= 0) state.prios.splice(i, 1); else state.prios.push(v); });
-    var live = h('span', { class: 'cr-live', title: 'A página se atualiza a cada 30 s e sempre que os arquivos são reimportados' }, [h('i'), 'ao vivo · ' + agora.toLocaleTimeString('pt-BR')]);
+    var live = h('span', { class: 'cr-live', title: 'A página só muda quando você pede ou quando os arquivos são reimportados' }, [h('button', { type: 'button', class: 'op-btn', text: '↻ Atualizar', onclick: function () { rerender(); } }), 'dados de ' + agora.toLocaleTimeString('pt-BR')]);
     container.appendChild(U.pageHeader('Controle de Retorno', 'Tudo o que foi suspenso ou tramitado e voltou para a fila — antes do planejado ou não', h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg, selOp, chTipo, chPer, chPrio, live])));
 
     if (!res.temCampos) container.appendChild(h('div', { class: 'op-banner', text: 'ℹ Os dados carregados ainda não trazem as colunas de suspensão (Responsabilidade, Sub área, Nota de Suspensão, Data/Hora de Reinício…). Reimporte os arquivos de atividades em “Importar dados” para preencher caminho, motivo e previsão de retorno.' }));
@@ -112,7 +123,7 @@
       return U.kpiCard({ label: k.l, value: String(k.v), cor: k.c, onClick: function () { drill(k.t, k.lista); } });
     })));
     var nSus = ev.filter(function (e) { return e.tipo === 'SUSPENSAO'; }).length;
-    container.appendChild(h('div', { class: 'cr-nota', html: '<b>' + nSus + '</b> suspensão(ões) (caminho iSOC &gt; FIELD &gt; FIELD) e <b>' + (ev.length - nSus) + '</b> tramitação(ões) no filtro.' + (res.inferidas ? ' <b>' + res.inferidas + '</b> suspensão(ões) identificada(s) só pela nota/previsão em linhas já de volta à fila (sem linha “pendente” no arquivo — início e quem suspendeu não aparecem).' : '') }));
+    container.appendChild(h('div', { class: 'cr-nota', html: '<b>' + nSus + '</b> suspensão(ões) (motivos da lista de suspensão) e <b>' + (ev.length - nSus) + '</b> tramitação(ões) no filtro.' + (res.inferidas ? ' <b>' + res.inferidas + '</b> suspensão(ões) identificada(s) só pela nota/previsão em linhas já de volta à fila (sem linha “pendente” no arquivo — início e quem suspendeu não aparecem).' : '') }));
     if (comAw) container.appendChild(h('div', { class: 'cr-nota', html: '<b>' + Math.round(ant.length / comAw * 100) + '%</b> dos retornos com data prevista voltaram antes (' + ant.length + ' de ' + comAw + '). ' + semp.length + ' retorno(s) não tinham data de reinício — só é possível conferir os que têm.' }));
 
     /* ---------- gráficos ---------- */
@@ -131,7 +142,7 @@
     var grid = h('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4' });
     var hrBase = state.horaBase;
     var swHora = h('span', { class: 'cr-sw' }, [['retorno', 'hora do retorno'], ['suspensao', 'hora da suspensão']].map(function (o) {
-      return h('button', { type: 'button', class: 'op-chip' + (hrBase === o[0] ? ' on' : ''), text: o[1], onclick: function () { state.horaBase = o[0]; app.render(); } });
+      return h('button', { type: 'button', class: 'op-chip' + (hrBase === o[0] ? ' on' : ''), text: o[1], onclick: function () { state.horaBase = o[0]; rerender(); } });
     }));
     var ccHora = U.chartCard('Por horário do dia', { hint: swHora });
     (function () {
@@ -148,7 +159,7 @@
     })();
     var ccOp = graficoDim('Por operador (quem suspendeu)', function (e) { return e.quem; }, null, { horizontal: true, top: 14 });
     var ccCam = graficoDim('Por caminho escolhido (1ª > 2ª escolha)', function (e) { return e.caminho; }, function (k) { return nomeDe('caminho', k); }, { horizontal: true });
-    var ccMot = graficoDim('Por motivo da suspensão', function (e) { return e.motivo || e.tram || '(sem motivo)'; }, function (k) { return nomeDe('motivo', k); }, { horizontal: true });
+    var ccMot = graficoDim('Por motivo (suspensão / tramitação)', function (e) { return e.motivo || '(sem motivo)'; }, function (k) { return nomeDe(k && R.ehMotivoSusp(k) ? 'motivo' : 'tram', k); }, { horizontal: true });
     var ccTempo = graficoDim('Tempo até o retorno à fila', function (e) { return e.faixa; }, function (k) { var f = R.FAIXAS.filter(function (x) { return x[0] === k; })[0]; return f ? f[1] : k; }, { classes: ORDEM.slice(0, 3), top: 8, ordemChave: function (a, b) { var o = R.FAIXAS.map(function (x) { return x[0]; }); return o.indexOf(a) - o.indexOf(b); } });
     var ccTipo = graficoDim('Suspensão x tramitação', function (e) { return e.tipo; }, function (k) { return R.TIPOS[k].rot; }, { top: 3 });
     var ccPrio = graficoDim('Por prioridade', function (e) { return e.prio; }, null, { ordemChave: function (a, b) { return a < b ? -1 : 1; }, top: 6 });
@@ -164,7 +175,7 @@
       ['operadores', 'Ranking de operadores', null], ['nomes', 'Nomes dos caminhos', Object.keys(res.catalogo.caminho).length + Object.keys(res.catalogo.motivo).length]
     ];
     container.appendChild(h('div', { class: 'op-tabs', style: { marginBottom: '10px' } }, abas.map(function (a) {
-      return h('button', { type: 'button', class: 'op-tab' + (state.aba === a[0] ? ' active' : ''), onclick: function () { state.aba = a[0]; app.render(); } }, [a[1], a[2] != null ? h('span', { class: 'n', text: String(a[2]) }) : null]);
+      return h('button', { type: 'button', class: 'op-tab' + (state.aba === a[0] ? ' active' : ''), onclick: function () { state.aba = a[0]; rerender(); } }, [a[1], a[2] != null ? h('span', { class: 'n', text: String(a[2]) }) : null]);
     })));
     var box = h('div', { class: 'cr-box' }); container.appendChild(box);
     if (state.aba === 'suspensas') {
@@ -172,7 +183,7 @@
       box.appendChild(ord.length ? tabelaEventos(ord, false, true) : h('div', { class: 'op-empty', text: 'Nenhuma TSK suspensa com esses filtros.' }));
     } else if (state.aba === 'retornos') {
       var opcoes = [['TODAS', 'Todos']].concat(ORDEM.slice(0, 3).map(function (c) { return [c, CL[c].rot]; }));
-      box.appendChild(h('div', { class: 'cr-chips', style: { marginBottom: '8px' } }, opcoes.map(function (o) { return h('button', { type: 'button', class: 'op-chip' + (state.classe === o[0] ? ' on' : ''), text: o[1], onclick: function () { state.classe = o[0]; app.render(); } }); })));
+      box.appendChild(h('div', { class: 'cr-chips', style: { marginBottom: '8px' } }, opcoes.map(function (o) { return h('button', { type: 'button', class: 'op-chip' + (state.classe === o[0] ? ' on' : ''), text: o[1], onclick: function () { state.classe = o[0]; rerender(); } }); })));
       var lst = ret.filter(function (e) { return state.classe === 'TODAS' || e.classe === state.classe; });
       box.appendChild(lst.length ? tabelaEventos(lst, true) : h('div', { class: 'op-empty', text: 'Nenhum retorno com esses filtros.' }));
     } else if (state.aba === 'operadores') box.appendChild(rankingOperadores(ev, drill));
@@ -192,7 +203,7 @@
       var cels = [
         h('td', null, [tag(e.tipo === 'SUSPENSAO' ? 'SUSPENSÃO' : 'TRAMITAÇÃO', R.TIPOS[e.tipo].cor, R.TIPOS[e.tipo].rot), e.origem === 'inferida' ? tag('INFERIDA', '#6b7280', 'Sem linha pendente no arquivo: identificada pela nota/previsão de suspensão numa linha já em Não iniciado/Iniciado. Início e quem suspendeu não aparecem.') : null]), h('td', { text: e.quem }), h('td', null, [h('span', { class: 'op-tsk', dataset: { os: e.os }, text: e.os })]), h('td', { text: e.site || '', title: 'END_ID ' + e.end }),
         h('td', { text: e.prio }), h('td', { text: regLabel(e.regiao) }), h('td', { text: nomeDe('caminho', e.caminho), title: e.caminho }),
-        h('td', { text: nomeDe('motivo', e.motivo || e.tram || ''), title: [e.motivo, e.tram, e.area].filter(Boolean).join(' · ') }), h('td', { text: fmtDt(e.inicio) })
+        h('td', { text: nomeDe(e.tipo === 'SUSPENSAO' ? 'motivo' : 'tram', e.motivo || ''), title: [e.motivo, e.nota, e.area].filter(Boolean).join(' · ') }), h('td', { text: fmtDt(e.inicio) })
       ];
       if (mostraPrevisao) {
         var rest = e.previsto ? Math.round((e.previsto.getTime() - Date.now()) / 60000) : null;
@@ -227,7 +238,7 @@
 
   /* ---------- nomes dos caminhos / motivos (os não listados aparecem como NOVO) ---------- */
   function painelNomes(cat, app) {
-    var tipos = [['caminho', 'Caminho (1ª > 2ª escolha)'], ['motivo', 'Motivo da suspensão / nota'], ['tram', '3ª escolha (motivo da tramitação)'], ['area', 'Área']], linhas = [];
+    var tipos = [['caminho', 'Caminho (1ª > 2ª escolha)'], ['motivo', 'Motivo da SUSPENSÃO'], ['tram', 'Motivo da TRAMITAÇÃO'], ['area', 'Área']], linhas = [];
     tipos.forEach(function (t) { Object.keys(cat[t[0]]).forEach(function (v) { linhas.push({ tipo: t[0], rot: t[1], valor: v, n: cat[t[0]][v].n, novo: cat[t[0]][v].novo }); }); });
     linhas.sort(function (a, b) { return (b.novo - a.novo) || (b.n - a.n); });
     var tab = h('table', { class: 'trj-table cc-tab' });
@@ -237,7 +248,7 @@
       var inp = h('input', { type: 'text', class: 'cc-inp', style: { minWidth: '200px' }, placeholder: 'dar um nome curto…', value: (APEL && APEL[l.tipo + ':' + l.valor]) || '' });
       var btn = h('button', { type: 'button', class: 'op-btn', text: '💾', title: 'Salvar (compartilhado com a equipe)', onclick: function () {
         btn.disabled = true;
-        salvaApelido(l.tipo, l.valor, inp.value.trim()).then(function () { U.toast('Nome salvo', 'ok'); app.render(); }, function (e) { btn.disabled = false; U.toast('Salvo só neste navegador: ' + ((e && e.message) || e), 'err'); });
+        salvaApelido(l.tipo, l.valor, inp.value.trim()).then(function () { U.toast('Nome salvo', 'ok'); reRenderMantendoRolagem(app); }, function (e) { btn.disabled = false; U.toast('Salvo só neste navegador: ' + ((e && e.message) || e), 'err'); });
       } });
       tb.appendChild(h('tr', { class: l.novo ? 'cr-novo' : '' }, [h('td', { text: l.rot }), h('td', { text: l.valor, style: { fontWeight: '700' } }), h('td', { text: String(l.n) }),
         h('td', null, [l.novo ? tag('NOVO — dê um nome', '#d68910') : tag('conhecido', '#6b7280')]), h('td', null, [h('div', { style: { display: 'flex', gap: '6px' } }, [inp, btn])])]));
