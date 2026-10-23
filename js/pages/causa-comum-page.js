@@ -1,5 +1,5 @@
 /* Página: Causa comum & Associações (dashboard autenticado — visão do gestor)
- * Pontos comuns de falha pela topologia + radar de TSKs que podem ser associadas (duplicidades / controlador). */
+ * Pontos comuns de falha pela topologia + radar de TSKs que podem ser associadas (duplicidades). */
 (function (TRJ) {
   TRJ.pages = TRJ.pages || {};
   var U = TRJ.ui, C = TRJ.constants, CC = TRJ.causaComum;
@@ -31,7 +31,7 @@
     var gruposF = grupos.filter(function (g) { return regiaoOk(g.regiao); });
     var res = temTopo ? CC.analisar(gruposF) : null;
     function filtraDup(arr) { return arr.map(function (g) { var ts = g.tsks.filter(function (t) { return regiaoOk(t.regiao); }); return ts.length >= 2 ? Object.assign({}, g, { tsks: ts, principal: ts[ts.length - 1] }) : null; }).filter(Boolean); }
-    var dup = { iguais: filtraDup(dupAll.iguais), mesmoEnd: filtraDup(dupAll.mesmoEnd), controladores: filtraDup(dupAll.controladores), temNota: dupAll.temNota };
+    var dup = { iguais: filtraDup(dupAll.iguais), mesmoEnd: filtraDup(dupAll.mesmoEnd), temNota: dupAll.temNota };
     if (!temTopo && state.sub === 'topo') state.sub = 'iguais';
 
     var selReg = h('select', { class: 'trj-select', style: { width: 'auto' }, onchange: function () { state.regiao = this.value; ctx.app.render(); } },
@@ -41,8 +41,7 @@
     var tabs = [
       ['topo', '🌳 Pontos comuns (concentradores fora)', res ? res.suspeitos.length : null],
       ['iguais', '♊ Duplicidades (mesmo END_ID + mesma nota)', dup.iguais.length],
-      ['mesmoEnd', '📍 Mesmo END_ID, notas diferentes', dup.mesmoEnd.length],
-      ['controlador', '📡 Alarme em comum (mesmo controlador)', dup.controladores.length]
+      ['mesmoEnd', '📍 Mesmo END_ID, notas diferentes', dup.mesmoEnd.length]
     ].filter(function (t) { return t[0] !== 'topo' || temTopo; });
     var barra = h('div', { class: 'op-tabs', style: { marginBottom: '12px' } }, tabs.map(function (t) {
       return h('button', { class: 'op-tab' + (state.sub === t[0] ? ' active' : ''), type: 'button', onclick: function () { state.sub = t[0]; ctx.app.render(); } },

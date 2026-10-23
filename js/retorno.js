@@ -10,6 +10,7 @@
  * Classe do retorno:  ANTECIPADO (voltou antes do AW) · NO_PRAZO (voltou no/depois do AW) · SEM_PREVISAO (sem AW)
  *
  * TRJ.retorno.analisar(tasksEnriched) → { eventos[], temCampos, catalogo }
+ * TRJ.retorno.compactar(eventos) / expandir(arr) → formato enxuto do snapshot público
  * ===================================================================== */
 (function (TRJ) {
   'use strict';
@@ -33,7 +34,7 @@
   }
   R.pessoa = pessoa;
 
-  /* FIBRA_T?? de qualquer contrato (TRJ, TMG, TNE…) vira o mesmo caminho */
+  /* FIBRA_T?? (duas letras do contrato no fim) vira o mesmo caminho em qualquer contrato */
   function normDV(dv) { var s = String(dv || '').trim(); return /^FIBRA_T[A-Za-z]{2}$/i.test(s) ? 'FIBRA_TXX' : s; }
   R.normDV = normDV;
 
@@ -129,5 +130,32 @@
     });
     eventos.sort(function (a, b) { return ((b.retorno || b.inicio || 0) - (a.retorno || a.inicio || 0)); });
     return { eventos: eventos, temCampos: temCampos, catalogo: catalogo, inferidas: inferidas };
+  };
+
+  /* ---------- formato enxuto para o snapshot (dashboard público e devGERAL) ----------
+   * Os episódios saem do histórico de linhas das TSKs, que só o painel autenticado tem; por isso são calculados lá e publicados.
+   * Ficam de fora os campos que dependem da hora de agora (tempo parado, retorno vencido): quem lê recalcula com expandir().
+   * Entram todas as ainda pendentes e o que voltou/encerrou nos últimos 45 dias. Mesma estrutura copiada em siteGERAL/index.html. */
+  R.compactar = function (eventos) {
+    var corte = Date.now() - 45 * 86400000, out = [];
+    function ms(d) { return d ? d.getTime() : null; }
+    (eventos || []).forEach(function (e) {
+      var ref = e.retorno || e.inicio;
+      if (e.classe !== 'SUSPENSA' && ref && ref.getTime() < corte) return;
+      out.push({ o: e.os, s: e.site, e: e.end, r: e.regiao, p: e.prio, t: e.tipo === 'SUSPENSAO' ? 'S' : 'T', i: e.origem === 'inferida' ? 1 : 0, c: e.caminho, m: e.motivo,
+        n: (e.nota || '').slice(0, 160), ar: e.area, q: e.quem, qs: e.quemSistema ? 1 : 0, a: ms(e.inicio), v: ms(e.previsto), b: ms(e.retorno), rp: e.retornoPor, rs: e.retornoSistema ? 1 : 0, k: e.classe, d: e.deltaMin });
+    });
+    return out;
+  };
+  R.expandir = function (arr) {
+    var now = Date.now();
+    return (arr || []).map(function (x) {
+      var ini = x.a ? new Date(x.a) : null, prev = x.v ? new Date(x.v) : null, ret = x.b ? new Date(x.b) : null;
+      var susMin = ini ? Math.round(((ret ? ret.getTime() : now) - ini.getTime()) / 60000) : null;
+      return { os: x.o, site: x.s || '', end: x.e || '', regiao: x.r || 'OTHERS', prio: x.p || '—', tipo: x.t === 'S' ? 'SUSPENSAO' : 'TRAMITACAO', origem: x.i ? 'inferida' : 'historico',
+        caminho: x.c || '(sem caminho)', dk: '', dv: '', area: x.ar || '', motivo: x.m || '', nota: x.n || '', tram: '', quem: x.q || '(sem usuário)', quemSistema: !!x.qs,
+        inicio: ini, previsto: prev, retorno: ret, retornoPor: x.rp || '', retornoSistema: !!x.rs, classe: x.k, deltaMin: x.d == null ? null : x.d,
+        suspensaMin: susMin, faixa: ret ? R.faixaDe(susMin) : null, vencidoSemRetorno: x.k === 'SUSPENSA' && !!prev && prev.getTime() < now, statusAtual: '', fila: '' };
+    });
   };
 })(window.TRJ = window.TRJ || {});

@@ -19,6 +19,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
 <script src="js/theme.js"></script>
 <link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/operador.css">
 <script src="js/config.js"></script>
 <script src="js/constants.js"></script>
 <script src="js/domain.js"></script>
@@ -34,6 +35,8 @@
 <script src="js/pages/pesquisa.js"></script>
 <script src="js/pages/produtividade.js"></script>
 <script src="js/pages/atualizacoes.js"></script>
+<script src="js/retorno.js"></script>
+<script src="js/pages/controle-retorno-page.js"></script>
 <script src="js/data/mapa-enlaces.js"></script>
 <script src="js/data/mapa-coords.js"></script>
 <style>
@@ -132,6 +135,9 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       raw.incidentsEnriched = json.data.incidentsEnriched || [];
       raw.prazoMap = json.data.prazoMap || {};
       raw.concentradores = Array.isArray(json.data.concentradores) ? json.data.concentradores : null;
+      // Controle de Retorno: episódios no formato enxuto (o que depende da hora de agora é recalculado a cada abertura da aba)
+      raw.retornoCompacto = Array.isArray(json.data.retorno) ? json.data.retorno : null;
+      raw.retornoApelidos = json.data.retornoApelidos || null;
 
       // Sincronizar dados do mapa para o localStorage E para o objeto raw
       function _lsSave(key, val) {
@@ -190,7 +196,9 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
         root.innerHTML = '';
         renderMapaPublico(prevCenter, prevZoom);
       } else {
+        var _sy = window.scrollY;
         renderView();
+        if (activeTab === 'retorno' && view !== 'welcome') window.scrollTo(0, _sy);     // a aba de retorno não pula para o topo quando sai publicação nova
       }
     } catch (e) {
       if (!silencioso) root.innerHTML = '<div class="text-center py-20" style="color:var(--trj-red)">Não foi possível carregar: ' + U.esc(e.message || String(e)) + '</div>';
@@ -947,6 +955,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     { id: 'mapa',          label: 'Mapa Operacional' },
     { id: 'produtividade', label: 'Produtividade' },
     { id: 'atualizacoes',  label: 'Atualizações' },
+    { id: 'retorno',       label: 'Controle de Retorno' },
     { id: 'sitesfora',     label: 'Sites Fora' },
     { id: 'sla',           label: 'SLA' }
   ];
@@ -1037,6 +1046,15 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       TRJ.pages.atualizacoes(tabContent, ctx);
     } else if (tabId === 'sitesfora' && TRJ.pages && TRJ.pages.sitesFora) {
       TRJ.pages.sitesFora(tabContent, ctx);
+    } else if (tabId === 'retorno' && TRJ.pages && TRJ.pages.controleRetorno) {
+      var regFixa = state.regiao && state.regiao !== 'TODAS';
+      var evR = raw.retornoCompacto && TRJ.retorno ? TRJ.retorno.expandir(raw.retornoCompacto) : null;
+      if (evR && regFixa) evR = evR.filter(function (e) { return (e.regiao || 'OTHERS') === state.regiao; });
+      TRJ.pages.controleRetorno(tabContent, {
+        publico: true, app: appCtx,
+        data: { retornoRes: evR ? { eventos: evR, temCampos: true, catalogo: { caminho: {}, motivo: {}, tram: {}, area: {} }, inferidas: evR.filter(function (e) { return e.origem === 'inferida'; }).length } : null,
+                retornoApelidos: raw.retornoApelidos, publicadoEm: savedAt, regiaoFixa: !!regFixa }
+      });
     } else if (tabId === 'sla' && TRJ.pages && TRJ.pages.sla) {
       TRJ.pages.sla(tabContent, { data: rawFiltrado, app: appCtx });
     } else {

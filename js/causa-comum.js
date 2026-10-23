@@ -7,7 +7,7 @@
  *    diretos fora, ou com metade ou mais dos pontos abaixo fora; se um filho explica o grupo, o ancestral cai.
  * 2) Associação: sugere qual TSK fica como PRINCIPAL e quais devem ser associadas a ela (falha por evento,
  *    não por tarefa) — pelos filhos de um ponto comum, por duplicidade (mesmo END_ID + mesma nota de abertura,
- *    coluna CP) e por controlador/alarme em comum. Gera a máscara do diário e a mensagem para a equipe.
+ *    coluna CP). Gera a máscara do diário e a mensagem para a equipe.
  * 3) Diagrama: mostra a rota em comum e os ramos com falha de cada suspeito (SVG).
  *
  * API: TRJ.causaComum.disponivel() · gruposSites(data) · analisar(grupos) · duplicidades(tasks)
@@ -37,7 +37,12 @@
       var n = { id: r[0], nome: r[1], pid: r[2], rotulo: r[3] || '' };
       nodes[n.id] = n;
       if (n.pid) (kids[n.pid] = kids[n.pid] || []).push(n.id);
-      String(n.nome).split('|').forEach(function (a) { a = up(a); if (!a) return; add(byName, a, n.id); add(byStrip, strip(a), n.id); });
+      String(n.nome).split('|').forEach(function (a) {
+        a = up(a); if (!a) return; add(byName, a, n.id); add(byStrip, strip(a), n.id);
+        // "SCAR02 (SE9054)", "RP00 (1)", "SQRM06(m)": o que vem entre parênteses no fim é anotação — o nome sem ela e o código (SE9054) também valem como apelido
+        var m = /^(.*?)\s*\(([^)]*)\)\s*$/.exec(a);
+        if (m && m[1]) { add(byName, m[1], n.id); add(byStrip, strip(m[1]), n.id); if (/^[A-Z]{1,3}\d{3,5}$/.test(m[2].trim())) add(byName, m[2].trim(), n.id); }
+      });
     });
     (T.mw || []).forEach(function (r) {
       [[r[0], r[1]], [r[2], r[3]]].forEach(function (p) {
@@ -176,15 +181,6 @@
 
   /* ================= duplicidades / eventos múltiplos por nota de abertura (coluna CP) ================= */
   function normNota(s) { return up(s).replace(/\s+/g, ' ').slice(0, 300); }
-  var RE_CTRL = /(?:Node:\s*|Nome da BSC:\s*)([A-Za-z0-9_\-]{3,24})/;
-  var RE_SUM = /Sum:\s*([^,|\)\]\[]{3,40}?)(?=\s+(?:NEName|MME|Node|Sev)|\s*[,|\)\]]|$)/i;
-  var RE_ALM = /(S1ap Link Down|NodeB Unavailable|GSM BTS DOWN|NG-RAN Link Fault|Cell Unavailable|UMTS NODEB DOWN|gNodeB Out of Service|CELL FAULTY|Link Down|Interface Down|Board Power Off)/i;
-  function chaveControlador(nota) {
-    var c = RE_CTRL.exec(nota || ''); if (!c) return null;
-    var ctrl = up(c[1]); if (ctrl === 'NULL') return null;
-    var a = RE_SUM.exec(nota) || RE_ALM.exec(nota); if (!a) return null;
-    return { ctrl: ctrl, alarme: up(a[1]).replace(/\s+/g, ' ').trim() };
-  }
   CC.duplicidades = function (tasks) {
     var lista = D.dedupPorTsk(tasks || []).filter(function (t) {
       var st = D.normalize(t.status);
@@ -213,19 +209,9 @@
       if (ts.every(function (t) { return emIguais[t.os]; })) return;
       mesmoEnd.push(monta({ tipo: 'mesmoEnd', end: ts[0].end, site: ts[0].site, nota: '' }, ts));
     });
-    // 3) mesmo controlador + mesmo alarme em 3+ END_IDs
-    var gc = {};
-    lista.forEach(function (t) { var c = chaveControlador(t.nota); if (!c) return; var k = c.ctrl + '|' + c.alarme; (gc[k] = gc[k] || { ctrl: c.ctrl, alarme: c.alarme, ts: [] }).ts.push(t); });
-    var controladores = [];
-    Object.keys(gc).forEach(function (k) {
-      var g = gc[k], ends = {}; g.ts.forEach(function (t) { ends[up(t.end)] = 1; });
-      if (Object.keys(ends).length < 3) return;
-      controladores.push(monta({ tipo: 'controlador', ctrl: g.ctrl, alarme: g.alarme, nEnds: Object.keys(ends).length }, g.ts));
-    });
     iguais.sort(function (a, b) { return b.tsks.length - a.tsks.length; });
     mesmoEnd.sort(function (a, b) { return b.tsks.length - a.tsks.length; });
-    controladores.sort(function (a, b) { return b.tsks.length - a.tsks.length; });
-    return { iguais: iguais, mesmoEnd: mesmoEnd, controladores: controladores, temNota: temNota, totalTsks: lista.length };
+    return { iguais: iguais, mesmoEnd: mesmoEnd, temNota: temNota, totalTsks: lista.length };
   };
 
   /* ================= textos de associação ================= */
@@ -504,30 +490,28 @@
     if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(box);
   };
 
-  /* ================= tela: associações por duplicidade / controlador ================= */
+  /* ================= tela: associações por duplicidade ================= */
   CC.renderAssociacoes = function (box, dup, A, qual) {
     var U = TRJ.ui, h = U.h, cor = A.COR;
     box.innerHTML = '';
     if (!dup.temNota) {
-      box.appendChild(h('div', { class: 'op-banner', text: 'ℹ A coluna CP (“Nota de Abertura”) ainda não está nos dados carregados. Reimporte os arquivos de atividades em “Importar dados” para habilitar as duplicidades e os eventos por controlador.' }));
+      box.appendChild(h('div', { class: 'op-banner', text: 'ℹ A coluna CP (“Nota de Abertura”) ainda não está nos dados carregados. Reimporte os arquivos de atividades em “Importar dados” para habilitar as duplicidades.' }));
     }
-    var grupos = qual === 'controlador' ? dup.controladores : (qual === 'mesmoEnd' ? dup.mesmoEnd : dup.iguais);
-    var intro = qual === 'controlador'
-      ? 'Várias TSKs de sites diferentes abertas pelo MESMO alarme do MESMO equipamento central (controlador/MME/BSC/RNC) citado na nota de abertura — por exemplo, 16 sites com “S1ap Link Down” no MME DMRJO3. Em geral é um evento só no equipamento central, e cada site abriu uma TSK. Avalie antes de associar: se a causa for única, mantenha uma TSK principal e associe as demais.'
-      : (qual === 'mesmoEnd'
-        ? 'Mais de uma TSK aberta no mesmo END_ID, mas com notas de abertura diferentes — avalie se são o mesmo evento.'
-        : 'Mesmo END_ID e a mesma nota de abertura (coluna CP): é a mesma falha duplicada. A de fim de SLA mais longo fica como principal (ganha tempo) e as demais são associadas a ela.');
+    var grupos = qual === 'mesmoEnd' ? dup.mesmoEnd : dup.iguais;
+    var intro = qual === 'mesmoEnd'
+      ? 'Mais de uma TSK aberta no mesmo END_ID, mas com notas de abertura diferentes — avalie se são o mesmo evento.'
+      : 'Mesmo END_ID e a mesma nota de abertura (coluna CP): é a mesma falha duplicada. A de fim de SLA mais longo fica como principal (ganha tempo) e as demais são associadas a ela.';
     box.appendChild(h('div', { class: 'cc-intro', text: intro }));
     if (!grupos.length) { box.appendChild(h('div', { class: 'op-empty', text: 'Nada neste radar com os filtros atuais. 👏' })); return; }
     grupos.forEach(function (g, i) {
-      var titulo = g.tipo === 'controlador' ? g.ctrl + ' · ' + g.alarme : (g.end + (g.site ? ' · ' + g.site : ''));
+      var titulo = g.end + (g.site ? ' · ' + g.site : '');
       var card = h('div', { class: 'cc-card', style: { borderLeftColor: g.tipo === 'igual' ? cor.red : cor.amber } });
       card.appendChild(h('div', { class: 'cc-top' }, [
         h('span', { class: 'cc-rank', text: '#' + (i + 1) }), h('b', { class: 'cc-nome', text: titulo }),
-        h('span', { class: 'op-tag', style: { background: g.tipo === 'igual' ? cor.red : cor.amber }, text: g.tsks.length + ' TSKs' + (g.tipo === 'controlador' ? ' em ' + g.nEnds + ' END_IDs' : '') })
+        h('span', { class: 'op-tag', style: { background: g.tipo === 'igual' ? cor.red : cor.amber }, text: g.tsks.length + ' TSKs' })
       ]));
       if (g.nota) card.appendChild(h('div', { class: 'cc-nota', title: g.nota, text: 'Nota de abertura: ' + String(g.nota).replace(/\s+/g, ' ').slice(0, 260) }));
-      card.appendChild(blocoAssoc(h, A, g.tipo + '|' + (g.end || g.ctrl) + '|' + (g.alarme || '') , g.tsks, g.principal ? g.principal.os : '', 'TSK principal'));
+      card.appendChild(blocoAssoc(h, A, g.tipo + '|' + g.end, g.tsks, g.principal ? g.principal.os : '', 'TSK principal'));
       box.appendChild(card);
     });
     if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(box);

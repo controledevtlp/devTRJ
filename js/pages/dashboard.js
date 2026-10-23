@@ -406,6 +406,7 @@
   // Best-effort: nunca trava a tela nem mostra erro pro operador, e só
   // manda de novo se algo mudou desde a última publicação.
   var _ultimoSnapshotJSON = null;
+  var _apelCache = null;   // apelidos do Controle de Retorno (CONFIG): relidos no máx. a cada 5 min
 
   // Reduz cada tarefa enriquecida ao conjunto de campos necessários para o
   // dashboard público. Inclui motivoCancelamento completo (diário de trabalho)
@@ -518,6 +519,27 @@
         }
       } catch(e) {}
 
+      // Controle de Retorno: os episódios saem do histórico de linhas das TSKs (só o painel autenticado tem), então são calculados aqui
+      // e vão enxutos no snapshot para o dashboard público e o devGERAL. Os apelidos de caminho/motivo (CONFIG da planilha) vão junto.
+      var retorno = null, retornoApelidos = null;
+      try {
+        if (TRJ.retorno && TRJ.retorno.compactar) {
+          var rr = TRJ.retorno.analisar(data.tasksEnriched || []);
+          if (rr.temCampos) retorno = TRJ.retorno.compactar(rr.eventos);
+        }
+        var apel = tryLS('trj_retorno_apelidos') || {};
+        if (!_apelCache || Date.now() - _apelCache.t > 300000) {
+          _apelCache = { t: Date.now(), v: null };
+          try {
+            var cfgR = TRJ.api && TRJ.api.getConfig ? await TRJ.api.getConfig() : null;
+            var rawA = cfgR && cfgR.config && cfgR.config.retorno_apelidos;
+            if (rawA) _apelCache.v = JSON.parse(rawA);
+          } catch (e) {}
+        }
+        if (_apelCache.v) apel = Object.assign({}, apel, _apelCache.v);
+        if (Object.keys(apel).length) retornoApelidos = apel;
+      } catch (e) {}
+
       var payload = {
         tasksEnriched:     (data.tasksEnriched || []).map(slimTaskForPublish),
         concentradores:    concentradores,
@@ -527,7 +549,9 @@
         mapaMarkersSlim:   mapaMarkersSlim,
         mapaMwSlim:        mwSlim,
         mapaFoSlim:        foSlim,
-        prodHistory:       prodHistory
+        prodHistory:       prodHistory,
+        retorno:           retorno,                    // Controle de Retorno (formato enxuto de TRJ.retorno.compactar)
+        retornoApelidos:   retornoApelidos
       };
       var jsonStr = JSON.stringify(payload);
       if (jsonStr === _ultimoSnapshotJSON) return;

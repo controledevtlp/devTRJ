@@ -89,16 +89,23 @@
 
   TRJ.pages.controleRetorno = function (container, ctx) {
     var data = ctx.data, app = ctx.app;
+    /* publico = dashboard público: recebe os episódios já calculados pelo painel (data.retornoRes), só leitura (sem aba de nomes nem balão de TSK) */
+    var publico = !!ctx.publico;
     if (!data) { container.appendChild(h('div', { class: 'trj-card p-6', text: 'Sem dados carregados.' })); return; }
+    if (publico && !data.retornoRes) { container.appendChild(h('div', { class: 'op-empty', text: 'O controle de retorno ainda não foi publicado. Abra o Dashboard no painel principal (com os arquivos de atividades importados) para publicar.' })); return; }
     function rerender() { reRenderMantendoRolagem(app); }
-    carregaApelidos(function () { if (location.hash === '#/controle-retorno') reRenderMantendoRolagem(app); });
-    if (TRJ.tipTsk && TRJ.tipTsk.instalarAuth) TRJ.tipTsk.instalarAuth(data, app, copiar);
+    if (publico) APEL = Object.assign({}, data.retornoApelidos || {});
+    else {
+      carregaApelidos(function () { if (location.hash === '#/controle-retorno') reRenderMantendoRolagem(app); });
+      if (TRJ.tipTsk && TRJ.tipTsk.instalarAuth) TRJ.tipTsk.instalarAuth(data, app, copiar);
+    }
     V = VOC[state.tipo] || VOC.TODOS;
     if (state.dim === 'tipo' && state.tipo !== 'TODOS') state.dim = 'caminho';
     if (state.aba === 'suspensas') state.aba = 'agora';
 
-    if (ROLAGEM.hash === location.hash && ROLAGEM.top) restauraRolagem();      // redesenho vindo de fora (ex.: importação): volta para onde você estava
-    var res = R.analisar(data.tasksEnriched), todos = res.eventos, agora = new Date();
+    if (!publico && ROLAGEM.hash === location.hash && ROLAGEM.top) restauraRolagem();      // redesenho vindo de fora (ex.: importação): volta para onde você estava
+    var res = publico ? data.retornoRes : R.analisar(data.tasksEnriched), todos = res.eventos, agora = new Date();
+    if (publico && state.aba === 'nomes') state.aba = 'agora';
     function noPeriodo(e) {
       var d = refData(e); if (!d || state.periodo === 'tudo') return true;
       if (state.periodo === 'hoje') return mesmoDia(d, agora);
@@ -127,8 +134,10 @@
     var chTipo = chips([['TODOS', 'Suspensões + tramitações'], ['SUSPENSAO', 'Só suspensões'], ['TRAMITACAO', 'Só tramitações']], function (v) { return state.tipo === v; }, function (v) { state.tipo = v; });
     var chPer = chips([['hoje', 'Hoje'], ['24h', '24 h'], ['7d', '7 dias'], ['tudo', 'Todo o período']], function (v) { return state.periodo === v; }, function (v) { state.periodo = v; });
     var chPrio = chips([['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3'], ['P4', 'P4'], ['P5', 'P5']], function (v) { return state.prios.indexOf(v) >= 0; }, function (v) { var i = state.prios.indexOf(v); if (i >= 0) state.prios.splice(i, 1); else state.prios.push(v); });
-    var live = h('span', { class: 'cr-live', title: 'A página só muda quando você pede ou quando os arquivos são reimportados' }, [h('button', { type: 'button', class: 'op-btn', text: '↻ Atualizar', onclick: function () { rerender(); } }), 'dados de ' + agora.toLocaleTimeString('pt-BR')]);
-    container.appendChild(U.pageHeader('Controle de Retorno', V.sub, h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg, selOp, chTipo, chPer, chPrio, live])));
+    var live = h('span', { class: 'cr-live', title: publico ? 'Dados publicados pelo painel principal; a página confere sozinha a cada minuto se saiu publicação nova' : 'A página só muda quando você pede ou quando os arquivos são reimportados' },
+      [h('button', { type: 'button', class: 'op-btn', text: '↻ Atualizar', onclick: function () { if (publico && app.refresh) app.refresh(); else rerender(); } }),
+        publico && data.publicadoEm ? 'publicado em ' + new Date(data.publicadoEm).toLocaleString('pt-BR') : 'dados de ' + agora.toLocaleTimeString('pt-BR')]);
+    container.appendChild(U.pageHeader('Controle de Retorno', V.sub, h('div', { class: 'flex items-center gap-2 flex-wrap' }, [publico && data.regiaoFixa ? null : selReg, selOp, chTipo, chPer, chPrio, live])));
 
     if (!res.temCampos) container.appendChild(h('div', { class: 'op-banner', text: 'ℹ Os dados carregados ainda não trazem as colunas de suspensão (Responsabilidade, Sub área, Nota de Suspensão, Data/Hora de Reinício…). Reimporte os arquivos de atividades em “Importar dados” para preencher caminho, motivo e previsão de retorno.' }));
     if (!todos.length) { container.appendChild(h('div', { class: 'op-empty', text: 'Nenhuma suspensão ou tramitação encontrada nos arquivos carregados.' })); return; }
@@ -204,7 +213,7 @@
     var abas = [
       ['agora', V.agora, fora.length], ['retornos', 'Retornos à fila', ret.length],
       ['operadores', 'Ranking de operadores', null], ['nomes', 'Nomes dos caminhos', Object.keys(res.catalogo.caminho).length + Object.keys(res.catalogo.motivo).length]
-    ];
+    ].filter(function (a) { return !(publico && a[0] === 'nomes'); });
     container.appendChild(h('div', { class: 'op-tabs', style: { marginBottom: '10px' } }, abas.map(function (a) {
       return h('button', { type: 'button', class: 'op-tab' + (state.aba === a[0] ? ' active' : ''), onclick: function () { state.aba = a[0]; rerender(); } }, [a[1], a[2] != null ? h('span', { class: 'n', text: String(a[2]) }) : null]);
     })));
