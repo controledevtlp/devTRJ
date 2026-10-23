@@ -40,7 +40,10 @@
   /* escolhas conhecidas (as que o Lucas listou); o que não estiver aqui aparece como NOVO para receber um nome */
   var CONHECIDOS = {
     caminho: ['Gestão de Acesso > Gestão de Acesso', 'iSOC > FIELD', 'iSOC > ACESSO', 'iSOC > ACESSO BA', 'iSOC > SOM', 'iSOC > REDE METRO', 'Parceira de Campo > Retorno Centralizado', 'Outro Contrato > FIBRA_TXX'],
-    motivo: ['Restrição de Acesso', 'GMG Ativo no site', 'Condições Climáticas', 'Atividade em Torre', 'Área de Risco', 'Aguardando Sobressalente'],
+    motivo: ['Restrição de Acesso', 'GMG Ativo no site', 'Condições Climáticas', 'Atividade em Torre', 'Área de Risco', 'Aguardando Sobressalente',
+      // Motivo da Suspensão (GJ) do caminho iSOC > FIELD > FIELD
+      'ATIVIDADE TORRE HORÁRIO NOTURNO', 'Acesso ETD', 'Aguardando terceiros / Chave', 'Anatel - Greve', 'Anatel - Impedimento de Acesso (Segurança Pública)', 'DESLOCAMENTO DE GMG', 'DESLOCAMENTO DE SOBRESSALENTE',
+      'ELABORAÇÃO DE ORÇAMENTO', 'FALHA DE ENERGIA CONCESSIONÁRIA', 'GMG ATIVO NO SITE', 'INTEMPÉRIE CLIMATICA', 'RECUPERAÇÃO DE VANDALISMO', 'RESTRIÇÃO DE ACESSO', 'ÁREA DE RISCO'],
     tram: ['Tramitação autorizada', 'Ausência de sinal TX alugada', 'Atividade de implantação', 'Acesso depende de ação do Layer'],
     area: ['Acesso', 'FIELD', 'FMO', 'Gestão de Acesso', 'Retorno Centralizado', 'Transporte']
   };
@@ -55,43 +58,67 @@
     ENCERRADA: { rot: 'Encerrada suspensa', cor: '#6b7280' }
   };
 
+  /* iSOC > FIELD > FIELD (Responsabilidade > Sub área > Área) = SUSPENSÃO; qualquer outro caminho = TRAMITAÇÃO */
+  function ehSuspensao(dk, dv, area) { return sa(dk) === 'ISOC' && sa(dv) === 'FIELD' && sa(area) === 'FIELD'; }
+  R.TIPOS = { SUSPENSAO: { rot: 'Suspensão (iSOC > FIELD > FIELD)', cor: '#7d3c98' }, TRAMITACAO: { rot: 'Tramitação', cor: '#1f6fb5' } };
+  /* tempo até voltar para a fila */
+  R.FAIXAS = [['inst', 'Instantâneo (até 5 min)', 5], ['1h', 'Até 1 h', 60], ['4h', '1 a 4 h', 240], ['12h', '4 a 12 h', 720], ['24h', '12 a 24 h', 1440], ['mais', 'Mais de 24 h', Infinity]];
+  R.faixaDe = function (min) { if (min == null) return null; for (var i = 0; i < R.FAIXAS.length; i++) if (min <= R.FAIXAS[i][2]) return R.FAIXAS[i][0]; return 'mais'; };
+
   R.analisar = function (tasks) {
     var now = Date.now(), por = {};
     (tasks || []).forEach(function (t) { var k = up(t.osNumero); if (k) (por[k] = por[k] || []).push(t); });
-    var eventos = [], temCampos = false, catalogo = { caminho: {}, motivo: {}, tram: {}, area: {} };
+    var eventos = [], temCampos = false, inferidas = 0, catalogo = { caminho: {}, motivo: {}, tram: {}, area: {} };
     function reg(tipo, valor) { if (!valor) return; var c = catalogo[tipo][valor] || (catalogo[tipo][valor] = { n: 0, novo: !R.conhecido(tipo, valor) }); c.n++; }
+    function txt(v) { return String(v == null ? '' : v).trim(); }
+    function temCampoSusp(r) { return !!(txt(r.responsabilidade) || txt(r.subArea) || txt(r.areaSusp) || txt(r.motivoSuspensao) || txt(r.notaSuspensao) || txt(r.dataReinicio)); }
+    function assinatura(r) { return [txt(r.responsabilidade), txt(r.subArea), txt(r.areaSusp), txt(r.motivoSuspensao), txt(r.notaSuspensao), txt(r.dataReinicio)].join('|'); }
+
     Object.keys(por).forEach(function (k) {
       var rows = por[k].slice().sort(function (a, b) { return (Number(a.sequenciaId) || 0) - (Number(b.sequenciaId) || 0); });
       if (!D.isTicketCorretiva(rows[rows.length - 1].tipoAtividade)) return;
       var prioFallback = ''; rows.forEach(function (r) { if (r.prioridade) prioFallback = up(r.prioridade); });
-      for (var i = 0; i < rows.length; i++) {
-        if (D.normalize(rows[i].status) !== 'PENDENTE') continue;
-        if (i > 0 && D.normalize(rows[i - 1].status) === 'PENDENTE') continue;      // continuação da mesma suspensão
-        var j = i; while (j + 1 < rows.length && D.normalize(rows[j + 1].status) === 'PENDENTE') j++;
-        var p = rows[j], ini = parseDt(rows[i].dataCriacao) || parseDt(p.dataCriacao), nxt = rows[j + 1] || null;
-        var dk = String(p.responsabilidade || '').trim(), dv = normDV(p.subArea);
+      var last = rows[rows.length - 1];
+
+      /* monta o episódio: ri = 1ª linha da suspensão · rp = linha com as escolhas · nxt = linha seguinte · inst = suspensão que já aparece como "voltou" na própria linha */
+      function evento(ri, rp, nxt, inf) {
+        var ini = inf ? null : (parseDt(ri.dataCriacao) || parseDt(rp.dataCriacao)), dk = txt(rp.responsabilidade), dv = normDV(rp.subArea), area = txt(rp.areaSusp);
         var caminho = (dk || dv) ? (dk && dv ? dk + ' > ' + dv : (dk || dv)) : '(sem caminho)';
-        if (dk || dv || p.areaSusp || p.notaSuspensao || p.dataReinicio) temCampos = true;
-        var prev = parseDt(p.dataReinicio), quem = pessoa(p.quemEncerrou), classe, ret = null, retPor = null, st = nxt ? D.normalize(nxt.status) : '';
-        if (nxt && (st === 'NAO INICIADO' || st === 'INICIADO')) {
-          ret = parseDt(nxt.dataCriacao); retPor = pessoa(nxt.quemEncerrou);
-          classe = prev ? ((ret && ret.getTime() < prev.getTime() - 60000) ? 'ANTECIPADO' : 'NO_PRAZO') : 'SEM_PREVISAO';
-        } else if (nxt) classe = 'ENCERRADA'; else classe = 'SUSPENSA';
-        var last = rows[rows.length - 1], fimMs = ret ? ret.getTime() : now;
+        if (temCampoSusp(rp) || rp.dataReinicio || rp.notaSuspensao) temCampos = true;
+        var prev = parseDt(rp.dataReinicio), quem = pessoa(rp.quemEncerrou), classe, ret = null, retPor = null, st = nxt ? D.normalize(nxt.status) : '';
+        if (inf) { ret = parseDt(ri.dataCriacao); retPor = quem; quem = { nome: '(início não identificado)', sistema: false }; }
+        else if (nxt && (st === 'NAO INICIADO' || st === 'INICIADO')) { ret = parseDt(nxt.dataCriacao); retPor = pessoa(nxt.quemEncerrou); }
+        if (ret) classe = prev ? ((ret.getTime() < prev.getTime() - 60000) ? 'ANTECIPADO' : 'NO_PRAZO') : 'SEM_PREVISAO';
+        else classe = nxt ? 'ENCERRADA' : 'SUSPENSA';
+        var motivo = txt(rp.motivoSuspensao) || txt(rp.notaSuspensao), fimMs = ret ? ret.getTime() : now;
+        var susMin = ini ? Math.round((fimMs - ini.getTime()) / 60000) : null;
+        var tipo = ehSuspensao(dk, dv, area) ? 'SUSPENSAO' : ((!dk && !dv && !area && (R.conhecido('motivo', motivo) || R.conhecido('motivo', txt(rp.notaSuspensao)))) ? 'SUSPENSAO' : 'TRAMITACAO');
         eventos.push({
-          os: rows[i].osNumero, site: p.siteId || last.siteId || '', end: p.enderecoId || last.enderecoId || '', regiao: p.regiao || last.regiao || 'OTHERS',
-          prio: up(p.prioridade) || prioFallback || '—', caminho: caminho, dk: dk, dv: dv, area: String(p.areaSusp || '').trim(), motivo: String(p.notaSuspensao || '').trim(),
-          tram: String(p.motivoTramitacao || '').trim(), quem: quem.nome, quemSistema: quem.sistema, inicio: ini, previsto: prev, retorno: ret, retornoPor: retPor ? retPor.nome : '', retornoSistema: retPor ? retPor.sistema : false,
-          classe: classe, deltaMin: prev && ret ? Math.round((prev.getTime() - ret.getTime()) / 60000) : null,
-          suspensaMin: ini ? Math.round((fimMs - ini.getTime()) / 60000) : null,
-          vencidoSemRetorno: classe === 'SUSPENSA' && !!prev && prev.getTime() < now,
-          statusAtual: last.status || '', fila: last.filaAtual || ''
+          os: ri.osNumero, site: rp.siteId || last.siteId || '', end: rp.enderecoId || last.enderecoId || '', regiao: rp.regiao || last.regiao || 'OTHERS',
+          prio: up(rp.prioridade) || prioFallback || '—', tipo: tipo, origem: inf ? 'inferida' : 'historico', caminho: caminho, dk: dk, dv: dv, area: area,
+          motivo: motivo, nota: txt(rp.notaSuspensao), tram: txt(rp.motivoTramitacao), quem: quem.nome, quemSistema: quem.sistema, inicio: ini, previsto: prev, retorno: ret,
+          retornoPor: retPor ? retPor.nome : '', retornoSistema: retPor ? retPor.sistema : false, classe: classe,
+          deltaMin: prev && ret ? Math.round((prev.getTime() - ret.getTime()) / 60000) : null, suspensaMin: susMin, faixa: ret ? R.faixaDe(susMin) : null,
+          vencidoSemRetorno: classe === 'SUSPENSA' && !!prev && prev.getTime() < now, statusAtual: last.status || '', fila: last.filaAtual || ''
         });
-        reg('caminho', caminho === '(sem caminho)' ? '' : caminho); reg('motivo', String(p.notaSuspensao || '').trim()); reg('tram', String(p.motivoTramitacao || '').trim()); reg('area', String(p.areaSusp || '').trim());
+        reg('caminho', caminho === '(sem caminho)' ? '' : caminho); reg('motivo', motivo); reg('tram', txt(rp.motivoTramitacao)); reg('area', area);
+      }
+
+      for (var i = 0; i < rows.length; i++) {
+        var st0 = D.normalize(rows[i].status), antes = i > 0 ? D.normalize(rows[i - 1].status) : '';
+        if (st0 !== 'PENDENTE') {
+          // a linha já está em Não iniciado/Iniciado mas carrega a nota/previsão/escolhas de uma suspensão (sem linha "pendente" antes no arquivo):
+          // a suspensão já aconteceu e a TSK voltou para a fila — conta uma vez (ignora repetição da mesma nota nas linhas seguintes)
+          if ((st0 === 'NAO INICIADO' || st0 === 'INICIADO') && antes !== 'PENDENTE' && temCampoSusp(rows[i]) && !(i > 0 && assinatura(rows[i - 1]) === assinatura(rows[i]))) { inferidas++; evento(rows[i], rows[i], null, true); }
+          continue;
+        }
+        if (antes === 'PENDENTE') continue;                                        // continuação da mesma suspensão
+        var j = i; while (j + 1 < rows.length && D.normalize(rows[j + 1].status) === 'PENDENTE') j++;
+        evento(rows[i], rows[j], rows[j + 1] || null, false);
         i = j;
       }
     });
     eventos.sort(function (a, b) { return ((b.retorno || b.inicio || 0) - (a.retorno || a.inicio || 0)); });
-    return { eventos: eventos, temCampos: temCampos, catalogo: catalogo };
+    return { eventos: eventos, temCampos: temCampos, catalogo: catalogo, inferidas: inferidas };
   };
 })(window.TRJ = window.TRJ || {});

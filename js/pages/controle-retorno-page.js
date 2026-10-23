@@ -4,7 +4,7 @@
   TRJ.pages = TRJ.pages || {};
   var U = TRJ.ui, C = TRJ.constants, D = TRJ.domain, R = TRJ.retorno, h = U.h;
   var CL = R.CLASSES;
-  var state = { regiao: 'TODAS', prios: [], op: 'TODAS', periodo: 'tudo', horaBase: 'retorno', aba: 'suspensas', classe: 'TODAS' };
+  var state = { regiao: 'TODAS', prios: [], op: 'TODAS', periodo: 'tudo', horaBase: 'retorno', aba: 'suspensas', classe: 'TODAS', tipo: 'TODOS' };
   var timer = null, APEL = null, apelCarregando = false;
   var LS_APEL = 'trj_retorno_apelidos';
 
@@ -67,6 +67,7 @@
       if (state.regiao !== 'TODAS' && e.regiao !== state.regiao) return false;
       if (state.prios.length && state.prios.indexOf(e.prio) < 0) return false;
       if (!semOp && state.op !== 'TODAS' && e.quem !== state.op) return false;
+      if (state.tipo !== 'TODOS' && e.tipo !== state.tipo) return false;
       return noPeriodo(e);
     }
     var ev = todos.filter(function (e) { return passa(e); });
@@ -80,22 +81,23 @@
     function chips(opcoes, ativoFn, clique) {
       return h('div', { class: 'cr-chips' }, opcoes.map(function (o) { return h('button', { type: 'button', class: 'op-chip' + (ativoFn(o[0]) ? ' on' : ''), text: o[1], onclick: function () { clique(o[0]); app.render(); } }); }));
     }
+    var chTipo = chips([['TODOS', 'Suspensões + tramitações'], ['SUSPENSAO', 'Só suspensões'], ['TRAMITACAO', 'Só tramitações']], function (v) { return state.tipo === v; }, function (v) { state.tipo = v; });
     var chPer = chips([['hoje', 'Hoje'], ['24h', '24 h'], ['7d', '7 dias'], ['tudo', 'Todo o período']], function (v) { return state.periodo === v; }, function (v) { state.periodo = v; });
     var chPrio = chips([['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3'], ['P4', 'P4'], ['P5', 'P5']], function (v) { return state.prios.indexOf(v) >= 0; }, function (v) { var i = state.prios.indexOf(v); if (i >= 0) state.prios.splice(i, 1); else state.prios.push(v); });
     var live = h('span', { class: 'cr-live', title: 'A página se atualiza a cada 30 s e sempre que os arquivos são reimportados' }, [h('i'), 'ao vivo · ' + agora.toLocaleTimeString('pt-BR')]);
-    container.appendChild(U.pageHeader('Controle de Retorno', 'Tudo o que foi suspenso ou tramitado e voltou para a fila — antes do planejado ou não', h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg, selOp, chPer, chPrio, live])));
+    container.appendChild(U.pageHeader('Controle de Retorno', 'Tudo o que foi suspenso ou tramitado e voltou para a fila — antes do planejado ou não', h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg, selOp, chTipo, chPer, chPrio, live])));
 
     if (!res.temCampos) container.appendChild(h('div', { class: 'op-banner', text: 'ℹ Os dados carregados ainda não trazem as colunas de suspensão (Responsabilidade, Sub área, Nota de Suspensão, Data/Hora de Reinício…). Reimporte os arquivos de atividades em “Importar dados” para preencher caminho, motivo e previsão de retorno.' }));
     if (!todos.length) { container.appendChild(h('div', { class: 'op-empty', text: 'Nenhuma suspensão encontrada nos arquivos carregados.' })); return; }
 
     /* ---------- drill ---------- */
-    function textoCopia(lista) { return lista.map(function (e) { return [e.quem, e.os, e.site, e.prio, nomeDe('caminho', e.caminho), CL[e.classe].rot + (e.classe === 'ANTECIPADO' ? ' ' + durTxt(e.deltaMin) : '')].join(' · '); }).join('\n'); }
+    function textoCopia(lista) { return lista.map(function (e) { return [R.TIPOS[e.tipo].rot, e.quem, e.os, e.site, e.prio, nomeDe('caminho', e.caminho), CL[e.classe].rot + (e.classe === 'ANTECIPADO' ? ' ' + durTxt(e.deltaMin) : '')].join(' · '); }).join('\n'); }
     function drill(titulo, lista) { U.openModal(titulo + ' — ' + lista.length, lista.length ? tabelaEventos(lista, true) : h('div', { class: 'op-empty', text: 'Nada aqui.' }), { onCopy: function () { return textoCopia(lista); } }); }
 
     /* ---------- KPIs ---------- */
     var susp = ev.filter(function (e) { return e.classe === 'SUSPENSA'; }), venc = susp.filter(function (e) { return e.vencidoSemRetorno; });
     var ant = ev.filter(function (e) { return e.classe === 'ANTECIPADO'; }), semp = ev.filter(function (e) { return e.classe === 'SEM_PREVISAO'; }), nop = ev.filter(function (e) { return e.classe === 'NO_PRAZO'; });
-    var ret = ev.filter(function (e) { return e.retorno; }), medMin = ret.length ? Math.round(ret.reduce(function (a, e) { return a + (e.suspensaMin || 0); }, 0) / ret.length) : null;
+    var ret = ev.filter(function (e) { return e.retorno; }), comTempo = ret.filter(function (e) { return e.suspensaMin != null; }), medMin = comTempo.length ? Math.round(comTempo.reduce(function (a, e) { return a + e.suspensaMin; }, 0) / comTempo.length) : null;
     var comAw = ant.length + nop.length, ultHora = ret.filter(function (e) { return agora - e.retorno <= 3600000; });
     var kpis = [
       { l: 'Suspensas agora', v: susp.length, c: '#1f6fb5', lista: susp, t: 'Suspensas agora' },
@@ -109,6 +111,8 @@
     container.appendChild(h('div', { class: 'grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-3' }, kpis.map(function (k) {
       return U.kpiCard({ label: k.l, value: String(k.v), cor: k.c, onClick: function () { drill(k.t, k.lista); } });
     })));
+    var nSus = ev.filter(function (e) { return e.tipo === 'SUSPENSAO'; }).length;
+    container.appendChild(h('div', { class: 'cr-nota', html: '<b>' + nSus + '</b> suspensão(ões) (caminho iSOC &gt; FIELD &gt; FIELD) e <b>' + (ev.length - nSus) + '</b> tramitação(ões) no filtro.' + (res.inferidas ? ' <b>' + res.inferidas + '</b> suspensão(ões) identificada(s) só pela nota/previsão em linhas já de volta à fila (sem linha “pendente” no arquivo — início e quem suspendeu não aparecem).' : '') }));
     if (comAw) container.appendChild(h('div', { class: 'cr-nota', html: '<b>' + Math.round(ant.length / comAw * 100) + '%</b> dos retornos com data prevista voltaram antes (' + ant.length + ' de ' + comAw + '). ' + semp.length + ' retorno(s) não tinham data de reinício — só é possível conferir os que têm.' }));
 
     /* ---------- gráficos ---------- */
@@ -145,11 +149,14 @@
     var ccOp = graficoDim('Por operador (quem suspendeu)', function (e) { return e.quem; }, null, { horizontal: true, top: 14 });
     var ccCam = graficoDim('Por caminho escolhido (1ª > 2ª escolha)', function (e) { return e.caminho; }, function (k) { return nomeDe('caminho', k); }, { horizontal: true });
     var ccMot = graficoDim('Por motivo da suspensão', function (e) { return e.motivo || e.tram || '(sem motivo)'; }, function (k) { return nomeDe('motivo', k); }, { horizontal: true });
+    var ccTempo = graficoDim('Tempo até o retorno à fila', function (e) { return e.faixa; }, function (k) { var f = R.FAIXAS.filter(function (x) { return x[0] === k; })[0]; return f ? f[1] : k; }, { classes: ORDEM.slice(0, 3), top: 8, ordemChave: function (a, b) { var o = R.FAIXAS.map(function (x) { return x[0]; }); return o.indexOf(a) - o.indexOf(b); } });
+    var ccTipo = graficoDim('Suspensão x tramitação', function (e) { return e.tipo; }, function (k) { return R.TIPOS[k].rot; }, { top: 3 });
     var ccPrio = graficoDim('Por prioridade', function (e) { return e.prio; }, null, { ordemChave: function (a, b) { return a < b ? -1 : 1; }, top: 6 });
     var ccReg = graficoDim('Por região', function (e) { return e.regiao; }, regLabel, { top: 10 });
-    [ccHora, ccClasse, ccOp, ccCam, ccMot, ccPrio, ccReg].forEach(function (cc) { grid.appendChild(cc.card); });
+    var TODOS_CC = [ccHora, ccClasse, ccTempo, ccTipo, ccOp, ccCam, ccMot, ccPrio, ccReg];
+    TODOS_CC.forEach(function (cc) { grid.appendChild(cc.card); });
     container.appendChild(grid);
-    [ccHora, ccClasse, ccOp, ccCam, ccMot, ccPrio, ccReg].forEach(function (cc) { try { cc.canvas.__draw(); } catch (e) { console.error(e); } });
+    TODOS_CC.forEach(function (cc) { try { cc.canvas.__draw(); } catch (e) { console.error(e); } });
 
     /* ---------- tabelas ---------- */
     var abas = [
@@ -175,7 +182,7 @@
 
   /* ---------- tabela de eventos ---------- */
   function tabelaEventos(lista, mostraRetorno, mostraPrevisao) {
-    var cols = ['Operador', 'TSK', 'Site', 'Prio', 'Região', 'Caminho', 'Motivo', 'Suspensa em'];
+    var cols = ['Tipo', 'Operador', 'TSK', 'Site', 'Prio', 'Região', 'Caminho', 'Motivo', 'Suspensa em'];
     if (mostraPrevisao) cols = cols.concat(['Suspensa há', 'Retorno previsto']);
     else cols = cols.concat(['Previsto (AW)', 'Retornou em', 'Retornou por', 'Tempo suspensa', 'Situação']);
     var tab = h('table', { class: 'trj-table cc-tab' });
@@ -183,7 +190,7 @@
     var tb = h('tbody'); tab.appendChild(tb);
     lista.slice(0, 600).forEach(function (e) {
       var cels = [
-        h('td', { text: e.quem }), h('td', null, [h('span', { class: 'op-tsk', dataset: { os: e.os }, text: e.os })]), h('td', { text: e.site || '', title: 'END_ID ' + e.end }),
+        h('td', null, [tag(e.tipo === 'SUSPENSAO' ? 'SUSPENSÃO' : 'TRAMITAÇÃO', R.TIPOS[e.tipo].cor, R.TIPOS[e.tipo].rot), e.origem === 'inferida' ? tag('INFERIDA', '#6b7280', 'Sem linha pendente no arquivo: identificada pela nota/previsão de suspensão numa linha já em Não iniciado/Iniciado. Início e quem suspendeu não aparecem.') : null]), h('td', { text: e.quem }), h('td', null, [h('span', { class: 'op-tsk', dataset: { os: e.os }, text: e.os })]), h('td', { text: e.site || '', title: 'END_ID ' + e.end }),
         h('td', { text: e.prio }), h('td', { text: regLabel(e.regiao) }), h('td', { text: nomeDe('caminho', e.caminho), title: e.caminho }),
         h('td', { text: nomeDe('motivo', e.motivo || e.tram || ''), title: [e.motivo, e.tram, e.area].filter(Boolean).join(' · ') }), h('td', { text: fmtDt(e.inicio) })
       ];
@@ -220,7 +227,7 @@
 
   /* ---------- nomes dos caminhos / motivos (os não listados aparecem como NOVO) ---------- */
   function painelNomes(cat, app) {
-    var tipos = [['caminho', 'Caminho (1ª > 2ª escolha)'], ['motivo', 'Motivo da suspensão'], ['tram', '3ª escolha (motivo da tramitação)'], ['area', 'Área']], linhas = [];
+    var tipos = [['caminho', 'Caminho (1ª > 2ª escolha)'], ['motivo', 'Motivo da suspensão / nota'], ['tram', '3ª escolha (motivo da tramitação)'], ['area', 'Área']], linhas = [];
     tipos.forEach(function (t) { Object.keys(cat[t[0]]).forEach(function (v) { linhas.push({ tipo: t[0], rot: t[1], valor: v, n: cat[t[0]][v].n, novo: cat[t[0]][v].novo }); }); });
     linhas.sort(function (a, b) { return (b.novo - a.novo) || (b.n - a.n); });
     var tab = h('table', { class: 'trj-table cc-tab' });
