@@ -35,6 +35,8 @@
 <script src="js/pages/pesquisa.js"></script>
 <script src="js/pages/produtividade.js"></script>
 <script src="js/pages/atualizacoes.js"></script>
+<script src="js/data/topologia-trj.js"></script>
+<script src="js/causa-comum.js"></script>
 <script src="js/retorno.js"></script>
 <script src="js/pages/controle-retorno-page.js"></script>
 <script src="js/data/mapa-enlaces.js"></script>
@@ -956,6 +958,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     { id: 'produtividade', label: 'Produtividade' },
     { id: 'atualizacoes',  label: 'Atualizações' },
     { id: 'retorno',       label: 'Controle de Retorno' },
+    { id: 'causa',         label: 'Causa Comum' },
     { id: 'sitesfora',     label: 'Sites Fora' },
     { id: 'sla',           label: 'SLA' }
   ];
@@ -963,6 +966,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
   function buildTabBar(activeId) {
     var bar = U.h('div', { class: 'pub-tabs-bar' });
     PUB_TABS.forEach(function (tab) {
+      if (tab.id === 'causa' && !(TRJ.causaComum && TRJ.causaComum.disponivel())) return;      // só onde há diagrama de topologia carregado
       var btn = U.h('button', {
         class: 'pub-tab' + (activeId === tab.id ? ' active' : ''),
         text: tab.label,
@@ -1046,6 +1050,14 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       TRJ.pages.atualizacoes(tabContent, ctx);
     } else if (tabId === 'sitesfora' && TRJ.pages && TRJ.pages.sitesFora) {
       TRJ.pages.sitesFora(tabContent, ctx);
+    } else if (tabId === 'causa' && TRJ.causaComum && TRJ.causaComum.disponivel()) {
+      // Causa comum (pontos comuns de falha pela topologia): mesmo cálculo e mesma tela da aba do link do operador; respeita a região escolhida
+      var resCausa = TRJ.causaComum.analisar(TRJ.causaComum.gruposSites(rawFiltrado));
+      var caixaCausa = U.h('div', { class: 'cc-box' }); tabContent.appendChild(caixaCausa);
+      TRJ.causaComum.render(caixaCausa, resCausa, {
+        COR: { red: '#c62839', amber: '#d68910', green: '#168a47', blue: '#1f6fb5', purple: '#7d3c98', gray: '#6b7280', orange: '#b85a00' },
+        copiar: function (txt, msg) { U.copyText(txt, msg); }
+      });
     } else if (tabId === 'retorno' && TRJ.pages && TRJ.pages.controleRetorno) {
       var regFixa = state.regiao && state.regiao !== 'TODAS';
       var evR = raw.retornoCompacto && TRJ.retorno ? TRJ.retorno.expandir(raw.retornoCompacto) : null;
