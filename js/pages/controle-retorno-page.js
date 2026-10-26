@@ -6,7 +6,9 @@
   TRJ.pages = TRJ.pages || {};
   var U = TRJ.ui, C = TRJ.constants, D = TRJ.domain, R = TRJ.retorno, h = U.h;
   var CL = R.CLASSES;
-  var state = { regiao: 'TODAS', prios: [], op: 'TODAS', periodo: 'tudo', aba: 'retornos', classe: 'TODAS', tipo: 'TODOS', dim: 'caminho' };
+  var state = { regioes: [], grupo: 'TODAS', prios: [], op: 'TODAS', periodo: 'tudo', aba: 'retornos', classe: 'TODAS', tipo: 'TODOS', dim: 'caminho' };
+  /* FIXA / MÓVEL = regra criadora (coluna DJ) classificada com as regras do operador (TRJ.operador); null = regra não reconhecida */
+  function grupoDe(e) { var OP = TRJ.operador; return OP && OP.classificar && e.dj ? OP.classificar(e.dj).grupo || null : null; }
   var APEL = null, apelCarregando = false;
   var LS_APEL = 'trj_retorno_apelidos';
 
@@ -89,6 +91,7 @@
     ['motivo', 'Motivo', chaveMotivo, function (k) { var raw = MOT_DISP[k] || k; return nomeDe(R.ehMotivoSusp(raw) ? 'motivo' : 'tram', raw); }, { horizontal: true, top: 12 }],
     ['prio', 'Prioridade', function (e) { return e.prio; }, null, { top: 6, ordem: function (a, b) { return a < b ? -1 : 1; } }],
     ['regiao', 'Região', function (e) { return e.regiao; }, regLabel, { top: 10 }],
+    ['grupo', 'Fixa x Móvel', function (e) { return grupoDe(e) || 'SEM'; }, function (k) { return k === 'FIXA' ? 'FIXA' : (k === 'MOVEL' ? 'MÓVEL' : 'Sem regra'); }, { top: 3 }],
     ['tipo', 'Suspensão x tramitação', function (e) { return e.tipo; }, function (k) { return R.TIPOS[k].rot; }, { top: 3, soTodos: true }]
   ];
 
@@ -104,7 +107,7 @@
       carregaApelidos(function () { if (location.hash === '#/controle-retorno') reRenderMantendoRolagem(app); });
       if (TRJ.tipTsk && TRJ.tipTsk.instalarAuth) TRJ.tipTsk.instalarAuth(data, app, copiar);
     }
-    instalaCopiaTsk();
+    if (!ctx.operador) instalaCopiaTsk();          // no link do operador o clique na TSK já copia (e abre o balão) pelo próprio operador.js
     V = VOC[state.tipo] || VOC.TODOS;
     if (state.dim === 'tipo' && state.tipo !== 'TODOS') state.dim = 'caminho';
     if (state.dim === 'tempo') state.dim = 'caminho';
@@ -121,31 +124,37 @@
       if (state.periodo === '7d') return agora - d <= 7 * 24 * 3600000;
       return true;
     }
-    function passa(e, semOp) {
-      if (state.regiao !== 'TODAS' && e.regiao !== state.regiao) return false;
+    function passa(e, semOp, semReg) {
+      if (!semReg && state.regioes.length && state.regioes.indexOf(e.regiao || 'OTHERS') < 0) return false;
+      if (state.grupo !== 'TODAS' && grupoDe(e) !== state.grupo) return false;
       if (state.prios.length && state.prios.indexOf(e.prio) < 0) return false;
       if (!semOp && state.op !== 'TODAS' && e.quem !== state.op) return false;
       if (state.tipo !== 'TODOS' && e.tipo !== state.tipo) return false;
       return noPeriodo(e);
     }
     var ev = todos.filter(function (e) { return passa(e); });
+    var porReg = {}; todos.filter(function (e) { return passa(e, false, true); }).forEach(function (e) { var r = e.regiao || 'OTHERS'; porReg[r] = (porReg[r] || 0) + 1; });
     var operadores = {}; todos.filter(function (e) { return passa(e, true); }).forEach(function (e) { operadores[e.quem] = (operadores[e.quem] || 0) + 1; });
 
     /* ---------- cabeçalho / filtros ---------- */
-    var selReg = h('select', { class: 'trj-select', style: { width: 'auto' }, onchange: function () { state.regiao = this.value; rerender(); } },
-      [h('option', { value: 'TODAS', text: 'Todas as regiões' })].concat(C.REGIOES.map(function (r) { return h('option', { value: r, text: regLabel(r), selected: state.regiao === r ? 'selected' : null }); })));
     var selOp = h('select', { class: 'trj-select', style: { width: 'auto', maxWidth: '230px' }, onchange: function () { state.op = this.value; rerender(); } },
       [h('option', { value: 'TODAS', text: 'Todos os operadores' })].concat(Object.keys(operadores).sort().map(function (n) { return h('option', { value: n, text: n + ' (' + operadores[n] + ')', selected: state.op === n ? 'selected' : null }); })));
     function chips(opcoes, ativoFn, clique) {
       return h('div', { class: 'cr-chips' }, opcoes.map(function (o) { return h('button', { type: 'button', class: 'op-chip' + (ativoFn(o[0]) ? ' on' : ''), text: o[1], onclick: function () { clique(o[0]); rerender(); } }); }));
     }
+    /* regiões: seleção múltipla (vazio = todas); o número é quanto retornou na região com os demais filtros */
+    var chReg = h('div', { class: 'cr-chips' }, [h('button', { type: 'button', class: 'op-chip' + (!state.regioes.length ? ' on' : ''), text: 'Todas as regiões', onclick: function () { state.regioes = []; rerender(); } })].concat(
+      C.REGIOES.filter(function (r) { return porReg[r] || state.regioes.indexOf(r) >= 0; }).map(function (r) {
+        return h('button', { type: 'button', class: 'op-chip' + (state.regioes.indexOf(r) >= 0 ? ' on' : ''), title: 'Clique para filtrar (pode escolher várias)', text: regLabel(r) + ' ' + (porReg[r] || 0), onclick: function () { var i = state.regioes.indexOf(r); if (i >= 0) state.regioes.splice(i, 1); else state.regioes.push(r); rerender(); } });
+      })));
+    var chGrupo = chips([['TODAS', 'Fixa + Móvel'], ['FIXA', 'FIXA'], ['MOVEL', 'MÓVEL']], function (v) { return state.grupo === v; }, function (v) { state.grupo = v; });
     var chTipo = chips([['TODOS', 'Suspensões + tramitações'], ['SUSPENSAO', 'Só suspensões'], ['TRAMITACAO', 'Só tramitações']], function (v) { return state.tipo === v; }, function (v) { state.tipo = v; });
     var chPer = chips([['hoje', 'Hoje'], ['24h', '24 h'], ['7d', '7 dias'], ['tudo', 'Todo o período']], function (v) { return state.periodo === v; }, function (v) { state.periodo = v; });
     var chPrio = chips([['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3'], ['P4', 'P4'], ['P5', 'P5']], function (v) { return state.prios.indexOf(v) >= 0; }, function (v) { var i = state.prios.indexOf(v); if (i >= 0) state.prios.splice(i, 1); else state.prios.push(v); });
     var live = h('span', { class: 'cr-live', title: publico ? 'Dados publicados pelo painel principal; a página confere sozinha a cada minuto se saiu publicação nova' : 'A página só muda quando você pede ou quando os arquivos são reimportados' },
       [h('button', { type: 'button', class: 'op-btn', text: '↻ Atualizar', onclick: function () { if (publico && app.refresh) app.refresh(); else rerender(); } }),
         publico && data.publicadoEm ? 'publicado em ' + new Date(data.publicadoEm).toLocaleString('pt-BR') : 'dados de ' + agora.toLocaleTimeString('pt-BR')]);
-    container.appendChild(U.pageHeader('Controle de Retorno', V.sub, h('div', { class: 'flex items-center gap-2 flex-wrap' }, [publico && data.regiaoFixa ? null : selReg, selOp, chTipo, chPer, chPrio, live])));
+    container.appendChild(U.pageHeader('Controle de Retorno', V.sub, h('div', { class: 'flex items-center gap-2 flex-wrap' }, [publico && data.regiaoFixa ? null : chReg, selOp, chGrupo, chTipo, chPer, chPrio, live])));
 
     if (!res.temCampos) container.appendChild(h('div', { class: 'op-banner', text: 'ℹ Os dados carregados ainda não trazem as colunas de suspensão (Responsabilidade, Sub área, Nota de Suspensão, Data/Hora de Reinício…). Reimporte os arquivos de atividades em “Importar dados” para preencher caminho, motivo e previsão de retorno.' }));
     if (!todos.length) { container.appendChild(h('div', { class: 'op-empty', text: 'Nenhuma suspensão ou tramitação que tenha retornado à fila nos arquivos carregados.' })); return; }
@@ -233,7 +242,7 @@
   /* ---------- tabela de eventos ---------- */
   function tabelaEventos(lista) {
     var comTipo = state.tipo === 'TODOS';
-    var cols = (comTipo ? ['Tipo'] : []).concat(['Operador', 'TSK', 'Site', 'Prio', 'Região', 'Caminho', 'Motivo', 'Retornou em', 'Previsto (AW)', 'Situação']);
+    var cols = (comTipo ? ['Tipo'] : []).concat(['Operador', 'TSK', 'Site', 'Prio', 'Região', 'Equipe', 'Caminho', 'Motivo', 'Retornou em', 'Previsto (AW)', 'Situação']);
     var tab = h('table', { class: 'trj-table cc-tab' });
     tab.appendChild(h('thead', null, [h('tr', null, cols.map(function (c) { return h('th', { text: c }); }))]));
     var tb = h('tbody'); tab.appendChild(tb);
@@ -242,7 +251,7 @@
       if (comTipo) cels.push(h('td', null, [tag(e.tipo === 'SUSPENSAO' ? 'SUSPENSÃO' : 'TRAMITAÇÃO', R.TIPOS[e.tipo].cor, R.TIPOS[e.tipo].rot), e.origem === 'inferida' ? tag('INFERIDA', '#6b7280', 'Sem linha pendente no arquivo: identificada pela nota/previsão numa linha já em Não iniciado/Iniciado. Quem suspendeu/tramitou não aparece.') : null]));
       cels = cels.concat([
         h('td', { text: e.quem }), h('td', null, [h('span', { class: 'op-tsk cr-tsk', dataset: { os: e.os }, title: 'Clique: copiar a TSK · botão direito: fixar os detalhes', text: e.os })]), h('td', { text: e.site || '', title: 'END_ID ' + e.end }),
-        h('td', { text: e.prio }), h('td', { text: regLabel(e.regiao) }), h('td', { text: nomeDe('caminho', e.caminho), title: e.caminho }),
+        h('td', { text: e.prio }), h('td', { text: regLabel(e.regiao) }), h('td', null, [grupoDe(e) ? tag(grupoDe(e) === 'FIXA' ? 'FIXA' : 'MÓVEL', grupoDe(e) === 'FIXA' ? '#1f6fb5' : '#168a47', e.dj) : h('span', { class: 'tx', text: '—', title: e.dj || 'sem regra criadora' })]), h('td', { text: nomeDe('caminho', e.caminho), title: e.caminho }),
         h('td', { text: nomeDe(e.tipo === 'SUSPENSAO' ? 'motivo' : 'tram', e.motivo || ''), title: [e.motivo, e.nota, e.area].filter(Boolean).join(' · ') }),
         h('td', { text: fmtDt(e.retorno) }), h('td', { text: fmtDt(e.previsto) }), h('td', null, [tagClasse(e)])
       ]);

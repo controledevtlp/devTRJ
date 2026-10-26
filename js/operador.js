@@ -23,7 +23,8 @@
   var LS_KEY = 'trj_operador_v2';
   var POLL_MS = 60000, TICK_MS = 30000, STALE_MIN = 20, PAGE = 40;
   var SEMKEY = '__SEM__';
-  var TABS = ['fila', 'sites', 'causa', 'b2b', 'conc', 'backbone', 'mapa'];
+  var TABS = ['fila', 'sites', 'causa', 'retorno', 'b2b', 'conc', 'backbone', 'mapa'];
+  function temRetorno() { return !!(TRJ.retorno && TRJ.pages && TRJ.pages.controleRetorno); }
   function temCausa() { return !!(TRJ.causaComum && TRJ.causaComum.disponivel()); }   // piloto: só onde há topologia carregada
   var COR = { red: '#c62839', amber: '#d68910', green: '#168a47', blue: '#1f6fb5', purple: '#7d3c98', gray: '#6b7280', orange: '#b85a00' };
   var PRIO_COR = { P1: '#c62839', P2: '#d35400', P3: '#b85a00', P4: '#1f6fb5', P5: '#6b7280' };
@@ -43,7 +44,7 @@
   var state = (function () {
     var d = { tab: 'fila', grupo: 'TODAS', regras: [], prios: [], situacao: 'TODAS', regioes: [], ordem: 'padrao', pend: false, lado: true };
     try { var s = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); if (s) Object.keys(d).forEach(function (k) { if (s[k] !== undefined) d[k] = s[k]; }); } catch (e) {}
-    if (TABS.indexOf(d.tab) < 0 || (d.tab === 'causa' && !temCausa())) d.tab = 'fila';
+    if (TABS.indexOf(d.tab) < 0 || (d.tab === 'causa' && !temCausa()) || (d.tab === 'retorno' && !temRetorno())) d.tab = 'fila';
     d.busca = ''; d.lim = {};
     return d;
   })();
@@ -142,6 +143,8 @@
     raw.incidentsEnriched = d.incidentsEnriched || [];
     raw.prazoMap = d.prazoMap || {};
     raw.concentradores = Array.isArray(d.concentradores) ? d.concentradores : null;
+    raw.retornoCompacto = Array.isArray(d.retorno) ? d.retorno : null;       // Controle de Retorno (formato enxuto de TRJ.retorno.compactar)
+    raw.retornoApelidos = d.retornoApelidos || null;
     prepararMapa(d);
     if (mudou || !loadedOnce || estavaEmCache) {
       var primeira = !loadedOnce;
@@ -780,7 +783,7 @@
       return h('button', { class: 'op-tab' + (state.tab === id ? ' active' : ''), type: 'button', onclick: function () { setTab(id); } },
         [label, n != null ? num(n, 'tab:' + id, 'n') : null]);
     }
-    return h('div', { class: 'op-tabs' }, [t('fila', 'Fazer agora'), t('sites', 'Sites fora'), temCausa() ? t('causa', 'Causa comum') : null, t('b2b', 'B2B / Premium'), t('conc', 'Concentradores'), t('backbone', 'Backbone / LD'), t('mapa', 'Mapa')]);
+    return h('div', { class: 'op-tabs' }, [t('fila', 'Fazer agora'), t('sites', 'Sites fora'), temCausa() ? t('causa', 'Causa comum') : null, temRetorno() ? t('retorno', 'Controle de Retorno') : null, t('b2b', 'B2B / Premium'), t('conc', 'Concentradores'), t('backbone', 'Backbone / LD'), t('mapa', 'Mapa')]);
   }
 
   /* ---------- barra de filtros ---------- */
@@ -1401,7 +1404,7 @@
     root.appendChild(topBar());
     banners().forEach(function (b) { root.appendChild(b); });
     var resCausa = temCausa() ? TRJ.causaComum.analisar(dadosCausa()) : null;
-    root.appendChild(tabs({ fila: f.filtrada.length, sites: nSitesTot, causa: resCausa ? resCausa.suspeitos.length : null, b2b: b2b, conc: raw.concentradores ? conc : null, backbone: bb }));
+    root.appendChild(tabs({ fila: f.filtrada.length, sites: nSitesTot, causa: resCausa ? resCausa.suspeitos.length : null, retorno: raw.retornoCompacto ? raw.retornoCompacto.filter(function (x) { return x.b; }).length : null, b2b: b2b, conc: raw.concentradores ? conc : null, backbone: bb }));
 
     if (state.tab === 'fila' || state.tab === 'sites') {
       var v2h = baseNP.filter(function (it) { return it._rest != null && it._rest >= 0 && it._rest <= 120; }).length;
@@ -1424,6 +1427,16 @@
       var fw = h('div', { class: 'op-fwrap' }); fw.appendChild(linhaRegioes('causa')); root.appendChild(fw);
       var cbox = h('div', { class: 'op-page cc-box' }); root.appendChild(cbox);
       TRJ.causaComum.render(cbox, resCausa, { COR: COR, copiar: copiar });
+    } else if (state.tab === 'retorno' && temRetorno()) {
+      /* a própria página do Controle de Retorno (mesma do dashboard público): filtros de região (várias), FIXA/MÓVEL, prioridade, tipo e período */
+      var rbox = h('div', { class: 'op-page' }); root.appendChild(rbox);
+      var evR = raw.retornoCompacto ? TRJ.retorno.expandir(raw.retornoCompacto) : null;
+      TRJ.pages.controleRetorno(rbox, {
+        publico: true, operador: true,
+        app: { refresh: function () { return carregarDados(false, true); }, render: function () { render(true); } },
+        data: { retornoRes: evR ? { eventos: evR, temCampos: true, catalogo: { caminho: {}, motivo: {}, tram: {}, area: {} }, inferidas: evR.filter(function (e) { return e.origem === 'inferida'; }).length } : null,
+                retornoApelidos: raw.retornoApelidos, publicadoEm: savedAt, regiaoFixa: false }
+      });
     } else if (state.tab === 'b2b' || state.tab === 'conc' || state.tab === 'backbone') {
       root.appendChild(filtros('outra'));
       var box = h('div'); root.appendChild(box);

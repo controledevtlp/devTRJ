@@ -109,7 +109,7 @@
           motivo: motivo, nota: txt(rp.notaSuspensao), tram: txt(rp.motivoTramitacao), quem: quem.nome, quemSistema: quem.sistema, inicio: ini, previsto: prev, retorno: ret,
           retornoPor: retPor ? retPor.nome : '', retornoSistema: retPor ? retPor.sistema : false, classe: classe,
           deltaMin: prev && ret ? Math.round((prev.getTime() - ret.getTime()) / 60000) : null, suspensaMin: susMin, faixa: ret ? R.faixaDe(susMin) : null,
-          vencidoSemRetorno: classe === 'SUSPENSA' && !!prev && prev.getTime() < now, statusAtual: last.status || '', fila: last.filaAtual || ''
+          vencidoSemRetorno: classe === 'SUSPENSA' && !!prev && prev.getTime() < now, statusAtual: last.status || '', fila: last.filaAtual || '', dj: txt(rp.isocDJ) || txt(last.isocDJ)       // regra criadora (DJ): a página separa FIXA / MÓVEL com TRJ.operador.classificar
         });
         reg('caminho', caminho === '(sem caminho)' ? '' : caminho); reg(tipo === 'SUSPENSAO' ? 'motivo' : 'tram', motivo); reg('area', area);
       }
@@ -142,7 +142,7 @@
     (eventos || []).forEach(function (e) {
       if (!e.retorno || e.retorno.getTime() < corte) return;
       out.push({ o: e.os, s: e.site, e: e.end, r: e.regiao, p: e.prio, t: e.tipo === 'SUSPENSAO' ? 'S' : 'T', i: e.origem === 'inferida' ? 1 : 0, c: e.caminho, m: e.motivo,
-        n: (e.nota || '').slice(0, 160), ar: e.area, q: e.quem, qs: e.quemSistema ? 1 : 0, a: ms(e.inicio), v: ms(e.previsto), b: ms(e.retorno), rp: e.retornoPor, rs: e.retornoSistema ? 1 : 0, k: e.classe, d: e.deltaMin });
+        n: (e.nota || '').slice(0, 160), ar: e.area, q: e.quem, qs: e.quemSistema ? 1 : 0, a: ms(e.inicio), v: ms(e.previsto), b: ms(e.retorno), rp: e.retornoPor, rs: e.retornoSistema ? 1 : 0, k: e.classe, d: e.deltaMin, dj: e.dj || '' });
     });
     return out;
   };
@@ -154,7 +154,7 @@
       return { os: x.o, site: x.s || '', end: x.e || '', regiao: x.r || 'OTHERS', prio: x.p || '—', tipo: x.t === 'S' ? 'SUSPENSAO' : 'TRAMITACAO', origem: x.i ? 'inferida' : 'historico',
         caminho: x.c || '(sem caminho)', dk: '', dv: '', area: x.ar || '', motivo: x.m || '', nota: x.n || '', tram: '', quem: x.q || '(sem usuário)', quemSistema: !!x.qs,
         inicio: ini, previsto: prev, retorno: ret, retornoPor: x.rp || '', retornoSistema: !!x.rs, classe: x.k, deltaMin: x.d == null ? null : x.d,
-        suspensaMin: susMin, faixa: ret ? R.faixaDe(susMin) : null, vencidoSemRetorno: x.k === 'SUSPENSA' && !!prev && prev.getTime() < now, statusAtual: '', fila: '' };
+        suspensaMin: susMin, faixa: ret ? R.faixaDe(susMin) : null, vencidoSemRetorno: x.k === 'SUSPENSA' && !!prev && prev.getTime() < now, statusAtual: '', fila: '', dj: x.dj || '' };
     });
   };
 })(window.TRJ = window.TRJ || {});
