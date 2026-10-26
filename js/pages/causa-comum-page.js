@@ -39,9 +39,9 @@
     container.appendChild(U.pageHeader('Causa comum & Associações', 'Pontos comuns de falha na topologia e TSKs que podem ser associadas (falha por evento, não por tarefa)', h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg])));
 
     var tabs = [
-      ['topo', '🌳 Pontos comuns (concentradores fora)', res ? res.suspeitos.length : null],
-      ['iguais', '♊ Duplicidades (mesmo END_ID + mesma nota)', dup.iguais.length],
-      ['mesmoEnd', '📍 Mesmo END_ID, notas diferentes', dup.mesmoEnd.length]
+      ['topo', 'Pontos comuns (concentradores fora)', res ? res.suspeitos.length : null],
+      ['iguais', 'Duplicidades (mesmo END_ID + mesma nota)', dup.iguais.length],
+      ['mesmoEnd', 'Mesmo END_ID, notas diferentes', dup.mesmoEnd.length]
     ].filter(function (t) { return t[0] !== 'topo' || temTopo; });
     var barra = h('div', { class: 'op-tabs', style: { marginBottom: '12px' } }, tabs.map(function (t) {
       return h('button', { class: 'op-tab' + (state.sub === t[0] ? ' active' : ''), type: 'button', onclick: function () { state.sub = t[0]; ctx.app.render(); } },

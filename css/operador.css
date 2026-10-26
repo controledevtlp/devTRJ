@@ -207,6 +207,8 @@ body.op-tv .op-kpi .v { font-size: 40px; }
 .cc-nome { font-family: 'Sora', sans-serif; font-size: 16px; letter-spacing: .2px; }
 .cc-sp { flex: 1; }
 .cc-path { font-size: 11px; color: var(--trj-muted); margin: 3px 0 6px; word-break: break-word; }
+/* etiquetas de identificação da Causa comum (CONCENTRADOR FORA, CONFIANÇA ALTA, nº de TSKs…): sempre em maiúsculas */
+.cc-box .op-tag, .cc-card .op-tag { text-transform: uppercase; }
 .cc-bar { height: 6px; border-radius: 6px; background: rgba(128,128,140,.22); overflow: hidden; margin: 4px 0 6px; }
 .cc-bar > i { display: block; height: 100%; border-radius: 6px; }
 .cc-meta { font-size: 12px; margin-bottom: 6px; }

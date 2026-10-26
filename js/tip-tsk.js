@@ -77,15 +77,18 @@
         }
       }
     } else out += ln('Último update', '<b style="color:' + COR.red + '">sem atualização do operador</b>');
+    if (U.statusAtualizacao) { var sa = U.statusAtualizacao(t); out += ln('Atualização', '<b style="color:' + (sa.atualizada ? COR.green : COR.red) + '">' + (sa.atualizada ? 'ATUALIZADA' : 'NÃO ATUALIZADA') + '</b> <span class="tx">(limite de 4h sem update)</span>'); }
 
-    if (t.enderecoId) {
+    if (t.enderecoId && cfg.coord) {          // coord é opcional (o dashboard público só lê as coordenadas já publicadas)
       var cd = cfg.coord.get(t.enderecoId);
       if (!full) out += ln('Coordenada', cd ? 'cadastrada' : '<b style="color:' + COR.orange + '">sem coordenada — botão direito para cadastrar</b>');
       else if (cd) {
         tipCtx.lat = cd[0]; tipCtx.lon = cd[1];
         out += ln('Coordenada', '<span class="mono">' + cd[0].toFixed(6) + ', ' + cd[1].toFixed(6) + '</span>');
-        out += '<div class="ac">' + btn('mapa', '🗺 Abrir no mapa', 'Abre o Mapa Operacional já em cima deste site') +
+        out += '<div class="ac">' + (cfg.abrirMapa ? btn('mapa', '🗺 Abrir no mapa', 'Abre o Mapa Operacional já em cima deste site') : '') +
           '<a class="tb" href="https://www.google.com/maps/search/?api=1&query=' + cd[0] + ',' + cd[1] + '" target="_blank" rel="noopener">↗ Google Maps</a>' + btn('copiar-coord', '📋 Copiar') + '</div>';
+      } else if (!cfg.coord.salvar) {
+        out += ln('Coordenada', '<b style="color:' + COR.orange + '">não cadastrada</b>');
       } else {
         out += ln('Coordenada', '<b style="color:' + COR.orange + '">não cadastrada</b>');
         out += '<div class="cad"><input type="text" data-coord placeholder="-22.9071, -43.1743 (ou link do Maps)" autocomplete="off">' + btn('salvar-coord', '💾 Cadastrar') + '<div class="err" data-err></div></div>';

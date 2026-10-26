@@ -646,16 +646,15 @@
   // ---------- Tabela de tasks (drill) ----------
   // opts.modoResultado = true  → última coluna mostra "Dentro SLA / Fora SLA" (concluídas)
   // opts.modoCancelamento = true → última coluna mostra "Automação / Associação" (canceladas)
-  // opts.modoGmg = true → coluna "P" mostra habilidadeTrabalho (confirma que é GMG)
+  // opts.modoGmg = true → visão do GMG na fila (U.gmgView): por região, com cópia dentro de cada título e status de atualização
   // sem flag → mostra tempo restante (backlog aberto)
   U.taskTable = function (rows, opts) {
     opts = opts || {};
+    if (opts.modoGmg) return U.gmgView(rows);
     var modoResultado = opts.modoResultado;
     var modoCancelamento = opts.modoCancelamento;
-    var modoGmg = opts.modoGmg;
     var colLabel = modoCancelamento ? 'Tipo Cancelamento' : (modoResultado ? 'Resultado SLA' : 'Vencimento');
-    var colP = modoGmg ? 'Habilidade' : 'P';
-    var thead = h('thead', null, h('tr', null, ['Região', 'TSK', 'Site', 'Cidade', 'Falha', colP, 'Criação NTT', colLabel].map(function (t) { return h('th', { text: t }); })));
+    var thead = h('thead', null, h('tr', null, ['Região', 'TSK', 'Site', 'Cidade', 'Falha', 'P', 'Criação NTT', colLabel].map(function (t) { return h('th', { text: t }); })));
     var body = rows.slice(0, 1000).map(function (t) {
       var lastCell;
       if (modoCancelamento) lastCell = U.cancelamentoBadge(t);
@@ -666,7 +665,7 @@
       // não como dezembro 6 (US) que new Date() faria.
       var rawNTT = t.dataCriacaoAS || t.dataCriacao;
       var dtNTT = rawNTT ? (D.parsePlatformDate ? D.parsePlatformDate(rawNTT) : null) : null;
-      var pCell = modoGmg ? (t.habilidadeTrabalho || '—') : (t.prioridade || '—');
+      var pCell = t.prioridade || '—';
       return h('tr', null, [
         h('td', { text: C.REGIAO_LABELS[t.regiao] || t.regiao || '—' }),
         h('td', { text: t.osNumero || '—' }),
@@ -682,10 +681,58 @@
     return wrapTable(tbl, rows.length);
   };
 
+  // ---------- GMG na fila: uma seção por região, cópia dentro de cada título ----------
+  // "Atualizada" = o operador atualizou nas últimas 4 h (mesma regra do "Sem update +4h" do link do operador;
+  // sem nenhum update, conta a idade da TSK). Cada linha copiada: TSK / SITE - FALHA - ATUALIZADA | NÃO ATUALIZADA.
+  var UPD_LIMITE_H = 4;
+  U.statusAtualizacao = function (t) {
+    var upd = classificarUltimoBloco(t.motivoCancelamento), tem = !!(upd && upd.estado !== 'sem' && upd.dt);
+    var ref = tem ? upd.dt : ((D.parsePlatformDate ? D.parsePlatformDate(t.dataCriacaoAS) : null) || (t.dataCriacao ? new Date(t.dataCriacao) : null));
+    var horas = ref && !isNaN(ref.getTime()) ? (Date.now() - ref.getTime()) / 3600000 : 0;
+    return { atualizada: horas <= UPD_LIMITE_H, horas: horas, tem: tem, dt: tem ? upd.dt : null };
+  };
+  function gmgGrupos(rows) {
+    var ordem = [], m = {};
+    (rows || []).forEach(function (t) { var k = t.regiao || 'OTHERS'; if (!m[k]) { m[k] = []; ordem.push(k); } m[k].push(t); });
+    return ordem.map(function (k) { return { regiao: k, label: C.REGIAO_LABELS[k] || k, rows: m[k] }; });
+  }
+  function gmgLinha(t) {
+    return (t.osNumero || '—') + ' / ' + (t.siteId || t.enderecoId || '—') + ' - ' + (t.tipoFalha || '—') + ' - ' + (U.statusAtualizacao(t).atualizada ? 'ATUALIZADA' : 'NÃO ATUALIZADA');
+  }
+  U.gmgCopyText = function (rows) {
+    return gmgGrupos(rows).map(function (g) { return g.label.toUpperCase() + '\n' + g.rows.map(gmgLinha).join('\n'); }).join('\n\n');
+  };
+  function duracaoCurta(horas) { var m = Math.round(horas * 60); if (m < 60) return m + 'min'; var hh = Math.floor(m / 60); return hh < 48 ? hh + 'h' + ('0' + (m % 60)).slice(-2) : Math.floor(hh / 24) + 'd'; }
+  U.gmgView = function (rows) {
+    var wrap = h('div');
+    if (!rows || !rows.length) { wrap.appendChild(h('div', { style: { padding: '24px', textAlign: 'center', color: 'var(--trj-muted)' }, text: 'Nenhuma TSK de GMG na fila.' })); return wrap; }
+    gmgGrupos(rows).forEach(function (g) {
+      wrap.appendChild(h('div', { class: 'flex items-center justify-between', style: { margin: '14px 0 6px', gap: '8px' } }, [
+        h('div', { style: { fontWeight: '800', letterSpacing: '.5px', textTransform: 'uppercase', color: 'var(--trj-primary)', fontSize: '13px' }, text: g.label + ' — ' + g.rows.length }),
+        h('button', { class: 'trj-btn trj-btn-ghost', type: 'button', style: { fontSize: '12px', padding: '3px 10px' }, text: '📋 Copiar', title: 'Copia: TSK / SITE - FALHA - STATUS (atualizada ou não)',
+          onclick: function () { U.copyText(g.rows.map(gmgLinha).join('\n'), g.label + ' copiada'); } })
+      ]));
+      var thead = h('thead', null, h('tr', null, ['TSK', 'Site', 'Cidade', 'Falha', 'P', 'Criação NTT', 'Vencimento', 'Atualização'].map(function (c) { return h('th', { text: c }); })));
+      var body = g.rows.map(function (t) {
+        var rawNTT = t.dataCriacaoAS || t.dataCriacao, dtNTT = rawNTT ? (D.parsePlatformDate ? D.parsePlatformDate(rawNTT) : null) : null, s = U.statusAtualizacao(t);
+        return h('tr', null, [
+          h('td', null, [h('span', { class: 'op-tsk', dataset: { os: t.osNumero || '' }, title: 'Passe o mouse para ver os detalhes · botão direito fixa o balão', text: t.osNumero || '—' })]),
+          h('td', { text: t.siteId || t.enderecoId || '—' }), h('td', { text: t.cidade || '—' }), h('td', { text: t.tipoFalha || '—' }), h('td', { text: t.prioridade || '—' }),
+          h('td', { text: dtNTT ? D.formatarDataCompacta(dtNTT) : '—' }), h('td', null, U.vencimentoBadge(t.vencimentoCalc)),
+          h('td', null, [h('span', { class: 'trj-badge', style: { background: s.atualizada ? 'rgba(46,204,113,.16)' : 'rgba(231,76,60,.16)', color: s.atualizada ? '#2ecc71' : '#e74c3c', fontWeight: '700' }, text: s.atualizada ? 'ATUALIZADA' : 'NÃO ATUALIZADA' }),
+            h('span', { style: { marginLeft: '6px', fontSize: '11px', color: 'var(--trj-muted)' }, text: s.tem ? 'há ' + duracaoCurta(s.horas) : 'sem update' })])
+        ]);
+      });
+      wrap.appendChild(h('div', { style: { overflowX: 'auto' } }, [h('table', { class: 'trj-table' }, [thead, h('tbody', null, body)])]));
+    });
+    return wrap;
+  };
+
   // ---------- Texto pra copiar (WhatsApp) — drill de tarefas ----------
   // Agrupa por Região e, dentro de cada região, por Prioridade (*P1*, *P2*...),
-  // pra servir de cobrança direta com o time.
-  U.taskTableCopyText = function (rows, titulo) {
+  // pra servir de cobrança direta com o time. opts.modoGmg → formato "TSK / SITE - FALHA - STATUS" por região.
+  U.taskTableCopyText = function (rows, titulo, opts) {
+    if (opts && opts.modoGmg) return U.gmgCopyText(rows);
     var porRegiao = {};
     (rows || []).forEach(function (t) {
       var reg = C.REGIAO_LABELS[t.regiao] || t.regiao || 'OTHERS';

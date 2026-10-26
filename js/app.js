@@ -338,8 +338,10 @@
   App.openDrillTasks = function (spec, filtros, title, opts, onCopy) {
     if (!App.data) return;
     var rows = Comp.drillTasks(App.data.tasksEnriched, spec, filtros || {});
+    // GMG na fila: o número da TSK ganha o balão de detalhes (onde está, status, atualizada ou não, último update…)
+    if (opts && opts.modoGmg && TRJ.tipTsk && TRJ.tipTsk.instalarAuth) TRJ.tipTsk.instalarAuth(App.data, App, function (t, m) { U.copyText(t, m); });
     U.openModal(title || 'Detalhamento', U.taskTable(rows, opts || {}), {
-      onCopy: onCopy || function () { return U.taskTableCopyText(rows, title); }
+      onCopy: onCopy || function () { return U.taskTableCopyText(rows, title, opts); }
     });
   };
   App.openDrillIncidents = function (spec, title, opts) {

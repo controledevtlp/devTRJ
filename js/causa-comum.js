@@ -452,7 +452,6 @@
       ]));
       if (s.rotulo) card.appendChild(h('div', { class: 'op-sub', text: s.rotulo }));
       if (s.caminho.length) card.appendChild(h('div', { class: 'cc-path', text: 'Caminho: ' + s.caminho.join(' › ') + ' › ' + s.nome }));
-      card.appendChild(h('div', { class: 'cc-bar', title: s.falhos + ' de ' + s.total }, [h('i', { style: { width: Math.max(3, Math.round(s.pct * 100)) + '%', background: cor } })]));
       card.appendChild(h('div', { class: 'cc-meta', html: '<b>' + s.falhos + '</b> de ' + s.total + ' pontos abaixo estão fora (' + Math.round(s.pct * 100) + '%) · <b>' + s.diretos + '</b> de ' + s.filhos + ' filho(s) direto(s) · <b>' + s.nSites + '</b> site(s) afetado(s): <span style="color:' + A.COR.green + '">' + s.comTsk + ' com TSK</span> · <span style="color:' + A.COR.red + '">' + s.semTsk + ' sem TSK</span>' }));
       var chips = h('div', { class: 'cc-sites' });
       s.grupos.forEach(function (g) {
