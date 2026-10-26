@@ -288,6 +288,8 @@ button.cc-pb:hover { filter: brightness(1.15); } button.cc-pb:active { transform
 .cr-alerta td { background: rgba(198,40,57,.10); }
 .cr-novo td { background: rgba(214,137,16,.10); }
 .cr-sis { color: var(--trj-muted); font-style: italic; }
+.cr-tsk { cursor: copy; }
+.cr-tsk:hover { text-decoration: underline; }
 .cr-num { background: none; border: none; font-weight: 800; font-size: 14px; cursor: pointer; padding: 0 6px; }
 .cr-num:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) { .cr-live i { animation: none; } }
