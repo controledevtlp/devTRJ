@@ -3,8 +3,8 @@
  * ---------------------------------------------------------------------
  * 1) Topologia × sites fora: usa a árvore do diagrama (js/data/topologia-trj.js, gerada por
  *    diagrama-topologia/gerar_topologia_operador.js) para achar os nós (hubs / enlaces de subida) debaixo
- *    dos quais vários sites caíram juntos. Regra (a mesma do "colar falhas" do diagrama): nó com 2+ filhos
- *    diretos fora, ou com metade ou mais dos pontos abaixo fora; se um filho explica o grupo, o ancestral cai.
+ *    dos quais sites caíram juntos. Regra: concentrador FORA que derrubou 1 ou mais filhos diretos (o concentrador + pelo
+ *    menos mais um); se um filho (também fora, em cadeia) explica o grupo, o ancestral é quem fica.
  * 2) Associação: sugere qual TSK fica como PRINCIPAL e quais devem ser associadas a ela (falha por evento,
  *    não por tarefa) — pelos filhos de um ponto comum, por duplicidade (mesmo END_ID + mesma nota de abertura,
  *    coluna CP). Gera a máscara do diário e a mensagem para a equipe.
@@ -145,14 +145,14 @@
     var cand = Object.keys(failDesc).map(function (id) {
       var total = ix.desc[id] || 1;
       return { id: id, falhos: failDesc[id], diretos: direto[id] || 0, filhos: (ix.kids[id] || []).length, total: total, pct: failDesc[id] / total };
-    }).filter(function (c) { return c.diretos >= 2 && !!falha[c.id]; })      // concentrador = site que está FORA e tem 2+ filhos DIRETAMENTE ligados a ele fora (uma central como o ARJO01 não conta)
+    }).filter(function (c) { return c.diretos >= 1 && !!falha[c.id]; })      // concentrador = site que está FORA e derrubou 1 OU MAIS filhos DIRETAMENTE ligados a ele (uma central como o ARJO01, que nem está fora, não conta)
       .sort(function (a, b) { return b.falhos - a.falhos || b.pct - a.pct; });
     function ehAncestral(anc, desc) { var n = ix.nodes[desc], d = 0; while (n && n.pid && d++ < 40) { if (n.pid === anc) return true; n = ix.nodes[n.pid]; } return false; }
     // se a cadeia acima do candidato também está fora (cada nó até o ancestral candidato falhou), a falha vem de cima: fica o ancestral
     function cadeiaFora(anc, id) { var n = ix.nodes[id], d = 0; if (!falha[id]) return false; while (n && n.pid && d++ < 40) { if (n.pid === anc) return true; if (!falha[n.pid]) return false; n = ix.nodes[n.pid]; } return false; }
     var mantidos = cand.filter(function (c) { return !cand.some(function (o) { return o !== c && ehAncestral(o.id, c.id) && cadeiaFora(o.id, c.id); }); });
     var cobertos = {};
-    var suspeitos = mantidos.slice(0, 40).map(function (c) {
+    var suspeitos = mantidos.slice(0, 120).map(function (c) {
       var n = ix.nodes[c.id], vistos = {}, lista = [], ids = (dentro[c.id] || []).slice();
       if (falha[c.id]) ids.push(c.id);
       ids.forEach(function (fid) { cobertos[fid] = 1; (falha[fid] || []).forEach(function (r) { var k = chaveG(r.g); if (!vistos[k]) { vistos[k] = 1; lista.push(r.g); } }); });
@@ -434,7 +434,7 @@
     var st = res.stats, pctMap = st.totSites ? Math.round(st.totMapeados / st.totSites * 100) : 0;
     box.appendChild(h('div', { class: 'cc-intro' }, [
       h('b', { text: 'Pontos comuns de falha (piloto). ' }),
-      h('span', { text: 'Cruza os sites fora de agora com a árvore do diagrama de topologia. Só vale como concentrador o site que está FORA e derrubou 2 ou mais sites ligados diretamente a ele (como o ROST01) — centrais com a planta quase toda fora, como o ARJO01, não entram. Falhas de Sistema Irradiante e Predição de Indisponibilidade são desconsideradas. ' }),
+      h('span', { text: 'Cruza os sites fora de agora com a árvore do diagrama de topologia. Só vale como concentrador o site que está FORA e derrubou 1 ou mais sites ligados diretamente a ele (como o ROST01) — centrais com a planta quase toda fora, como o ARJO01, não entram. Falhas de Sistema Irradiante e Predição de Indisponibilidade são desconsideradas. ' }),
       h('span', { class: 'cc-cov', text: st.totMapeados + ' de ' + st.totSites + ' sites (' + pctMap + '%) têm correspondência no diagrama · ' + res.suspeitos.length + ' concentrador' + (res.suspeitos.length !== 1 ? 'es' : '') + (st.totIgnorados ? ' · ' + st.totIgnorados + ' site(s) desconsiderado(s) pelo tipo de falha' : '') })
     ]));
     if (!res.suspeitos.length) box.appendChild(h('div', { class: 'op-empty', text: 'Nenhum concentrador fora encontrado com os filtros atuais. 👏' }));
