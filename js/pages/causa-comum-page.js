@@ -39,7 +39,7 @@
     container.appendChild(U.pageHeader('Causa comum & Associações', 'Concentradores fora e TSKs que podem ser associadas', h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg])));
 
     var tabs = [
-      ['topo', 'Pontos comuns (concentradores fora)', res ? res.suspeitos.length : null],
+      ['topo', 'Pontos comuns', res ? res.suspeitos.length + (res.pais || []).length : null],
       ['iguais', 'Duplicidades (mesmo END_ID + mesma nota)', dup.iguais.length],
       ['mesmoEnd', 'Mesmo END_ID, notas diferentes', dup.mesmoEnd.length]
     ].filter(function (t) { return t[0] !== 'topo' || temTopo; });

@@ -262,6 +262,15 @@ body.op-tv .op-kpi .v { font-size: 40px; }
 .cc-nd.falha.tsk rect { fill: #c6dcf5; stroke: #1f6fb5; stroke-width: 2; }
 .cc-nd.falha.tsk .n1 { fill: #0b2c4d; } .cc-nd.falha.tsk .n2 { fill: #174f86; font-weight: 800; } .cc-nd.falha.tsk .n3 { fill: #0b2c4d; }
 .cc-nd[data-os] { cursor: pointer; }
+/* maior correlação (grifada) e pai em comum */
+.cc-edge.best { stroke: #ffd400; stroke-opacity: 1; stroke-width: 4.5; filter: drop-shadow(0 0 3px rgba(255,212,0,.8)); }
+.cc-nd.best rect { stroke: #ffd400; stroke-width: 4; filter: drop-shadow(0 0 4px rgba(255,212,0,.8)); }
+.cc-nd.pai rect { fill: #c6dcf5; stroke: #1f6fb5; stroke-width: 3; }
+.cc-nd.pai .n1 { fill: #0b2c4d; font-size: 13px; } .cc-nd.pai .n2 { fill: #174f86; font-weight: 800; } .cc-nd.pai .n3 { fill: #0b2c4d; }
+.cc-legend .pai::before { background: #c6dcf5; border-color: #1f6fb5; }
+.cc-legend .melhor::before { background: #ffd400; border-color: #b8860b; }
+.cc-card.melhor { box-shadow: 0 0 0 2px #d4a017 inset, 0 0 14px rgba(212,160,23,.35); }
+.cc-best-tag { background: #d4a017; color: #1c1204; }
 .cc-nd.sus rect { fill: #ff8c00; stroke: #b85a00; stroke-width: 3; }
 .cc-nd.sus .n1 { fill: #1c1204; font-size: 13px; } .cc-nd.sus .n2 { fill: #3a2300; font-weight: 800; } .cc-nd.sus .n3 { fill: #3a2300; }
 /* associação: botões de papel por linha */

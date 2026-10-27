@@ -1405,7 +1405,7 @@
     root.appendChild(topBar());
     banners().forEach(function (b) { root.appendChild(b); });
     var resCausa = temCausa() ? TRJ.causaComum.analisar(dadosCausa()) : null;
-    root.appendChild(tabs({ fila: f.filtrada.length, sites: nSitesTot, causa: resCausa ? resCausa.suspeitos.length : null, retorno: raw.retornoCompacto ? raw.retornoCompacto.filter(function (x) { return x.b; }).length : null, b2b: b2b, conc: raw.concentradores ? conc : null, backbone: bb }));
+    root.appendChild(tabs({ fila: f.filtrada.length, sites: nSitesTot, causa: resCausa ? resCausa.suspeitos.length + (resCausa.pais || []).length : null, retorno: raw.retornoCompacto ? raw.retornoCompacto.filter(function (x) { return x.b; }).length : null, b2b: b2b, conc: raw.concentradores ? conc : null, backbone: bb }));
 
     if (state.tab === 'fila' || state.tab === 'sites') {
       var v2h = baseNP.filter(function (it) { return it._rest != null && it._rest >= 0 && it._rest <= 120; }).length;

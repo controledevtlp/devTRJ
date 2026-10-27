@@ -135,24 +135,28 @@
     var sites = [], ignorados = [];
     todos.forEach(function (g) { if (falhaIgnorada(g)) ignorados.push(g); else sites.push(g); });
     var falha = {};           // id do nó → [{ g, via }]
-    var semMatch = [], totSites = 0, totMapeados = 0, gruposMapeados = 0;
+    var semMatch = [], totSites = 0, totMapeados = 0, gruposMapeados = 0, lugares = {};   // lugares: site → TODAS as posições (pais) dele na árvore
     sites.forEach(function (g) {
       var q = g.qtd || 1; totSites += q;
       var m = casar(ix, g);
       if (!m.ids.length) { semMatch.push(g); return; }
-      gruposMapeados++; totMapeados += q;
+      gruposMapeados++; totMapeados += q; lugares[chaveG(g)] = m.ids;
       m.ids.forEach(function (id) { (falha[id] = falha[id] || []).push({ g: g, via: m.via[id] }); });
     });
-    var failDesc = {}, direto = {}, dentro = {};
-    Object.keys(falha).forEach(function (id) {
+    var failDesc = {}, direto = {}, dentro = {}, diretoG = {};
+    Object.keys(falha).forEach(function (id) {       // cada posição do site na árvore conta: o site é procurado debaixo de TODOS os pais onde aparece
       var n = ix.nodes[id], d = 0;
-      if (n && n.pid) direto[n.pid] = (direto[n.pid] || 0) + 1;
+      if (n && n.pid) {
+        direto[n.pid] = (direto[n.pid] || 0) + 1;
+        var og = diretoG[n.pid] || (diretoG[n.pid] = {}); falha[id].forEach(function (r) { og[chaveG(r.g)] = 1; });       // sites DIFERENTES ligados direto ao pai
+      }
       while (n && n.pid && d++ < 40) {
         failDesc[n.pid] = (failDesc[n.pid] || 0) + 1;
         (dentro[n.pid] = dentro[n.pid] || []).push(id);
         n = ix.nodes[n.pid];
       }
     });
+    function nDiretos(id) { return Object.keys(diretoG[id] || {}).length; }
     var cand = Object.keys(failDesc).map(function (id) {
       var total = ix.desc[id] || 1;
       return { id: id, falhos: failDesc[id], diretos: direto[id] || 0, filhos: (ix.kids[id] || []).length, total: total, pct: failDesc[id] / total };
@@ -163,10 +167,10 @@
     function cadeiaFora(anc, id) { var n = ix.nodes[id], d = 0; if (!falha[id]) return false; while (n && n.pid && d++ < 40) { if (n.pid === anc) return true; if (!falha[n.pid]) return false; n = ix.nodes[n.pid]; } return false; }
     var mantidos = cand.filter(function (c) { return !cand.some(function (o) { return o !== c && ehAncestral(o.id, c.id) && cadeiaFora(o.id, c.id); }); });
     var cobertos = {};
-    var suspeitos = mantidos.slice(0, 120).map(function (c) {
+    function monta(c, marca) {
       var n = ix.nodes[c.id], vistos = {}, lista = [], ids = (dentro[c.id] || []).slice();
       if (falha[c.id]) ids.push(c.id);
-      ids.forEach(function (fid) { cobertos[fid] = 1; (falha[fid] || []).forEach(function (r) { var k = chaveG(r.g); if (!vistos[k]) { vistos[k] = 1; lista.push(r.g); } }); });
+      ids.forEach(function (fid) { if (marca) cobertos[fid] = 1; (falha[fid] || []).forEach(function (r) { var k = chaveG(r.g); if (!vistos[k]) { vistos[k] = 1; lista.push(r.g); } }); });
       var nSites = 0, comTsk = 0, semTsk = 0, tsks = [], vt = {}, tskNo = null;
       lista.forEach(function (g) {
         var q = g.qtd || 1; nSites += q; if (g.tsk) comTsk += q; else semTsk += q;
@@ -177,7 +181,26 @@
       var conf = (c.diretos >= 3 && fr >= 0.5) ? 'alta' : (fr >= 0.5 || c.diretos >= 3 ? 'média' : 'baixa');
       return { id: c.id, nome: n.nome.split('|')[0], aliases: n.nome, rotulo: n.rotulo, caminho: caminho(ix, c.id), total: c.total, falhos: c.falhos, diretos: c.diretos, filhos: c.filhos, pct: c.pct,
         proprioFora: !!falha[c.id], grupos: lista, nSites: nSites, comTsk: comTsk, semTsk: semTsk, confianca: conf, tsks: tsks, tskNo: tskNo, idsFalha: ids, falhaPorNo: falha };
+    }
+    var suspeitos = mantidos.slice(0, 120).map(function (c) { return monta(c, true); });
+    // PAIS EM COMUM: ponto que NÃO está fora, mas tem 2+ sites fora ligados direto a ele (pelo menos 20% dos filhos) e ainda não foi explicado por um concentrador fora
+    var jaSusp = {}; suspeitos.forEach(function (x) { jaSusp[x.id] = 1; });
+    var pais = Object.keys(diretoG).map(function (id) {
+      var hits = nDiretos(id), filhos = (ix.kids[id] || []).length; return { id: id, hits: hits, filhos: filhos, ratio: filhos ? hits / filhos : 0 };
+    }).filter(function (c) {
+      if (falha[c.id] || jaSusp[c.id] || c.hits < 2 || c.ratio < 0.2) return false;
+      return (dentro[c.id] || []).some(function (fid) { return !cobertos[fid]; });
+    }).sort(function (a, b) { return b.hits - a.hits || b.ratio - a.ratio; }).slice(0, 60).map(function (c) {
+      var total = ix.desc[c.id] || 1;
+      return monta({ id: c.id, falhos: failDesc[c.id], diretos: c.hits, filhos: c.filhos, total: total, pct: failDesc[c.id] / total }, false);
     });
+    // ACERTOS = sites fora ligados direto ao ponto (+1 se o próprio ponto está fora). O de mais acertos é a maior correlação e é grifado.
+    var melhor = null;
+    suspeitos.concat(pais).forEach(function (x) {
+      x.nDiretos = nDiretos(x.id); x.acertos = x.nDiretos + (x.proprioFora ? 1 : 0);
+      if (!melhor || x.acertos > melhor.acertos || (x.acertos === melhor.acertos && x.nDiretos / (x.filhos || 1) > melhor.nDiretos / (melhor.filhos || 1))) melhor = x;
+    });
+    if (melhor) melhor.melhor = true;
     var aneis = [];
     ((TRJ.topologia && TRJ.topologia.aneis) || []).forEach(function (r) {
       var gs = [], vistos = {};
@@ -187,7 +210,7 @@
       if (gs.length >= 2) aneis.push({ nome: r.nome, total: r.nos.length, grupos: gs });
     });
     var isolados = Object.keys(falha).filter(function (id) { return !cobertos[id]; }).length;
-    return { suspeitos: suspeitos, aneis: aneis, semMatch: semMatch, ignorados: ignorados, stats: { totSites: totSites, totMapeados: totMapeados, gruposTot: sites.length, gruposMapeados: gruposMapeados, isolados: isolados, totIgnorados: ignorados.reduce(function (a, g) { return a + (g.qtd || 1); }, 0) } };
+    return { suspeitos: suspeitos, pais: pais, lugares: lugares, aneis: aneis, semMatch: semMatch, ignorados: ignorados, stats: { totSites: totSites, totMapeados: totMapeados, gruposTot: sites.length, gruposMapeados: gruposMapeados, isolados: isolados, totIgnorados: ignorados.reduce(function (a, g) { return a + (g.qtd || 1); }, 0) } };
   };
 
   /* ================= duplicidades / eventos múltiplos por nota de abertura (coluna CP) ================= */
@@ -339,7 +362,8 @@
     var barra = h('div', { class: 'cc-dg-bar' });
     barra.appendChild(h('button', { class: 'op-btn go', type: 'button', text: '← Voltar à Causa comum', onclick: sair }));
     barra.appendChild(h('b', { class: 'cc-nome', text: s.nome }));
-    barra.appendChild(h('span', { class: 'cc-meta', text: s.falhos + ' de ' + s.total + ' pontos abaixo fora · ' + s.nSites + ' site(s)' }));
+    barra.appendChild(h('span', { class: 'cc-meta', text: s.falhos + ' de ' + s.total + ' pontos abaixo fora · ' + s.nSites + ' site(s) · ' + (s.proprioFora ? 'ele + ' : '') + s.nDiretos + ' fora ligado(s) direto' }));
+    if (s.melhor) barra.appendChild(h('span', { class: 'op-tag cc-best-tag', text: 'MAIOR CORRELAÇÃO' }));
     var lbl = h('label', { class: 'op-chip op-tgl' }, [h('input', { type: 'checkbox' }), h('span', { text: 'Mostrar todos os pontos' })]);
     lbl.querySelector('input').addEventListener('change', function (e) { mostrarTodos = e.target.checked; desenha(); });
     barra.appendChild(lbl);
@@ -350,8 +374,8 @@
     ]));
     box.appendChild(barra);
     box.appendChild(h('div', { class: 'cc-legend' }, [
-      h('span', { class: 'lg sus', text: 'Concentrador (cai e derruba os filhos)' }), h('span', { class: 'lg fora', text: 'Site fora SEM TSK' }), h('span', { class: 'lg tsk', text: 'Site fora COM TSK' }),
-      h('span', { class: 'lg ok', text: 'Sem falha' }), h('span', { class: 'lg rota', text: 'Caminho até a raiz' }),
+      s.proprioFora ? h('span', { class: 'lg sus', text: 'Concentrador (cai e derruba os filhos)' }) : h('span', { class: 'lg pai', text: 'Pai em comum' }), h('span', { class: 'lg fora', text: 'Site fora SEM TSK' }), h('span', { class: 'lg tsk', text: 'Site fora COM TSK' }),
+      h('span', { class: 'lg ok', text: 'Sem falha' }), h('span', { class: 'lg rota', text: 'Caminho até a raiz' }), s.melhor ? h('span', { class: 'lg melhor', text: 'Maior correlação (grifado)' }) : null,
       h('span', { class: 'cc-dica', text: 'Arraste para mover · Ctrl + roda do mouse (ou + / −) para zoom · passe o mouse ou clique numa TSK para ver os detalhes' })
     ]));
     box.appendChild(area);
@@ -366,7 +390,7 @@
       anc.forEach(function (a, i) { itens.push({ id: a.id, col: i + (acima ? 1 : 0), y: 0, tipo: 'rota' }); });
       var b0 = anc.length + (acima ? 1 : 0);
       function visita(id, col) {
-        var it = { id: id, col: col, tipo: id === s.id ? 'sus' : (falhaIds[id] ? 'falha' : 'ok'), ocultos: 0 };
+        var it = { id: id, col: col, tipo: id === s.id ? (s.proprioFora ? 'sus' : 'pai') : (falhaIds[id] ? 'falha' : 'ok'), ocultos: 0 };
         maxCol = Math.max(maxCol, col);
         var fs = (ix.kids[id] || []), vis = fs.filter(function (k) { return mostrarTodos || temFalha(k); });
         it.ocultos = fs.length - vis.length;
@@ -391,20 +415,24 @@
         var p = pos[a[0]], q = pos[a[1]]; if (!p || !q) return;
         var x1 = p.x + (a[0] === '__acima__' ? 90 : nodeW), y1 = p.y + nodeH / 2, x2 = q.x, y2 = q.y + nodeH / 2, mx = (x1 + x2) / 2;
         var forte = a[0] === s.id || (falhaIds[a[0]] && falhaIds[a[1]]);
-        el.appendChild(svg('path', { d: 'M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2, class: 'cc-edge' + (forte ? ' f' : '') }));
+        var grife = s.melhor && (forte || a[0] === '__acima__' || cadeia.some(function (c2) { return c2.id === a[0]; }));       // rota de maior correlação: da raiz até os sites fora
+        el.appendChild(svg('path', { d: 'M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2, class: 'cc-edge' + (forte ? ' f' : '') + (grife ? ' best' : '') }));
       });
       itens.forEach(function (x) {
         var n2 = ix.nodes[x.id], p = pos[x.id], regs = s.falhaPorNo[x.id], g = (falhaIds[x.id] && regs && regs[0] && regs[0].g) || null;
-        var cls = 'cc-nd ' + x.tipo + (g ? (g.tsk ? ' tsk' : ' sem') : '');
+        var outros = g ? ((res.lugares && res.lugares[chaveG(g)]) || []).filter(function (id2) { return id2 !== x.id; }) : [];       // outras posições (outros pais) do mesmo site
+        var cls = 'cc-nd ' + x.tipo + (g ? (g.tsk ? ' tsk' : ' sem') : '') + (s.melhor && x.tipo !== 'ok' ? ' best' : '');
         var gr = svg('g', { class: cls, transform: 'translate(' + p.x + ',' + p.y + ')' });
         if (g && g.tsk) { gr.setAttribute('data-os', g.tsk.os); gr.setAttribute('data-end', g.end || ''); }
-        gr.appendChild(svg('title', {}, n2.nome + (n2.rotulo ? '\n' + n2.rotulo : '') + (g ? '\nEND_ID ' + g.end + ' · ' + (g.tsk ? g.tsk.os + ' (' + g.tsk.prio + ')' : 'SEM TSK') : '')));
+        gr.appendChild(svg('title', {}, n2.nome + (n2.rotulo ? '\n' + n2.rotulo : '') + (g ? '\nEND_ID ' + g.end + ' · ' + (g.tsk ? g.tsk.os + ' (' + g.tsk.prio + ')' : 'SEM TSK') : '') + (outros.length ? '\nTambém aparece sob: ' + outros.map(function (id2) { var p2 = ix.nodes[ix.nodes[id2].pid]; return p2 ? p2.nome.split('|')[0] : '(raiz)'; }).join(' · ') : '')));
         gr.appendChild(svg('rect', { width: nodeW, height: nodeH, rx: 8 }));
         gr.appendChild(svg('text', { x: 10, y: 15, class: 'n1' }, cortaTxt(n2.nome.split('|')[0], 22)));
         var l2 = g ? (g.tsk ? g.tsk.os + ' · ' + g.tsk.prio : 'SEM TSK') : cortaTxt(n2.rotulo.replace(/^\(\d+\)\s*/, ''), 32);
         if (x.tipo === 'sus') l2 = 'CONCENTRADOR · ' + l2;
+        if (x.tipo === 'pai') l2 = 'PAI EM COMUM · ' + l2;
         gr.appendChild(svg('text', { x: 10, y: 29, class: 'n2' }, l2));
         if (x.ocultos) gr.appendChild(svg('text', { x: nodeW - 8, y: 15, class: 'n3', 'text-anchor': 'end' }, '+' + x.ocultos));
+        if (outros.length) gr.appendChild(svg('text', { x: nodeW - 8, y: 29, class: 'n3', 'text-anchor': 'end' }, '+' + outros.length + ' pai' + (outros.length > 1 ? 's' : '')));
         el.appendChild(gr);
       });
       area.appendChild(el); svgEl = el; base = { w: W, h: H, susX: pad + b0 * colW };
@@ -453,16 +481,18 @@
     if (!res) { box.appendChild(h('div', { class: 'op-empty', text: 'Topologia não carregada.' })); return; }
     var st = res.stats, pctMap = st.totSites ? Math.round(st.totMapeados / st.totSites * 100) : 0;
     box.appendChild(h('div', { class: 'cc-intro' }, [
-      h('span', { class: 'cc-cov', text: st.totMapeados + ' de ' + st.totSites + ' sites (' + pctMap + '%) têm correspondência no diagrama · ' + res.suspeitos.length + ' concentrador' + (res.suspeitos.length !== 1 ? 'es' : '') + (st.totIgnorados ? ' · ' + st.totIgnorados + ' site(s) desconsiderado(s) pelo tipo de falha' : '') })
+      h('span', { class: 'cc-cov', text: st.totMapeados + ' de ' + st.totSites + ' sites (' + pctMap + '%) têm correspondência no diagrama · ' + res.suspeitos.length + ' concentrador' + (res.suspeitos.length !== 1 ? 'es' : '') + ((res.pais || []).length ? ' · ' + res.pais.length + ' pai' + (res.pais.length !== 1 ? 's' : '') + ' com vários sites fora' : '') + (st.totIgnorados ? ' · ' + st.totIgnorados + ' site(s) desconsiderado(s) pelo tipo de falha' : '') })
     ]));
-    if (!res.suspeitos.length) box.appendChild(h('div', { class: 'op-empty', text: 'Nenhum concentrador fora encontrado com os filtros atuais. 👏' }));
-    res.suspeitos.forEach(function (s, i) {
+    if (!res.suspeitos.length && !(res.pais || []).length) box.appendChild(h('div', { class: 'op-empty', text: 'Nenhum ponto comum encontrado com os filtros atuais. 👏' }));
+    function cartao(s, i) {
       var cor = s.confianca === 'alta' ? A.COR.red : (s.confianca === 'média' ? A.COR.amber : A.COR.gray);
-      var card = h('div', { class: 'cc-card', style: { borderLeftColor: cor } });
+      var card = h('div', { class: 'cc-card' + (s.melhor ? ' melhor' : ''), style: { borderLeftColor: cor } });
       card.appendChild(h('div', { class: 'cc-top' }, [
         h('span', { class: 'cc-rank', text: '#' + (i + 1) }),
         h('b', { class: 'cc-nome', text: s.nome }),
-        h('span', { class: 'op-tag', style: { background: A.COR.red }, title: 'O próprio site está fora e derrubou os filhos ligados diretamente a ele', text: 'CONCENTRADOR FORA' }),
+        s.proprioFora ? h('span', { class: 'op-tag', style: { background: A.COR.red }, title: 'O próprio site está fora e derrubou os filhos ligados diretamente a ele', text: 'CONCENTRADOR FORA' })
+          : h('span', { class: 'op-tag', style: { background: A.COR.blue }, title: 'O ponto não está fora, mas vários sites ligados direto a ele caíram juntos', text: 'PAI EM COMUM' }),
+        s.melhor ? h('span', { class: 'op-tag', style: { background: '#d4a017', color: '#1c1204' }, title: 'Ponto com mais sites fora ligados direto a ele', text: 'MAIOR CORRELAÇÃO' }) : null,
         h('span', { class: 'op-tag', style: { background: cor }, title: 'Confiança da hipótese', text: 'confiança ' + s.confianca }),
         h('span', { class: 'cc-sp' }),
         h('button', { class: 'op-btn', type: 'button', title: 'Mostra a rota em comum e os ramos com falha', text: '🌳 Ver no diagrama', onclick: function () { desenharDiagrama(box, res, s, A, lista); } }),
@@ -470,7 +500,7 @@
       ]));
       if (s.rotulo) card.appendChild(h('div', { class: 'op-sub', text: s.rotulo }));
       if (s.caminho.length) card.appendChild(h('div', { class: 'cc-path', text: 'Caminho: ' + s.caminho.join(' › ') + ' › ' + s.nome }));
-      card.appendChild(h('div', { class: 'cc-meta', html: '<b>' + s.falhos + '</b> de ' + s.total + ' pontos abaixo estão fora (' + Math.round(s.pct * 100) + '%) · <b>' + s.diretos + '</b> de ' + s.filhos + ' filho(s) direto(s) · <b>' + s.nSites + '</b> site(s) afetado(s): <span style="color:' + A.COR.green + '">' + s.comTsk + ' com TSK</span> · <span style="color:' + A.COR.red + '">' + s.semTsk + ' sem TSK</span>' }));
+      card.appendChild(h('div', { class: 'cc-meta', html: '<b>' + s.falhos + '</b> de ' + s.total + ' pontos abaixo estão fora (' + Math.round(s.pct * 100) + '%) · <b>' + s.nDiretos + '</b> de ' + s.filhos + ' filho(s) direto(s) · <b>' + s.nSites + '</b> site(s) afetado(s): <span style="color:' + A.COR.green + '">' + s.comTsk + ' com TSK</span> · <span style="color:' + A.COR.red + '">' + s.semTsk + ' sem TSK</span>' }));
       var chips = h('div', { class: 'cc-sites' });
       s.grupos.forEach(function (g) {
         chips.appendChild(h('span', { class: 'cc-site' + (g.tsk ? '' : ' sem') }, [
@@ -486,7 +516,12 @@
         card.appendChild(blocoAssoc(h, A, 'topo|' + s.id, s.tsks, padrao, 'TSK principal do ' + s.nome));
       }
       box.appendChild(card);
-    });
+    }
+    res.suspeitos.forEach(cartao);
+    if ((res.pais || []).length) {
+      box.appendChild(h('div', { class: 'op-ph', style: { color: A.COR.blue, marginTop: '14px' } }, [h('span', { text: 'Pais com vários sites fora · ' + res.pais.length })]));
+      res.pais.forEach(cartao);
+    }
     if (res.aneis.length) {
       box.appendChild(h('div', { class: 'op-ph', style: { color: A.COR.purple, marginTop: '14px' } }, [h('span', { text: 'Anéis lógicos com 2+ pontos fora · ' + res.aneis.length })]));
       res.aneis.forEach(function (a) {
