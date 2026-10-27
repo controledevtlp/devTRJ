@@ -141,6 +141,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       // Controle de Retorno: episódios no formato enxuto (o que depende da hora de agora é recalculado a cada abertura da aba)
       raw.retornoCompacto = Array.isArray(json.data.retorno) ? json.data.retorno : null;
       raw.retornoApelidos = json.data.retornoApelidos || null;
+      raw.reabertasCompacto = Array.isArray(json.data.reabertas) ? json.data.reabertas : null;
 
       // Sincronizar dados do mapa para o localStorage E para o objeto raw
       function _lsSave(key, val) {
@@ -565,7 +566,8 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       { label: 'BACKLOG INDEFINIDO', value: d.kpis ? d.kpis.backlogIndef : 0, cor: C.CORES_TRJ.orange2, spec: { tipo: 'backlogIndef' }, t: 'Backlog indefinido' },
       { label: 'PREDITIVA', value: d.kpis ? d.kpis.preditiva : 0, cor: '#3498db', spec: { tipo: 'preditiva' }, t: 'Preditiva' },
       { label: 'PRODUTIVIDADE', value: d.kpis ? d.kpis.produtividade : 0, cor: C.CORES_TRJ.green, spec: { tipo: 'produtividade' }, opts: { modoResultado: true }, t: 'TSKs concluídas' },
-      { label: 'SLA GERAL', value: d.kpis ? (d.kpis.slaGeral + '%') : '—', cor: C.CORES_TRJ.green, spec: { tipo: 'produtividade' }, opts: { modoResultado: true }, t: 'TSKs concluídas — % dentro do prazo' }
+      { label: 'SLA GERAL', value: d.kpis ? (d.kpis.slaGeral + '%') : '—', cor: C.CORES_TRJ.green, spec: { tipo: 'produtividade' }, opts: { modoResultado: true }, t: 'TSKs concluídas — % dentro do prazo' },
+      { label: 'GMG (FATURÁVEL)', value: d.kpis ? d.kpis.gmg : 0, cor: C.CORES_TRJ.orange2, spec: { tipo: 'gmg' }, opts: { modoGmg: true }, t: 'GMG (Faturável)' }     // mesma visão do dashboard autenticado: por região, copiar, detalhe da TSK
     ];
 
     // Topbar
@@ -697,7 +699,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
 
     root.appendChild(buildTabBar('dashboard'));
 
-    root.appendChild(U.h('div', { class: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4' }, kpis.map(function (k) {
+    root.appendChild(U.h('div', { class: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-4' }, kpis.map(function (k) {
       return U.kpiCard({ label: k.label, value: k.value, cor: k.cor, onClick: k.spec ? function (kk) { return function () { openDrillTasks(kk.spec, f, kk.t, kk.opts || {}); }; }(k) : null });
     })));
 
@@ -1067,7 +1069,8 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       TRJ.pages.controleRetorno(tabContent, {
         publico: true, app: appCtx,
         data: { retornoRes: evR ? { eventos: evR, temCampos: true, catalogo: { caminho: {}, motivo: {}, tram: {}, area: {} }, inferidas: evR.filter(function (e) { return e.origem === 'inferida'; }).length } : null,
-                retornoApelidos: raw.retornoApelidos, publicadoEm: savedAt, regiaoFixa: !!regFixa }
+                retornoApelidos: raw.retornoApelidos, publicadoEm: savedAt, regiaoFixa: !!regFixa,
+                reabertasRes: (raw.reabertasCompacto && TRJ.retorno.expandirReabertas) ? { eventos: TRJ.retorno.expandirReabertas(raw.reabertasCompacto).filter(function (e) { return !regFixa || (e.regiao || 'OTHERS') === state.regiao; }) } : null }
       });
     } else if (tabId === 'sla' && TRJ.pages && TRJ.pages.sla) {
       TRJ.pages.sla(tabContent, { data: rawFiltrado, app: appCtx });

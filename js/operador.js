@@ -145,6 +145,7 @@
     raw.concentradores = Array.isArray(d.concentradores) ? d.concentradores : null;
     raw.retornoCompacto = Array.isArray(d.retorno) ? d.retorno : null;       // Controle de Retorno (formato enxuto de TRJ.retorno.compactar)
     raw.retornoApelidos = d.retornoApelidos || null;
+    raw.reabertasCompacto = Array.isArray(d.reabertas) ? d.reabertas : null;
     prepararMapa(d);
     if (mudou || !loadedOnce || estavaEmCache) {
       var primeira = !loadedOnce;
@@ -1435,7 +1436,8 @@
         publico: true, operador: true,
         app: { refresh: function () { return carregarDados(false, true); }, render: function () { render(true); } },
         data: { retornoRes: evR ? { eventos: evR, temCampos: true, catalogo: { caminho: {}, motivo: {}, tram: {}, area: {} }, inferidas: evR.filter(function (e) { return e.origem === 'inferida'; }).length } : null,
-                retornoApelidos: raw.retornoApelidos, publicadoEm: savedAt, regiaoFixa: false }
+                retornoApelidos: raw.retornoApelidos, publicadoEm: savedAt, regiaoFixa: false,
+                reabertasRes: (raw.reabertasCompacto && TRJ.retorno.expandirReabertas) ? { eventos: TRJ.retorno.expandirReabertas(raw.reabertasCompacto) } : null }
       });
     } else if (state.tab === 'b2b' || state.tab === 'conc' || state.tab === 'backbone') {
       root.appendChild(filtros('outra'));

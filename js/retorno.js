@@ -132,6 +132,93 @@
     return { eventos: eventos, temCampos: temCampos, catalogo: catalogo, inferidas: inferidas };
   };
 
+  /* =====================================================================
+   * TSKs ENCERRADAS QUE VOLTARAM À FILA (reabertas)
+   * Uma linha Concluída/Cancelada seguida, numa linha posterior da mesma TSK corretiva, de Não iniciado/Iniciado/pendente.
+   *   encerrada em = Data + Fim (colunas T + N) da linha encerrada · reaberta em = hora da linha seguinte (FT), nunca antes do encerramento
+   * Motivo = indício no diário (BG), nas entradas de ~5 min antes do encerramento até 15 min depois da reabertura:
+   *   ALARME   "Tentativa N – Modo de validação … API Netcool … Summary …" (o sistema tentou fechar e o alarme seguia presente)
+   *   TECNICO  nota do técnico de campo lançada pelo WFM Agent ("TLP-T…-NOME - data: …")
+   *   MANUAL   nota de um operador (humano) na janela
+   *   SEM_REGISTRO  nada no diário nessa janela
+   * Além disso entram os retornos por alarme que só aparecem no diário (a linha de status não está nos arquivos carregados).
+   * ===================================================================== */
+  R.MOTIVOS_REABERTA = {
+    ALARME: { rot: 'Retorno por alarme', cor: '#c62839' }, TECNICO: { rot: 'Nota do técnico', cor: '#1f6fb5' },
+    MANUAL: { rot: 'Nota de operador', cor: '#7d3c98' }, SEM_REGISTRO: { rot: 'Sem registro no diário', cor: '#6b7280' }
+  };
+  var RE_ENTR = /(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2}) - ((?:(?!\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2} - )[\s\S]){0,600})/g;
+  function entradasDiario(bg) {
+    var out = [], m; RE_ENTR.lastIndex = 0; bg = String(bg || '');
+    while ((m = RE_ENTR.exec(bg))) out.push({ dt: new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +m[6]), txt: m[7].replace(/\s+/g, ' ').trim() });
+    return out;
+  }
+  var RE_TENT = /TENTATIVA\s+(\d+)\s*[–\-]\s*MODO DE VALIDA[ÇC][AÃ]O/i;
+  function resumoAlarme(txt) { var m = /SUMMARY\s*-\s*(.*?)(?:,?\s*NE ID\b|$)/i.exec(txt); return m ? m[1].replace(/[\s*_,;]+$/, '').trim().slice(0, 60) : ''; }
+  function motivoDaJanela(entradas, ini, fim) {
+    var a = ini.getTime() - 5 * 60000, b = fim.getTime() + 15 * 60000, achou = { alarme: null, tecnico: null, manual: null };
+    entradas.forEach(function (e) {
+      var t = e.dt.getTime(); if (t < a || t > b) return;
+      if (RE_TENT.test(e.txt)) { if (!achou.alarme) achou.alarme = e; return; }
+      if (/^(?:WFM Agent|System|taischatbot|App |MONITOR CCI|Routing)/i.test(e.txt)) { if (/^WFM Agent[^]*?TLP-T\d+-[^]*?\d{4}-\d{2}-\d{2} \d{2}:\d{2}/i.test(e.txt) && !achou.tecnico) achou.tecnico = e; return; }
+      if (!achou.manual) achou.manual = e;
+    });
+    if (achou.alarme) { var tn = RE_TENT.exec(achou.alarme.txt); return { m: 'ALARME', indicio: 'Tentativa ' + tn[1] + (resumoAlarme(achou.alarme.txt) ? ' · ' + resumoAlarme(achou.alarme.txt) : ''), tent: +tn[1] }; }
+    if (achou.tecnico) return { m: 'TECNICO', indicio: achou.tecnico.txt.replace(/^WFM Agent \(Anota[^)]*\)\s*/i, '').slice(0, 140), tent: null };
+    if (achou.manual) return { m: 'MANUAL', indicio: achou.manual.txt.slice(0, 140), tent: null };
+    return { m: 'SEM_REGISTRO', indicio: '', tent: null };
+  }
+  function nomeFila(f) { var s = String(f || '').trim(); return /^TLP-T\d+-/i.test(s) ? s.replace(/^TLP-T\d+-/i, '').trim() : s; }
+  R.analisarReabertas = function (tasks) {
+    var por = {}, eventos = [];
+    (tasks || []).forEach(function (t) { var k = up(t.osNumero); if (/^TSK/.test(k)) (por[k] = por[k] || []).push(t); });
+    Object.keys(por).forEach(function (os) {
+      var rows = por[os].slice().sort(function (a, b) { return (Number(a.sequenciaId) || 0) - (Number(b.sequenciaId) || 0); });
+      var last = rows[rows.length - 1], entradas = entradasDiario(last.motivoCancelamento), usadas = [], mine = [];
+      for (var i = 0; i < rows.length - 1; i++) {
+        var a = D.normalize(rows[i].status), b = D.normalize(rows[i + 1].status);
+        if (!((a === 'CONCLUIDA' || a === 'CANCELADA') && (b === 'NAO INICIADO' || b === 'INICIADO' || b === 'PENDENTE'))) continue;
+        if (!D.isTicketCorretiva(rows[i].tipoAtividade)) continue;
+        var enc = parseDt(String(rows[i].dataBase || '') + ' ' + String(rows[i].fim || '')) || parseDt(rows[i].dataCriacao), rea = parseDt(rows[i + 1].dataCriacao);
+        if (!enc) continue; if (!rea || rea.getTime() < enc.getTime()) rea = enc;
+        var mot = motivoDaJanela(entradas, enc, rea), quem = pessoa(rows[i].quemEncerrou), rp = rows[i + 1];
+        usadas.push([enc.getTime() - 5 * 60000, rea.getTime() + 15 * 60000]);
+        mine.push({ os: rows[i].osNumero, site: rp.siteId || last.siteId || '', end: rp.enderecoId || last.enderecoId || '', regiao: rp.regiao || last.regiao || 'OTHERS', prio: up(rp.prioridade || last.prioridade) || '—', dj: txt(rp.isocDJ) || txt(last.isocDJ),
+          origem: 'historico', statusEnc: a, encerradaEm: enc, reabertaEm: rea, intervaloMin: Math.round((rea.getTime() - enc.getTime()) / 60000), quem: quem.nome, quemSistema: quem.sistema,
+          voltouPara: nomeFila(rp.filaAtual), statusVolta: b, motivo: mot.m, indicio: mot.indicio, tentativa: mot.tent, statusAgora: last.status || '' });
+      }
+      // retornos por alarme que só existem no diário (sem a linha encerrada→reaberta nos arquivos carregados)
+      entradas.forEach(function (e) {
+        var tm = RE_TENT.exec(e.txt); if (!tm) return; var t = e.dt.getTime();
+        if (usadas.some(function (u) { return t >= u[0] && t <= u[1]; })) return;
+        mine.push({ os: last.osNumero, site: last.siteId || '', end: last.enderecoId || '', regiao: last.regiao || 'OTHERS', prio: up(last.prioridade) || '—', dj: txt(last.isocDJ), origem: 'diario', statusEnc: '', encerradaEm: null, reabertaEm: e.dt,
+          intervaloMin: null, quem: '', quemSistema: true, voltouPara: nomeFila(last.filaAtual), statusVolta: '', motivo: 'ALARME', indicio: 'Tentativa ' + tm[1] + (resumoAlarme(e.txt) ? ' · ' + resumoAlarme(e.txt) : ''), tentativa: +tm[1], statusAgora: last.status || '' });
+      });
+      mine.forEach(function (x) { x.nReab = mine.length; eventos.push(x); });
+    });
+    eventos.sort(function (a, b) { return b.reabertaEm - a.reabertaEm; });
+    return { eventos: eventos };
+  };
+  function txt(v) { return String(v == null ? '' : v).trim(); }
+  R.compactarReabertas = function (eventos) {
+    var corte = Date.now() - 45 * 86400000, out = [];
+    function ms(d) { return d ? d.getTime() : null; }
+    (eventos || []).forEach(function (e) {
+      if (e.reabertaEm.getTime() < corte) return;
+      out.push({ o: e.os, s: e.site, e: e.end, r: e.regiao, p: e.prio, dj: e.dj || '', g: e.origem === 'diario' ? 'd' : 'h', se: e.statusEnc === 'CANCELADA' ? 'X' : (e.statusEnc ? 'C' : ''), ea: ms(e.encerradaEm), ra: ms(e.reabertaEm),
+        q: e.quem, qs: e.quemSistema ? 1 : 0, fv: e.voltouPara, sv: e.statusVolta === 'PENDENTE' ? 'P' : (e.statusVolta === 'INICIADO' ? 'I' : (e.statusVolta ? 'N' : '')), m: e.motivo, i: e.indicio, tn: e.tentativa, nr: e.nReab, sa: e.statusAgora });
+    });
+    return out;
+  };
+  R.expandirReabertas = function (arr) {
+    return (arr || []).map(function (x) {
+      var ea = x.ea ? new Date(x.ea) : null, ra = new Date(x.ra);
+      return { os: x.o, site: x.s || '', end: x.e || '', regiao: x.r || 'OTHERS', prio: x.p || '—', dj: x.dj || '', origem: x.g === 'd' ? 'diario' : 'historico', statusEnc: x.se === 'X' ? 'CANCELADA' : (x.se ? 'CONCLUIDA' : ''),
+        encerradaEm: ea, reabertaEm: ra, intervaloMin: ea ? Math.round((ra.getTime() - ea.getTime()) / 60000) : null, quem: x.q || '', quemSistema: !!x.qs, voltouPara: x.fv || '',
+        statusVolta: x.sv === 'P' ? 'PENDENTE' : (x.sv === 'I' ? 'INICIADO' : (x.sv ? 'NAO INICIADO' : '')), motivo: x.m, indicio: x.i || '', tentativa: x.tn == null ? null : x.tn, nReab: x.nr || 1, statusAgora: x.sa || '' };
+    });
+  };
+
   /* ---------- formato enxuto para o snapshot (dashboard público e devGERAL) ----------
    * Os episódios saem do histórico de linhas das TSKs, que só o painel autenticado tem; por isso são calculados lá e publicados.
    * Ficam de fora os campos que dependem da hora de agora (tempo parado, retorno vencido): quem lê recalcula com expandir().

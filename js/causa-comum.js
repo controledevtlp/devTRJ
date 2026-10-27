@@ -63,11 +63,22 @@
   /* ================= grupos de sites fora (dashboard autenticado) ================= */
   function tskInfo(t) {
     return { os: t.osNumero || '', prio: up(t.prioridade) || '—', status: t.status || '', venc: toDate(t.vencimentoCalc),
-      criacao: (D && D.parsePlatformDate ? D.parsePlatformDate(t.dataCriacaoAS) : null) || toDate(t.dataCriacao), siteId: t.siteId || '', end: t.enderecoId || '', regiao: t.regiao || 'OTHERS', falha: t.tipoFalha || '' };
+      criacao: (D && D.parsePlatformDate ? D.parsePlatformDate(t.dataCriacaoAS) : null) || toDate(t.dataCriacao), siteId: t.siteId || '', end: t.enderecoId || '', regiao: t.regiao || 'OTHERS', falha: t.tipoFalha || '', evento: t.evento || '' };
   }
+  /* evento (coluna GF) de cada TSK, para a máscara e a mensagem de associação: a TSK principal é citada pelo EVENTO */
+  var EVENTOS = {};
+  function indexaEventos(tasks) { (tasks || []).forEach(function (t) { if (t && t.evento && t.osNumero) EVENTOS[up(t.osNumero)] = String(t.evento).trim(); }); }
+  CC.eventoDe = function (principal, tsks) {
+    var p = up(principal); if (!p) return '';
+    if (/^EVE\d+/.test(p)) return p;                                   // já digitaram o evento
+    if (EVENTOS[p]) return EVENTOS[p];
+    var ach = (tsks || []).filter(function (t) { return up(t.os) === p && t.evento; })[0];
+    return ach ? ach.evento : '';
+  };
   /* um grupo por END_ID: { end, nomes[], qtd, regiao, desde, tsk } — igual ao que o operador monta */
   CC.gruposSites = function (data) {
     var tasks = (data && data.tasksEnriched) || [], inc = (data && data.incidentsEnriched) || [];
+    indexaEventos(tasks);
     var aberta = {};
     D.dedupPorTsk(tasks).forEach(function (t) {
       var st = D.normalize(t.status), eid = up(t.enderecoId); if (!eid) return;
@@ -182,6 +193,7 @@
   /* ================= duplicidades / eventos múltiplos por nota de abertura (coluna CP) ================= */
   function normNota(s) { return up(s).replace(/\s+/g, ' ').slice(0, 300); }
   CC.duplicidades = function (tasks) {
+    indexaEventos(tasks);
     var lista = D.dedupPorTsk(tasks || []).filter(function (t) {
       var st = D.normalize(t.status);
       return (st === 'NAO INICIADO' || st === 'INICIADO' || st === 'PENDENTE') && D.isTicketCorretiva(t.tipoAtividade);
@@ -215,11 +227,12 @@
   };
 
   /* ================= textos de associação ================= */
-  CC.mascara = function (neId, ticket) {
-    return ['iSOC (ASSOCIAÇÃO DE ATIVIDADES)', 'Área a ser contatada: ISOC MONITORACAO ACESSO', 'NE ID / ELEMENTO: ' + (neId || '—'), 'TICKET: ' + (ticket || '—'),
-      'OBS: Chamado envolvido em evento múltiplo, solicitado associação conforme premissa contratual de tratativa de falha por evento e não por tarefa.'].join('\n');
+  /* máscara do diário: TICKET = a TSK que será associada · OBS cita o EVENTO principal (coluna GF), nunca a TSK principal */
+  CC.mascara = function (neId, ticket, evento) {
+    return ['ISOC MONITORACAO ACESSO (ASSOCIAÇÃO DE ATIVIDADES)', 'NE ID / ELEMENTO: ' + (neId || '—'), 'TICKET: ' + (ticket || '—'),
+      'OBS: Prezados, favor atrelar ao evento principal ' + (evento || '[EVENTO NÃO ENCONTRADO]')].join('\n');
   };
-  CC.msgAssociar = function (filho, principal) { return 'Associa o "' + filho + '" ao "' + principal + '"'; };
+  CC.msgAssociar = function (filho, evento) { return 'Associa o "' + filho + '" ao evento "' + (evento || '[EVENTO NÃO ENCONTRADO]') + '"'; };
 
   var ESCOLHA = {};     // chave do bloco → { p: TSK principal (null = padrão), x: { TSK: true } = TSKs que NÃO serão associadas }
   /* bloco de associação: TSKs, principal e "associar" editáveis por linha, máscara / mensagem */
@@ -230,10 +243,12 @@
     var inp = h('input', { type: 'text', class: 'cc-inp', placeholder: rotuloVazio || 'TSK principal', value: st.p != null ? st.p : (principalPadrao || '') });
     inp.addEventListener('input', function () { st.p = inp.value; pinta(); });
     var tab = h('table', { class: 'cc-tab' });
-    tab.appendChild(h('thead', null, [h('tr', null, ['Papel', 'TSK', 'Site', 'Falha', 'Prio', 'Criada', 'Fim do SLA'].map(function (t) { return h('th', { text: t }); }))]));
+    tab.appendChild(h('thead', null, [h('tr', null, ['Papel', 'TSK', 'Evento', 'Site', 'Falha', 'Prio', 'Criada', 'Fim do SLA'].map(function (t) { return h('th', { text: t }); }))]));
     var tb = h('tbody'); tab.appendChild(tb);
     var resumo = h('div', { class: 'cc-resumo' });
+    var evTxt = h('span', { class: 'cc-evento' });
     function principal() { return (inp.value || '').trim(); }
+    function eventoPrincipal() { return CC.eventoDe(principal(), tsks); }
     function filhos() { var p = up(principal()); return tsks.filter(function (t) { return up(t.os) !== p && !st.x[t.os]; }); }
     function pinta() {
       tb.innerHTML = ''; var p = up(principal());
@@ -250,11 +265,15 @@
         tb.appendChild(h('tr', { class: (eh ? 'prin' : '') + (excl ? ' excl' : ''), dataset: { osSel: t.os } }, [
           papel,
           h('td', null, [h('span', { class: 'op-tsk', dataset: { os: t.os }, text: t.os })]),
+          h('td', { text: t.evento || '—' }),
           h('td', { text: t.site || '', title: 'END_ID ' + (t.end || '') }), h('td', { text: t.falha || '—' }),
           h('td', { text: t.prio || '' }), h('td', { text: t.criacao ? fmtDt(t.criacao) : '—' }),
           h('td', { class: 'cc-venc', style: { color: vt.cor }, title: fmtDt(t.venc), text: vt.txt })
         ]));
       });
+      var ev = eventoPrincipal();
+      evTxt.textContent = principal() ? (ev ? 'Evento principal: ' + ev : 'Evento principal não encontrado') : '';
+      evTxt.style.color = ev ? '' : '#d68910';
       var n = filhos().length;
       resumo.textContent = n + ' TSK(s) a associar' + (principal() ? ' ao ' + principal() : '') + (tsks.length - n - (tsks.some(function (t) { return up(t.os) === p; }) ? 1 : 0) > 0 ? ' · ' + (tsks.length - n - (tsks.some(function (t) { return up(t.os) === p; }) ? 1 : 0)) + ' desmarcada(s)' : '');
     }
@@ -262,13 +281,14 @@
     var vazio = rotuloVazio || 'TSK PRINCIPAL';
     var acts = h('div', { class: 'cc-acts' }, [
       h('label', { class: 'cc-lbl' }, [h('span', { text: 'TSK principal:' }), inp]),
-      A.autenticado ? h('button', { class: 'op-btn', type: 'button', title: 'Texto de sinalização para a equipe: uma linha por TSK a associar', text: '📋 Mensagem p/ equipe', onclick: function () {
+      evTxt,
+      A.autenticado ? h('button', { class: 'op-btn', type: 'button', title: 'Uma linha por TSK a associar: Associa o "TSK" ao evento principal', text: '📋 Mensagem p/ equipe', onclick: function () {
         var f = filhos(); if (!f.length) { A.copiar('', 'Nada a associar'); return; }
-        A.copiar(f.map(function (t) { return CC.msgAssociar(t.os, principal() || vazio); }).join('\n'), f.length + ' linha(s) copiada(s)');
+        A.copiar(f.map(function (t) { return CC.msgAssociar(t.os, eventoPrincipal()); }).join('\n'), f.length + ' linha(s) copiada(s)');
       } }) : null,
-      h('button', { class: 'op-btn', type: 'button', title: 'Máscara do diário de trabalho (ISOC) para cada TSK a associar', text: '📋 Máscaras de associação', onclick: function () {
+      h('button', { class: 'op-btn', type: 'button', title: 'Máscara do diário de trabalho (ISOC) de cada TSK a associar', text: '📋 Máscaras de associação', onclick: function () {
         var f = filhos(); if (!f.length) { A.copiar('', 'Nada a associar'); return; }
-        A.copiar(f.map(function (t) { return CC.mascara(t.siteId || t.site, t.os); }).join('\n\n'), f.length + ' máscara(s) copiada(s)');
+        A.copiar(f.map(function (t) { return CC.mascara(t.siteId || t.site, t.os, eventoPrincipal()); }).join('\n\n'), f.length + ' máscara(s) copiada(s)');
       } }),
       resumo
     ]);
@@ -433,8 +453,6 @@
     if (!res) { box.appendChild(h('div', { class: 'op-empty', text: 'Topologia não carregada.' })); return; }
     var st = res.stats, pctMap = st.totSites ? Math.round(st.totMapeados / st.totSites * 100) : 0;
     box.appendChild(h('div', { class: 'cc-intro' }, [
-      h('b', { text: 'Pontos comuns de falha (piloto). ' }),
-      h('span', { text: 'Cruza os sites fora de agora com a árvore do diagrama de topologia. Só vale como concentrador o site que está FORA e derrubou 1 ou mais sites ligados diretamente a ele (como o ROST01) — centrais com a planta quase toda fora, como o ARJO01, não entram. Falhas de Sistema Irradiante e Predição de Indisponibilidade são desconsideradas. ' }),
       h('span', { class: 'cc-cov', text: st.totMapeados + ' de ' + st.totSites + ' sites (' + pctMap + '%) têm correspondência no diagrama · ' + res.suspeitos.length + ' concentrador' + (res.suspeitos.length !== 1 ? 'es' : '') + (st.totIgnorados ? ' · ' + st.totIgnorados + ' site(s) desconsiderado(s) pelo tipo de falha' : '') })
     ]));
     if (!res.suspeitos.length) box.appendChild(h('div', { class: 'op-empty', text: 'Nenhum concentrador fora encontrado com os filtros atuais. 👏' }));
@@ -464,7 +482,7 @@
       // associação ao evento principal
       if (s.tsks.length) {
         var padrao = s.tskNo ? s.tskNo.os : (s.tsks.length >= 2 ? principalDe(s.tsks).os : '');
-        card.appendChild(h('div', { class: 'cc-assoc-t', html: '<b>Associação ao evento principal</b> — ' + (s.tskNo ? 'o próprio ' + s.nome + ' tem TSK.' : (s.tsks.length >= 2 ? s.nome + ' está sem TSK; sugerida a de fim de SLA mais longo como principal.' : s.nome + ' está sem TSK na fila: informe a TSK principal do evento (ou abra uma) e associe a TSK abaixo a ela.')) }));
+        card.appendChild(h('div', { class: 'cc-assoc-t', html: '<b>Associação ao evento principal</b>' + (s.tskNo || s.tsks.length >= 2 ? '' : ' — informe a TSK principal.') }));
         card.appendChild(blocoAssoc(h, A, 'topo|' + s.id, s.tsks, padrao, 'TSK principal do ' + s.nome));
       }
       box.appendChild(card);
@@ -480,7 +498,7 @@
     }
     if (res.semMatch.length) {
       box.appendChild(h('details', { class: 'cc-sem-match' }, [
-        h('summary', { text: 'Sem correspondência no diagrama: ' + res.semMatch.reduce(function (a, g) { return a + (g.qtd || 1); }, 0) + ' site(s) em ' + res.semMatch.length + ' END_ID(s) — não entram na análise (podem ser pontas de rádio fora da árvore MW/FO, ou falta cadastrar no diagrama)' }),
+        h('summary', { text: 'Sites sem correspondência no diagrama: ' + res.semMatch.reduce(function (a, g) { return a + (g.qtd || 1); }, 0) + ' site(s) em ' + res.semMatch.length + ' END_ID(s)' }),
         h('div', { class: 'cc-sites' }, res.semMatch.map(function (g) {
           return h('span', { class: 'cc-site sem', title: g.end }, [h('b', { text: (g.nomes[0] || '—') + (g.nomes.length > 1 ? ' +' + (g.nomes.length - 1) : '') }), h('span', { class: 'cc-sem', text: g.end || '' })]);
         }))
@@ -494,12 +512,10 @@
     var U = TRJ.ui, h = U.h, cor = A.COR;
     box.innerHTML = '';
     if (!dup.temNota) {
-      box.appendChild(h('div', { class: 'op-banner', text: 'ℹ A coluna CP (“Nota de Abertura”) ainda não está nos dados carregados. Reimporte os arquivos de atividades em “Importar dados” para habilitar as duplicidades.' }));
+      box.appendChild(h('div', { class: 'op-banner', text: 'ℹ A nota de abertura ainda não foi carregada. Reimporte os arquivos de atividades em “Importar dados”.' }));
     }
     var grupos = qual === 'mesmoEnd' ? dup.mesmoEnd : dup.iguais;
-    var intro = qual === 'mesmoEnd'
-      ? 'Mais de uma TSK aberta no mesmo END_ID, mas com notas de abertura diferentes — avalie se são o mesmo evento.'
-      : 'Mesmo END_ID e a mesma nota de abertura (coluna CP): é a mesma falha duplicada. A de fim de SLA mais longo fica como principal (ganha tempo) e as demais são associadas a ela.';
+    var intro = qual === 'mesmoEnd' ? 'TSKs abertas no mesmo site com notas de abertura diferentes.' : 'TSKs abertas no mesmo site com a mesma nota de abertura.';
     box.appendChild(h('div', { class: 'cc-intro', text: intro }));
     if (!grupos.length) { box.appendChild(h('div', { class: 'op-empty', text: 'Nada neste radar com os filtros atuais. 👏' })); return; }
     grupos.forEach(function (g, i) {

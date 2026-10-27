@@ -58,6 +58,7 @@
     ['subArea',           126, 's'],     // DV — 2º caminho (FIELD, ACESSO, FIBRA_Txx, Retorno Centralizado…)
     ['motivoTramitacao',  179, 's'],     // FW — 3ª escolha da árvore (Tramitação autorizada, Ausência de sinal TX alugada…)
     ['quemEncerrou',      180, 's'],     // FX — Usuário Executor (quem suspendeu/tramitou, em linhas pendente)
+    ['evento',            188, 's'],     // GF — Evento (EVE…): a máscara/mensagem de associação cita o evento da TSK principal
     ['prioridade',        191, 's']
   ];
   F.COLUNAS = COLUNAS;

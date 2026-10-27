@@ -320,22 +320,19 @@
     return h('span', { style: { background: bg, color: cor, fontWeight: '700', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', whiteSpace: 'nowrap' }, text: statusStr || '—' });
   }
 
-  // ── Gráfico: entrantes normais vs retornos por alarme por hora ────
+  // ── Gráfico: entrantes por hora ────
   function chartEntrantes(canvas, hourCountEntrantes, hourCountRetorno, stats) {
     var labels = [];
     for (var i = 0; i < 24; i++) labels.push(('0' + i).slice(-2) + 'h');
-    var totals = hourCountEntrantes.map(function (v, i) { return v + (hourCountRetorno[i] || 0); });
-    var maxTotal = Math.max.apply(null, totals.concat([0]));
-    var peakHour = maxTotal > 0 ? totals.indexOf(maxTotal) : -1;
+    var maxTotal = Math.max.apply(null, hourCountEntrantes.concat([0]));
+    var peakHour = maxTotal > 0 ? hourCountEntrantes.indexOf(maxTotal) : -1;
     var normalBg  = hourCountEntrantes.map(function (_, i) { return i === peakHour ? 'rgba(255,140,0,0.92)' : 'rgba(255,140,0,0.38)'; });
-    var retornoBg = hourCountRetorno.map(function (_, i)   { return i === peakHour ? 'rgba(231,76,60,0.92)'  : 'rgba(231,76,60,0.38)';  });
     var c = new Chart(canvas, {
       type: 'bar',
       data: {
         labels: labels,
         datasets: [
-          { label: 'Entrantes Normais', data: hourCountEntrantes, backgroundColor: normalBg,  borderRadius: 3, maxBarThickness: 18 },
-          { label: 'Retorno por Alarme', data: hourCountRetorno,  backgroundColor: retornoBg, borderRadius: 3, maxBarThickness: 18 }
+          { label: 'Entrantes', data: hourCountEntrantes, backgroundColor: normalBg,  borderRadius: 3, maxBarThickness: 18 }
         ]
       },
       options: {
@@ -345,7 +342,7 @@
           y: { ticks: { color: tickClr(), font: { size: 11 } }, grid: { color: gridClr() }, beginAtZero: true }
         },
         plugins: {
-          legend: { display: true, labels: { color: tickClr(), font: { size: 10 }, boxWidth: 10, padding: 10 } },
+          legend: { display: false },
           tooltip: TOOLTIP_STYLE
         },
         onClick: function (ev, els) {
@@ -356,7 +353,7 @@
             return st.entries.some(function (e) { return e.dt.getHours() === hrIdx; });
           });
           if (!tasksHr.length) return;
-          abrirDrilldownHora(hrLabel + ' — Entrantes / Retornos', tasksHr);
+          abrirDrilldownHora(hrLabel + ' — Entrantes', tasksHr);
         }
       }
     });
@@ -946,7 +943,7 @@
       // ── Gráficos ──────────────────────────────────────────────────
       areaEl.appendChild(secTitle('ANÁLISE DE INTERVALOS', '#ff8c00'));
       var row1 = h('div', { class: 'grid gap-4 mb-4', style: { gridTemplateColumns: '1fr 1fr' } });
-      var ccHist = U.chartCard('ENTRANTES POR HORA — NORMAIS VS RETORNO POR ALARME', { hint: 'laranja = entrantes normais · vermelho = retornou à fila por alarme' });
+      var ccHist = U.chartCard('ENTRANTES POR HORA', { hint: 'o retorno por alarme está em Controle de Retorno' });
       ccHist.card.style.minHeight = '240px';
       row1.appendChild(ccHist.card);
       row1.appendChild(buildRankingCard(result));
@@ -979,84 +976,8 @@
         chartHoras(ccHora.canvas, result.hourCount, s);
       }, 0);
 
-      // ── RETORNO POR ALARME ────────────────────────────────────────────
-      var retList = result.retornosTasks || [];
+      // (o gráfico e a lista de "retorno por alarme" agora ficam em Controle de Retorno › Encerradas que voltaram)
       var retornosPerSite = result.retornosPerSite || {};
-      areaEl.appendChild(secTitle('RETORNO POR ALARME — TSKs QUE VOLTARAM À FILA (' + retList.length + ')', '#e74c3c'));
-      if (!retList.length) {
-        areaEl.appendChild(h('div', { class: 'trj-card p-4', style: { color: 'var(--trj-muted)', fontSize: '13px', textAlign: 'center' } },
-          [h('span', { text: 'Nenhuma TSK com retorno por alarme no período selecionado.' })]));
-      } else {
-        // Gráfico por região — lista completa somente no drilldown
-        var retRegiaoMap = {};
-        retList.forEach(function (item) {
-          var rg = (item.task.regiao || 'SEM REGIÃO').toString().trim().toUpperCase();
-          if (!retRegiaoMap[rg]) retRegiaoMap[rg] = [];
-          retRegiaoMap[rg].push(item);
-        });
-        var retRegioes = Object.keys(retRegiaoMap).sort(function (a, b) { return retRegiaoMap[b].length - retRegiaoMap[a].length; });
-        var retRgMax = retRegiaoMap[retRegioes[0]].length;
-        var retRgCard = h('div', { class: 'trj-card p-3 mb-3' });
-        var retTitleRow = h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' } });
-        retTitleRow.appendChild(h('span', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--trj-muted)', textTransform: 'uppercase', letterSpacing: '.05em' }, text: 'Volume por Região' }));
-        var retCopyBtn = h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 8px' }, text: '📋 Copiar' });
-        retCopyBtn.onclick = function () {
-          var lines = ['TSK\tEND ID\tSITE\tTipo de Falha\tStatus\tRetornos'];
-          retList.forEach(function (item) { lines.push([item.task.osNumero || '—', item.task.enderecoId || '—', item.task.siteId || '—', item.task.tipoFalha || '—', item.task.status || '—', String(item.count)].join('\t')); });
-          copyText(lines.join('\n'));
-        };
-        retTitleRow.appendChild(retCopyBtn);
-        retRgCard.appendChild(retTitleRow);
-        retRegioes.forEach(function (rg) {
-          var rgItems = retRegiaoMap[rg];
-          var barW = Math.round(rgItems.length / retRgMax * 100);
-          var rgRow = h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 4px', cursor: 'pointer', borderRadius: '4px' } });
-          rgRow.appendChild(h('span', { style: { width: '140px', fontSize: '11px', color: 'var(--trj-fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, text: rg }));
-          rgRow.appendChild(h('div', { style: { flex: '1', background: 'rgba(255,255,255,0.07)', borderRadius: '3px', height: '8px', overflow: 'hidden' } }, [
-            h('div', { style: { width: barW + '%', height: '100%', background: '#e74c3c', borderRadius: '3px' } })
-          ]));
-          rgRow.appendChild(h('span', { style: { fontSize: '11px', color: '#e74c3c', fontWeight: '700', minWidth: '28px', textAlign: 'right' }, text: String(rgItems.length) }));
-          rgRow.appendChild(h('span', { style: { fontSize: '12px', color: 'var(--trj-muted)', paddingLeft: '4px' }, text: '›' }));
-          rgRow.addEventListener('mouseenter', function () { rgRow.style.background = 'rgba(231,76,60,0.06)'; });
-          rgRow.addEventListener('mouseleave', function () { rgRow.style.background = ''; });
-          rgRow.addEventListener('click', (function (rgLabel, rgItems2) { return function () {
-            var wrap = h('div', { style: { maxHeight: '65vh', overflowY: 'auto' } });
-            var mCpBtn = h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 8px', marginBottom: '8px' }, text: '📋 Copiar' });
-            mCpBtn.onclick = function () {
-              var lines = ['TSK\tEND ID\tSITE\tTipo de Falha\tStatus\tRetornos'];
-              rgItems2.forEach(function (item2) { lines.push([item2.task.osNumero || '—', item2.task.enderecoId || '—', item2.task.siteId || '—', item2.task.tipoFalha || '—', item2.task.status || '—', String(item2.count)].join('\t')); });
-              copyText(lines.join('\n'));
-            };
-            wrap.appendChild(mCpBtn);
-            wrap.appendChild(h('div', { style: { display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 0.6fr auto', gap: '4px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', fontSize: '10px', color: 'var(--trj-muted)', fontWeight: '600', textTransform: 'uppercase' } }, [
-              h('span', { text: 'TSK' }), h('span', { text: 'END ID' }), h('span', { text: 'Site' }), h('span', { text: 'Tipo de Falha' }), h('span', { text: 'Retor.' }), h('span', { text: '' })
-            ]));
-            rgItems2.forEach(function (item2) {
-              var t2 = item2.task;
-              var st2 = s.find(function (x) { return x.task === t2; });
-              var rowM = h('div', {
-                style: { display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 0.6fr auto', gap: '4px', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: st2 ? 'pointer' : 'default', alignItems: 'center' },
-                onclick: st2 ? function () { abrirTimeline(st2); } : null
-              }, [
-                h('div', { style: { display: 'flex', alignItems: 'center', gap: '5px' } }, [
-                  h('span', { style: { color: '#ff8c00', fontWeight: '700', fontSize: '12px' }, text: t2.osNumero || '—' }),
-                  statusBadge(t2.status)
-                ]),
-                h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: String(t2.enderecoId || '—') }),
-                h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: String(t2.siteId || '—') }),
-                h('span', { style: { color: 'var(--trj-muted)', fontSize: '11px' }, text: t2.tipoFalha || '—' }),
-                h('span', { style: { color: '#e74c3c', fontWeight: '700', fontSize: '13px', textAlign: 'center' }, text: String(item2.count) }),
-                h('button', { class: 'trj-btn trj-btn-ghost', style: { fontSize: '10px', padding: '2px 6px' }, text: 'TL', onclick: function (e) { e.stopPropagation(); if (st2) abrirTimeline(st2); } })
-              ]);
-              if (st2) { rowM.addEventListener('mouseenter', function () { rowM.style.background = 'rgba(231,76,60,0.05)'; }); rowM.addEventListener('mouseleave', function () { rowM.style.background = ''; }); }
-              wrap.appendChild(rowM);
-            });
-            U.openModal('Retornos por Alarme — ' + rgLabel + ' (' + rgItems2.length + ')', wrap);
-          }; })(rg, rgItems));
-          retRgCard.appendChild(rgRow);
-        });
-        areaEl.appendChild(retRgCard);
-      }
 
       // ── OSs ABERTAS + TOP OFENSOR — lado a lado ───────────────────
       var rowAbOf = h('div', { class: 'grid gap-4 mb-4', style: { gridTemplateColumns: '1fr 1fr' } });

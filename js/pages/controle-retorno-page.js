@@ -6,7 +6,7 @@
   TRJ.pages = TRJ.pages || {};
   var U = TRJ.ui, C = TRJ.constants, D = TRJ.domain, R = TRJ.retorno, h = U.h;
   var CL = R.CLASSES;
-  var state = { regioes: [], grupo: 'TODAS', prios: [], op: 'TODAS', periodo: 'tudo', aba: 'retornos', classe: 'TODAS', tipo: 'TODOS', dim: 'caminho' };
+  var state = { regioes: [], grupo: 'TODAS', prios: [], op: 'TODAS', periodo: 'tudo', aba: 'retornos', classe: 'TODAS', tipo: 'TODOS', dim: 'caminho', motivoRe: 'TODOS' };
   /* FIXA / MÓVEL = regra criadora (coluna DJ) classificada com as regras do operador (TRJ.operador); null = regra não reconhecida */
   function grupoDe(e) { var OP = TRJ.operador; return OP && OP.classificar && e.dj ? OP.classificar(e.dj).grupo || null : null; }
   var APEL = null, apelCarregando = false;
@@ -14,9 +14,9 @@
 
   /* ---------- vocabulário: os nomes acompanham o que está filtrado ---------- */
   var VOC = {
-    SUSPENSAO: { quem: 'quem suspendeu', ret: 'Suspensões que retornaram', tot: 'Suspensões', pl: 'suspensões', sub: 'Suspensões que voltaram para a fila — para nenhuma nota ficar parada ou perdida', rank: 'Conta em nome de quem suspendeu (Usuário Executor da linha pendente).' },
-    TRAMITACAO: { quem: 'quem tramitou', ret: 'Tramitações que retornaram', tot: 'Tramitações', pl: 'tramitações', sub: 'Tramitações que voltaram para a fila — para nenhuma nota ficar parada ou perdida', rank: 'Conta em nome de quem tramitou (Usuário Executor da linha pendente).' },
-    TODOS: { quem: 'quem suspendeu/tramitou', ret: 'Retornaram à fila', tot: 'Retornos', pl: 'suspensões e tramitações', sub: 'Suspensões e tramitações que voltaram para a fila — para nenhuma nota ficar parada ou perdida', rank: 'Conta em nome de quem suspendeu/tramitou (Usuário Executor da linha pendente).' }
+    SUSPENSAO: { quem: 'quem suspendeu', ret: 'Suspensões que retornaram', tot: 'Suspensões', pl: 'suspensões', sub: 'Suspensões que voltaram para a fila', rank: 'Conta em nome de quem suspendeu (Usuário Executor da linha pendente).' },
+    TRAMITACAO: { quem: 'quem tramitou', ret: 'Tramitações que retornaram', tot: 'Tramitações', pl: 'tramitações', sub: 'Tramitações que voltaram para a fila', rank: 'Conta em nome de quem tramitou (Usuário Executor da linha pendente).' },
+    TODOS: { quem: 'quem suspendeu/tramitou', ret: 'Retornaram à fila', tot: 'Retornos', pl: 'suspensões e tramitações', sub: 'Suspensões e tramitações que voltaram para a fila', rank: 'Conta em nome de quem suspendeu/tramitou (Usuário Executor da linha pendente).' }
   };
   var V = VOC.TODOS;
   function rotC(c) { return CL[c].rot; }
@@ -111,18 +111,29 @@
     V = VOC[state.tipo] || VOC.TODOS;
     if (state.dim === 'tipo' && state.tipo !== 'TODOS') state.dim = 'caminho';
     if (state.dim === 'tempo') state.dim = 'caminho';
-    if (state.aba !== 'retornos' && state.aba !== 'operadores' && state.aba !== 'nomes') state.aba = 'retornos';
+    if (state.aba !== 'retornos' && state.aba !== 'operadores' && state.aba !== 'nomes' && state.aba !== 'reabertas') state.aba = 'retornos';
 
     if (!publico && ROLAGEM.hash === location.hash && ROLAGEM.top) restauraRolagem();      // redesenho vindo de fora (ex.: importação): volta para onde você estava
     var res = publico ? data.retornoRes : R.analisar(data.tasksEnriched), agora = new Date();
     var todos = res.eventos.filter(function (e) { return e.retorno; });                    // só o que já voltou para a fila
+    var resRe = publico ? data.reabertasRes : R.analisarReabertas(data.tasksEnriched);       // TSKs encerradas que voltaram à fila
+    var reTodos = (resRe && resRe.eventos) || [], temRe = !!resRe;
     if (publico && state.aba === 'nomes') state.aba = 'retornos';
-    function noPeriodo(e) {
-      var d = e.retorno; if (!d || state.periodo === 'tudo') return true;
+    if (state.aba === 'reabertas' && !temRe) state.aba = 'retornos';
+    var emRe = state.aba === 'reabertas';
+    function noPeriodoD(d) {
+      if (!d || state.periodo === 'tudo') return true;
       if (state.periodo === 'hoje') return mesmoDia(d, agora);
       if (state.periodo === '24h') return agora - d <= 24 * 3600000;
       if (state.periodo === '7d') return agora - d <= 7 * 24 * 3600000;
       return true;
+    }
+    function noPeriodo(e) { return noPeriodoD(e.retorno); }
+    function passaRe(e, semReg) {
+      if (!semReg && state.regioes.length && state.regioes.indexOf(e.regiao || 'OTHERS') < 0) return false;
+      if (state.grupo !== 'TODAS' && grupoDe(e) !== state.grupo) return false;
+      if (state.prios.length && state.prios.indexOf(e.prio) < 0) return false;
+      return noPeriodoD(e.reabertaEm);
     }
     function passa(e, semOp, semReg) {
       if (!semReg && state.regioes.length && state.regioes.indexOf(e.regiao || 'OTHERS') < 0) return false;
@@ -133,7 +144,8 @@
       return noPeriodo(e);
     }
     var ev = todos.filter(function (e) { return passa(e); });
-    var porReg = {}; todos.filter(function (e) { return passa(e, false, true); }).forEach(function (e) { var r = e.regiao || 'OTHERS'; porReg[r] = (porReg[r] || 0) + 1; });
+    var evRe = reTodos.filter(function (e) { return passaRe(e); });
+    var porReg = {}; (emRe ? reTodos.filter(function (e) { return passaRe(e, true); }) : todos.filter(function (e) { return passa(e, false, true); })).forEach(function (e) { var r = e.regiao || 'OTHERS'; porReg[r] = (porReg[r] || 0) + 1; });
     var operadores = {}; todos.filter(function (e) { return passa(e, true); }).forEach(function (e) { operadores[e.quem] = (operadores[e.quem] || 0) + 1; });
 
     /* ---------- cabeçalho / filtros ---------- */
@@ -154,10 +166,28 @@
     var live = h('span', { class: 'cr-live', title: publico ? 'Dados publicados pelo painel principal; a página confere sozinha a cada minuto se saiu publicação nova' : 'A página só muda quando você pede ou quando os arquivos são reimportados' },
       [h('button', { type: 'button', class: 'op-btn', text: '↻ Atualizar', onclick: function () { if (publico && app.refresh) app.refresh(); else rerender(); } }),
         publico && data.publicadoEm ? 'publicado em ' + new Date(data.publicadoEm).toLocaleString('pt-BR') : 'dados de ' + agora.toLocaleTimeString('pt-BR')]);
-    container.appendChild(U.pageHeader('Controle de Retorno', V.sub, h('div', { class: 'flex items-center gap-2 flex-wrap' }, [publico && data.regiaoFixa ? null : chReg, selOp, chGrupo, chTipo, chPer, chPrio, live])));
+    container.appendChild(U.pageHeader('Controle de Retorno', V.sub, h('div', { class: 'flex items-center gap-2 flex-wrap' }, [publico && data.regiaoFixa ? null : chReg, emRe ? null : selOp, chGrupo, emRe ? null : chTipo, chPer, chPrio, live])));
 
-    if (!res.temCampos) container.appendChild(h('div', { class: 'op-banner', text: 'ℹ Os dados carregados ainda não trazem as colunas de suspensão (Responsabilidade, Sub área, Nota de Suspensão, Data/Hora de Reinício…). Reimporte os arquivos de atividades em “Importar dados” para preencher caminho, motivo e previsão de retorno.' }));
-    if (!todos.length) { container.appendChild(h('div', { class: 'op-empty', text: 'Nenhuma suspensão ou tramitação que tenha retornado à fila nos arquivos carregados.' })); return; }
+    if (!res.temCampos && !emRe) container.appendChild(h('div', { class: 'op-banner', text: 'ℹ Faltam dados de suspensão nos arquivos carregados. Reimporte os arquivos de atividades em “Importar dados”.' }));
+    if (!todos.length && !reTodos.length) { container.appendChild(h('div', { class: 'op-empty', text: 'Nenhuma suspensão ou tramitação que tenha retornado à fila nos arquivos carregados.' })); return; }
+
+    /* abas (a de "Encerradas que voltaram" mostra o seu próprio resumo e gráficos no lugar dos de retorno) */
+    function barraAbas() {
+      var abas = [
+        ['retornos', V.ret, ev.length],
+        temRe ? ['reabertas', 'Encerradas que voltaram', evRe.length] : null,
+        ['operadores', 'Ranking de operadores', null], ['nomes', 'Nomes dos caminhos', Object.keys(res.catalogo.caminho).length + Object.keys(res.catalogo.motivo).length]
+      ].filter(function (a) { return a && !(publico && a[0] === 'nomes'); });
+      return h('div', { class: 'op-tabs', style: { marginBottom: '10px' } }, abas.map(function (a) {
+        return h('button', { type: 'button', class: 'op-tab' + (state.aba === a[0] ? ' active' : ''), onclick: function () { state.aba = a[0]; rerender(); } }, [a[1], a[2] != null ? h('span', { class: 'n', text: String(a[2]) }) : null]);
+      }));
+    }
+    if (emRe) {
+      container.appendChild(barraAbas());
+      viewReabertas(container, evRe, rerender, agora);
+      if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(container);
+      return;
+    }
 
     /* ---------- drill ---------- */
     function textoCopia(lista) { return lista.map(function (e) { return [R.TIPOS[e.tipo].rot, e.quem, e.os, e.site, e.prio, nomeDe('caminho', e.caminho), rotC(e.classe) + (e.classe === 'ANTECIPADO' ? ' ' + durTxt(e.deltaMin) : '')].join(' · '); }).join('\n'); }
@@ -179,9 +209,9 @@
       return U.kpiCard({ label: k.l, value: String(k.v), cor: k.c, onClick: function () { drill(k.t, k.lista); } });
     })));
     var nSus = ev.filter(function (e) { return e.tipo === 'SUSPENSAO'; }).length, nInf = ev.filter(function (e) { return e.origem === 'inferida'; }).length;
-    var contagem = state.tipo === 'TODOS' ? '<b>' + nSus + '</b> suspensão(ões) e <b>' + (ev.length - nSus) + '</b> tramitação(ões) que retornaram' : '<b>' + ev.length + '</b> ' + V.pl + ' que retornaram';
-    container.appendChild(h('div', { class: 'cr-nota', html: contagem + ' no filtro.' + (nInf ? ' <b>' + nInf + '</b> identificada(s) só pela nota/previsão em linhas já de volta à fila (sem linha “pendente” no arquivo — ' + V.quem + ' não aparece).' : '') }));
-    if (comAw) container.appendChild(h('div', { class: 'cr-nota', html: '<b>' + Math.round(ant.length / comAw * 100) + '%</b> dos retornos com data prevista voltaram antes (' + ant.length + ' de ' + comAw + '). ' + semp.length + ' retorno(s) não tinham data de reinício — só é possível conferir os que têm.' }));
+    var contagem = state.tipo === 'TODOS' ? '<b>' + nSus + '</b> suspensão(ões) e <b>' + (ev.length - nSus) + '</b> tramitação(ões) retornaram' : '<b>' + ev.length + '</b> ' + V.pl + ' retornaram';
+    container.appendChild(h('div', { class: 'cr-nota', html: contagem + ' no período filtrado.' }));
+    if (comAw) container.appendChild(h('div', { class: 'cr-nota', html: '<b>' + Math.round(ant.length / comAw * 100) + '%</b> voltaram antes da data prevista (' + ant.length + ' de ' + comAw + ').' }));
 
     /* ---------- 2 gráficos ---------- */
     var ORDEM = ['ANTECIPADO', 'SEM_PREVISAO', 'NO_PRAZO'];
@@ -221,13 +251,7 @@
     [ccHora, ccDim].forEach(function (cc) { try { cc.canvas.__draw(); } catch (e) { console.error(e); } });
 
     /* ---------- tabelas ---------- */
-    var abas = [
-      ['retornos', V.ret, ret.length],
-      ['operadores', 'Ranking de operadores', null], ['nomes', 'Nomes dos caminhos', Object.keys(res.catalogo.caminho).length + Object.keys(res.catalogo.motivo).length]
-    ].filter(function (a) { return !(publico && a[0] === 'nomes'); });
-    container.appendChild(h('div', { class: 'op-tabs', style: { marginBottom: '10px' } }, abas.map(function (a) {
-      return h('button', { type: 'button', class: 'op-tab' + (state.aba === a[0] ? ' active' : ''), onclick: function () { state.aba = a[0]; rerender(); } }, [a[1], a[2] != null ? h('span', { class: 'n', text: String(a[2]) }) : null]);
-    })));
+    container.appendChild(barraAbas());
     var box = h('div', { class: 'cr-box' }); container.appendChild(box);
     if (state.aba === 'retornos') {
       var opcoes = [['TODAS', 'Todos']].concat(ORDEM.map(function (c) { return [c, rotC(c)]; }));
@@ -238,6 +262,77 @@
     else box.appendChild(painelNomes(res.catalogo, app));
     if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(container);
   };
+
+  /* ---------- TSKs encerradas que voltaram à fila (reabertas) ---------- */
+  var MOT = R.MOTIVOS_REABERTA, ORDEM_MOT = ['ALARME', 'TECNICO', 'MANUAL', 'SEM_REGISTRO'];
+  function tabelaReab(lista) {
+    var cols = ['TSK', 'Site', 'Prio', 'Região', 'Equipe', 'Encerrada por', 'Encerrada em', 'Reaberta em', 'Ficou encerrada', 'Motivo', 'Indício no diário', 'Voltou para', 'Ocorrências'];
+    var tab = h('table', { class: 'trj-table cc-tab' });
+    tab.appendChild(h('thead', null, [h('tr', null, cols.map(function (c) { return h('th', { text: c }); }))]));
+    var tb = h('tbody'); tab.appendChild(tb);
+    lista.slice(0, 600).forEach(function (e) {
+      var g = grupoDe(e), solo = e.origem === 'diario';
+      tb.appendChild(h('tr', { dataset: { osSel: e.os } }, [
+        h('td', null, [h('span', { class: 'op-tsk cr-tsk', dataset: { os: e.os }, title: 'Clique: copiar a TSK · botão direito: fixar os detalhes', text: e.os })]),
+        h('td', { text: e.site || '', title: 'END_ID ' + e.end }), h('td', { text: e.prio }), h('td', { text: regLabel(e.regiao) }),
+        h('td', null, [g ? tag(g === 'FIXA' ? 'FIXA' : 'MÓVEL', g === 'FIXA' ? '#1f6fb5' : '#168a47', e.dj) : h('span', { class: 'tx', text: '—', title: e.dj || 'sem regra criadora' })]),
+        h('td', { text: solo ? '—' : (e.quem || '—'), class: e.quemSistema && !solo ? 'cr-sis' : '' }),
+        h('td', { text: solo ? '—' : fmtDt(e.encerradaEm), title: e.statusEnc === 'CANCELADA' ? 'Cancelada' : (solo ? '' : 'Concluída') }),
+        h('td', null, [h('span', { text: fmtDt(e.reabertaEm) }), solo ? tag('SÓ DIÁRIO', '#6b7280', 'A linha de status (encerrada → reaberta) não está nos arquivos carregados; o retorno aparece só no diário de trabalho.') : null]),
+        h('td', { text: solo || e.intervaloMin == null ? '—' : (e.intervaloMin <= 2 ? 'na hora' : durTxt(e.intervaloMin)) }),
+        h('td', null, [tag(MOT[e.motivo].rot.toUpperCase(), MOT[e.motivo].cor)]),
+        h('td', { text: e.indicio || '—', title: e.indicio || '', style: { maxWidth: '280px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }),
+        h('td', { text: e.voltouPara ? e.voltouPara + (e.statusVolta ? ' · ' + (e.statusVolta === 'PENDENTE' ? 'pendente' : (e.statusVolta === 'INICIADO' ? 'iniciada' : 'não iniciada')) : '') : '—', title: e.voltouPara || '' }),
+        h('td', { text: e.nReab > 1 ? e.nReab + '×' : '1×', style: { fontWeight: e.nReab > 1 ? '800' : '400', color: e.nReab > 1 ? '#c62839' : '' } })
+      ]));
+    });
+    var wrap = h('div', { style: { overflowX: 'auto' } }, [tab]);
+    if (lista.length > 600) wrap.appendChild(h('div', { class: 'cr-nota', text: 'Mostrando as 600 mais recentes de ' + lista.length + '. Use os filtros para refinar.' }));
+    return wrap;
+  }
+  /* corpo da aba "Encerradas que voltaram": KPIs, 2 gráficos (por horário e por região, empilhados por motivo), filtro de motivo e tabela */
+  function viewReabertas(container, evRe, rerender, agora) {
+    function drillRe(titulo, lista) {
+      U.openModal(titulo + ' — ' + lista.length, lista.length ? tabelaReab(lista) : h('div', { class: 'op-empty', text: 'Nada aqui.' }), { onCopy: function () { return lista.map(function (e) { return [e.os, e.site, e.prio, MOT[e.motivo].rot, fmtDt(e.reabertaEm), e.indicio].join(' · '); }).join('\n'); } });
+    }
+    var porTsk = {}; evRe.forEach(function (e) { porTsk[e.os] = Math.max(porTsk[e.os] || 0, e.nReab); });
+    var tsks = Object.keys(porTsk), reinc = evRe.filter(function (e) { return e.nReab > 1; });
+    var alarme = evRe.filter(function (e) { return e.motivo === 'ALARME'; }), tecn = evRe.filter(function (e) { return e.motivo === 'TECNICO'; }), hojeRe = evRe.filter(function (e) { return mesmoDia(e.reabertaEm, agora); });
+    var kpis = [
+      { l: 'Encerradas que voltaram', v: evRe.length, c: '#1f6fb5', lista: evRe, t: 'Encerradas que voltaram à fila' },
+      { l: 'TSKs diferentes', v: tsks.length, c: '#7d3c98', lista: evRe, t: 'Encerradas que voltaram — todas' },
+      { l: 'Retorno por alarme', v: alarme.length, c: '#c62839', lista: alarme, t: 'Retorno por alarme' },
+      { l: 'Nota do técnico', v: tecn.length, c: '#1f6fb5', lista: tecn, t: 'Voltaram com nota do técnico' },
+      { l: 'TSKs que voltaram 2+ vezes', v: reinc.length ? Object.keys(reinc.reduce(function (m, e) { m[e.os] = 1; return m; }, {})).length : 0, c: '#d68910', lista: reinc, t: 'TSKs que voltaram 2 ou mais vezes' },
+      { l: 'Voltaram hoje', v: hojeRe.length, c: '#a569bd', lista: hojeRe, t: 'Voltaram hoje' }
+    ];
+    container.appendChild(h('div', { class: 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3' }, kpis.map(function (k) {
+      return U.kpiCard({ label: k.l, value: String(k.v), cor: k.c, onClick: function () { drillRe(k.t, k.lista); } });
+    })));
+    var nH = evRe.filter(function (e) { return e.origem === 'historico'; }).length;
+    container.appendChild(h('div', { class: 'cr-nota', html: '<b>' + evRe.length + '</b> TSK(s) encerrada(s) voltaram para a fila no período filtrado' + (nH < evRe.length ? ' (' + (evRe.length - nH) + ' identificada(s) só pelo diário).' : '.') }));
+    function seriesMot() { return ORDEM_MOT.map(function (m) { return { label: MOT[m].rot, cor: MOT[m].cor, motivo: m }; }); }
+    var grid = h('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4' });
+    var ccH = U.chartCard('Voltaram à fila por horário do dia'), horas = [], i;
+    for (i = 0; i < 24; i++) horas.push(('0' + i).slice(-2) + 'h');
+    var srH = seriesMot().map(function (s) { return Object.assign(s, { data: horas.map(function (_, k) { return evRe.filter(function (e) { return e.reabertaEm.getHours() === k && e.motivo === s.motivo; }).length; }) }); });
+    ccH.canvas.__draw = function () { U.seriesChart(ccH.canvas, horas, srH, { onSeg: function (k, di) { var m = srH[di].motivo; drillRe('Voltaram às ' + horas[k] + ' · ' + MOT[m].rot, evRe.filter(function (e) { return e.reabertaEm.getHours() === k && e.motivo === m; })); } }); };
+    var ccR = U.chartCard('Volume por região'), tot = {}, cont = {};
+    evRe.forEach(function (e) { var r = e.regiao || 'OTHERS'; tot[r] = (tot[r] || 0) + 1; (cont[r] = cont[r] || {})[e.motivo] = (cont[r][e.motivo] || 0) + 1; });
+    var ks = Object.keys(tot).sort(function (a, b) { return tot[b] - tot[a]; }).slice(0, 12);
+    var srR = seriesMot().map(function (s) { return Object.assign(s, { data: ks.map(function (k) { return (cont[k] && cont[k][s.motivo]) || 0; }) }); });
+    ccR.canvas.__draw = function () { U.seriesChart(ccR.canvas, ks.map(regLabel), srR, { horizontal: true, onSeg: function (ix, di) { var m = srR[di].motivo, k = ks[ix]; drillRe(regLabel(k) + ' · ' + MOT[m].rot, evRe.filter(function (e) { return (e.regiao || 'OTHERS') === k && e.motivo === m; })); } }); };
+    [ccH, ccR].forEach(function (cc) { grid.appendChild(cc.card); });
+    container.appendChild(grid);
+    [ccH, ccR].forEach(function (cc) { try { cc.canvas.__draw(); } catch (e) { console.error(e); } });
+    var opcoes = [['TODOS', 'Todos os motivos']].concat(ORDEM_MOT.map(function (m) { return [m, MOT[m].rot]; }));
+    container.appendChild(h('div', { class: 'cr-chips', style: { margin: '4px 0 8px' } }, opcoes.map(function (o) {
+      var n = o[0] === 'TODOS' ? evRe.length : evRe.filter(function (e) { return e.motivo === o[0]; }).length;
+      return h('button', { type: 'button', class: 'op-chip' + (state.motivoRe === o[0] ? ' on' : ''), text: o[1] + ' ' + n, onclick: function () { state.motivoRe = o[0]; rerender(); } });
+    })));
+    var lst = evRe.filter(function (e) { return state.motivoRe === 'TODOS' || e.motivo === state.motivoRe; });
+    container.appendChild(h('div', { class: 'cr-box' }, [lst.length ? tabelaReab(lst) : h('div', { class: 'op-empty', text: 'Nenhuma TSK encerrada voltou à fila com esses filtros.' })]));
+  }
 
   /* ---------- tabela de eventos ---------- */
   function tabelaEventos(lista) {
@@ -275,7 +370,7 @@
       tb.appendChild(h('tr', null, [h('td', { text: o.quem, style: { fontWeight: '700' } }), h('td', { text: String(o.tot) }), cel(o.ANTECIPADO, 'ANTECIPADO', '#c62839'), cel(o.SEM_PREVISAO, 'SEM_PREVISAO', '#d68910'), cel(o.NO_PRAZO, 'NO_PRAZO', '#168a47'),
         h('td', null, [pct == null ? h('span', { class: 'tx', text: '—' }) : h('b', { style: { color: pct >= 50 ? '#c62839' : (pct >= 25 ? '#d68910' : '#168a47') }, text: pct + '%' })])]));
     });
-    return h('div', { style: { overflowX: 'auto' } }, [tab, h('div', { class: 'cr-nota', text: V.rank + ' “% antecipado” considera só os que tinham data de reinício.' })]);
+    return h('div', { style: { overflowX: 'auto' } }, [tab, h('div', { class: 'cr-nota', text: '% antecipado: retornos antes da data prevista, entre os que tinham data prevista.' })]);
   }
 
   /* ---------- nomes dos caminhos / motivos (os não listados aparecem como NOVO) ---------- */
@@ -295,6 +390,6 @@
       tb.appendChild(h('tr', { class: l.novo ? 'cr-novo' : '' }, [h('td', { text: l.rot }), h('td', { text: l.valor, style: { fontWeight: '700' } }), h('td', { text: String(l.n) }),
         h('td', null, [l.novo ? tag('NOVO — dê um nome', '#d68910') : tag('conhecido', '#6b7280')]), h('td', null, [h('div', { style: { display: 'flex', gap: '6px' } }, [inp, btn])])]));
     });
-    return h('div', null, [h('div', { class: 'cr-nota', text: 'Todo caminho/motivo que aparece nos arquivos entra na métrica. Os que não estavam na sua lista ficam marcados como NOVO; dê um nome curto para o gráfico ficar objetivo — o nome é salvo na planilha e vale para toda a equipe.' }), h('div', { style: { overflowX: 'auto' } }, [tab])]);
+    return h('div', null, [h('div', { class: 'cr-nota', text: 'Dê um nome curto aos caminhos e motivos para os gráficos ficarem mais objetivos. O nome vale para toda a equipe.' }), h('div', { style: { overflowX: 'auto' } }, [tab])]);
   }
 })(window.TRJ = window.TRJ || {});

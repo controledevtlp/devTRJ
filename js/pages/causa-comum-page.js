@@ -36,7 +36,7 @@
 
     var selReg = h('select', { class: 'trj-select', style: { width: 'auto' }, onchange: function () { state.regiao = this.value; ctx.app.render(); } },
       [h('option', { value: 'TODAS', text: 'Todas as regiões' })].concat(C.REGIOES.map(function (r) { return h('option', { value: r, text: C.REGIAO_LABELS[r] || r, selected: state.regiao === r ? 'selected' : null }); })));
-    container.appendChild(U.pageHeader('Causa comum & Associações', 'Pontos comuns de falha na topologia e TSKs que podem ser associadas (falha por evento, não por tarefa)', h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg])));
+    container.appendChild(U.pageHeader('Causa comum & Associações', 'Concentradores fora e TSKs que podem ser associadas', h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg])));
 
     var tabs = [
       ['topo', 'Pontos comuns (concentradores fora)', res ? res.suspeitos.length : null],

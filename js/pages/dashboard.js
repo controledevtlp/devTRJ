@@ -421,7 +421,8 @@
       vencimentoCalc: t.vencimentoCalc, fimCalc: t.fimCalc,
       statusSla: t.statusSla, fonteSla: t.fonteSla, motivoCancelamento: t.motivoCancelamento,
       habilidadeTrabalho: t.habilidadeTrabalho,  // KPI "GMGs na Fila" (siteGERAL / público)
-      isocDJ: t.isocDJ                           // tipo de cliente — define B2B/Premium na aba Prioritários
+      isocDJ: t.isocDJ,                          // tipo de cliente — define B2B/Premium na aba Prioritários
+      evento: t.evento                           // coluna GF — máscara/mensagem de associação (Causa comum)
     };
   }
 
@@ -521,12 +522,14 @@
 
       // Controle de Retorno: os episódios saem do histórico de linhas das TSKs (só o painel autenticado tem), então são calculados aqui
       // e vão enxutos no snapshot para o dashboard público e o devGERAL. Os apelidos de caminho/motivo (CONFIG da planilha) vão junto.
-      var retorno = null, retornoApelidos = null;
+      var retorno = null, retornoApelidos = null, reabertas = null;
       try {
         if (TRJ.retorno && TRJ.retorno.compactar) {
           var rr = TRJ.retorno.analisar(data.tasksEnriched || []);
           if (rr.temCampos) retorno = TRJ.retorno.compactar(rr.eventos);
         }
+        // TSKs encerradas que voltaram à fila (reabertas)
+        if (TRJ.retorno && TRJ.retorno.compactarReabertas) reabertas = TRJ.retorno.compactarReabertas(TRJ.retorno.analisarReabertas(data.tasksEnriched || []).eventos);
         var apel = tryLS('trj_retorno_apelidos') || {};
         if (!_apelCache || Date.now() - _apelCache.t > 300000) {
           _apelCache = { t: Date.now(), v: null };
@@ -551,7 +554,8 @@
         mapaFoSlim:        foSlim,
         prodHistory:       prodHistory,
         retorno:           retorno,                    // Controle de Retorno (formato enxuto de TRJ.retorno.compactar)
-        retornoApelidos:   retornoApelidos
+        retornoApelidos:   retornoApelidos,
+        reabertas:         reabertas                   // TSKs encerradas que voltaram à fila (TRJ.retorno.compactarReabertas)
       };
       var jsonStr = JSON.stringify(payload);
       if (jsonStr === _ultimoSnapshotJSON) return;
