@@ -222,6 +222,7 @@
     var ticketsDedup = D.dedupPorTsk(tickets); // um row por TSK (o de maior sequenciaId)
     var backlog = ticketsDedup.filter(function (t) {
       var s = _s(t);
+      if (t.statusSla === 'PREDITIVA' || t.fonteSla === 'PREDITIVA') return false;
       return (s === 'NÃO INICIADO' || s === 'NAO INICIADO' || s === 'INICIADO') && !!t.dataCriacaoAS;
     });
 
@@ -524,9 +525,10 @@
     });
     var sep = D.separarTicketsManuais(tasks);
     var tickets = sep.tickets, manuais = sep.manuais;
-    // Backlog contável = Corretiva + Não Iniciado/Iniciado (sem Pendente, mesma regra do dashboard)
+    // Backlog contável = Corretiva + Não Iniciado/Iniciado (sem Pendente, sem Preditiva, mesma regra do dashboard)
     var backlog = tickets.filter(function (t) {
       var s = (t.status || '').toString().trim().toUpperCase();
+      if (t.statusSla === 'PREDITIVA' || t.fonteSla === 'PREDITIVA') return false;
       return s === 'NÃO INICIADO' || s === 'NAO INICIADO' || s === 'INICIADO';
     });
     var concluidas = tickets.filter(function (t) {

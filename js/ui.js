@@ -477,7 +477,9 @@
       var k2 = (t.enderecoId || '').toString().trim().toUpperCase();
       if (k2 !== key) return false;
       var st = (t.status || '').toString().trim().toUpperCase();
-      return STATUS_FECHADO_TSK.indexOf(st) < 0;
+      if (STATUS_FECHADO_TSK.indexOf(st) >= 0) return false;
+      if (t.statusSla === 'PREDITIVA' || t.fonteSla === 'PREDITIVA') return false;
+      return true;
     });
     if (!candidatos.length) return null;
     // Separar: corretiva tem prioridade sobre atividade manual

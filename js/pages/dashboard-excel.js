@@ -73,9 +73,10 @@
       if (!grupos[k]) { grupos[k] = []; ordem.push(grupos[k]); }
       grupos[k].push(i);
     });
-    var tskAberta = {};      // END_ID -> TSK corretiva aberta (backlog ou pendente)
+    var tskAberta = {};      // END_ID -> TSK corretiva aberta (backlog ou pendente), preditivas excluídas
     dedup.forEach(function (t) {
       var s = up(t.status), eid = up(t.enderecoId);
+      if (t.statusSla === 'PREDITIVA' || t.fonteSla === 'PREDITIVA') return;
       if (eid && (s === 'NAO INICIADO' || s === 'NÃO INICIADO' || s === 'INICIADO' || s === 'PENDENTE') && !tskAberta[eid]) tskAberta[eid] = t;
     });
     var foraPorEnd = {};
