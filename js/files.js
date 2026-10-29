@@ -542,6 +542,13 @@
   // duplicar o número em dois lugares.
   F.getMonitorIntervalMs = function () { return monitor.interval; };
 
+  F.queryFolderPermission = async function () {
+    var handle = await idbGet(IDB_KEY);
+    if (!handle) return null;
+    try { return await handle.queryPermission({ mode: 'readwrite' }); }
+    catch (e) { return null; }
+  };
+
   F.previewFile = async function (file) {
     var buf = await file.arrayBuffer();
     var parsed = parseArrayBuffer(buf, file.name);

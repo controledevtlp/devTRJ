@@ -467,6 +467,295 @@
     if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(box);
   }
 
+  /* ================= diagrama: topologia completa ================= */
+  function desenharTopologiaCompleta(box, res, A, voltar) {
+    var U = TRJ.ui, h = U.h, ix = indice();
+    if (!ix) { voltar(); return; }
+    if (PAN_OFF) PAN_OFF();
+    CC.vendoDiagrama = true;
+    box.innerHTML = '';
+
+    var colW = 232, nodeW = 208, nodeHMin = 36, nodeHMax = 76, GAP = 8, pad = 32;
+
+    function calcNodeH(id) {
+      var k = (ix.kids[id] || []).length;
+      return Math.min(nodeHMax, Math.max(nodeHMin, nodeHMin + Math.round(k * 1.5)));
+    }
+
+    var falhaIds = {};
+    if (res) {
+      (res.suspeitos || []).forEach(function (s) { (s.idsFalha || []).forEach(function (id) { falhaIds[id] = 1; }); });
+      (res.pais || []).forEach(function (s) { (s.idsFalha || []).forEach(function (id) { falhaIds[id] = 1; }); });
+    }
+
+    var tx = 0, ty = 0, sc = 1, base = { w: 1, h: 1 }, inner = null;
+    var posMap = {}, nodeHMap = {}, nodeElMap = {}, lastFocoEl = null;
+    var matchIds = [], matchTerm = '', matchIdx = -1, focoAtivo = false;
+    var cntBusca, inputBusca, area, rafId = null;
+
+    /* ── transform GPU-acelerado via translate3d ── */
+    function aplicaTransform() {
+      if (inner) inner.style.transform = 'translate3d(' + tx + 'px,' + ty + 'px,0) scale(' + sc + ')';
+    }
+    function zoomAt(newSc, px, py) {
+      var r = newSc / sc; tx = px - (px - tx) * r; ty = py - (py - ty) * r; sc = newSc; aplicaTransform();
+    }
+    function zoom(f) { zoomAt(Math.max(0.12, Math.min(4, sc * f)), area.clientWidth / 2, area.clientHeight / 2); }
+    function ajustar() {
+      sc = Math.max(0.12, Math.min(1, (area.clientWidth - 16) / base.w)); tx = 8; ty = 8; aplicaTransform();
+    }
+
+    /* ── getSubtree iterativo (sem recursão, sem stack overflow) ── */
+    function getSubtree(id) {
+      var sub = {}, queue = [id];
+      while (queue.length) {
+        var nid = queue.pop(); if (sub[nid]) continue; sub[nid] = true;
+        (ix.kids[nid] || []).forEach(function (k) { if (!sub[k]) queue.push(k); });
+      }
+      return sub;
+    }
+
+    /* ── foco: CSS modo-foco + nodeElMap (O(1), sem querySelectorAll) ── */
+    function aplicarFoco(id) {
+      var sub = getSubtree(id); focoAtivo = true;
+      inner.classList.add('modo-foco');
+      Object.keys(nodeElMap).forEach(function (nid) {
+        var el = nodeElMap[nid], dentro = !!sub[nid];
+        el.classList.toggle('foco-fora', !dentro);
+        el.classList.toggle('foco-dentro', dentro);
+      });
+    }
+    function removerFoco() {
+      focoAtivo = false;
+      if (!inner) return;
+      inner.classList.remove('modo-foco');
+      Object.keys(nodeElMap).forEach(function (nid) {
+        nodeElMap[nid].classList.remove('foco-fora', 'foco-dentro', 'busca-foco');
+      });
+      lastFocoEl = null;
+    }
+    function focarNo(id) {
+      var p = posMap[id]; if (!p) return;
+      var nh = nodeHMap[id] || nodeHMin;
+      tx = area.clientWidth / 2 - (p.x + nodeW / 2) * sc;
+      ty = area.clientHeight / 2 - (p.y + nh / 2) * sc;
+      aplicaTransform();
+      if (lastFocoEl) lastFocoEl.classList.remove('busca-foco');
+      lastFocoEl = nodeElMap[id] || null;
+      if (lastFocoEl) lastFocoEl.classList.add('busca-foco');
+      aplicarFoco(id);
+    }
+    function buscar(avancar) {
+      var t = inputBusca.value.trim().toUpperCase();
+      if (!t) { matchIds = []; matchTerm = ''; matchIdx = -1; cntBusca.textContent = ''; removerFoco(); return; }
+      if (t !== matchTerm) {
+        matchTerm = t; matchIdx = -1; matchIds = [];
+        Object.keys(ix.nodes).forEach(function (id) {
+          var n = ix.nodes[id]; if (!posMap[id]) return;
+          if (n.nome.toUpperCase().indexOf(t) >= 0 || id.toUpperCase().indexOf(t) >= 0 || (n.rotulo && n.rotulo.toUpperCase().indexOf(t) >= 0)) matchIds.push(id);
+        });
+      }
+      if (!matchIds.length) { cntBusca.textContent = '0 resultados'; removerFoco(); return; }
+      matchIdx = avancar ? (matchIdx + 1) % matchIds.length : 0;
+      focarNo(matchIds[matchIdx]);
+      cntBusca.textContent = (matchIdx + 1) + ' / ' + matchIds.length;
+    }
+
+    function sair() { if (PAN_OFF) PAN_OFF(); CC.vendoDiagrama = false; voltar(); }
+
+    /* ── CSS injetado ── */
+    var styleEl = document.createElement('style');
+    styleEl.textContent = [
+      /* busca highlight */
+      '.cc-nd.busca-foco rect{stroke:#ffe066!important;stroke-width:3px!important;filter:drop-shadow(0 0 8px #ffe066);}',
+      /* alerta pulsante para sites fora */
+      '.cc-nd.falha rect{stroke:#e74c3c;stroke-width:2.5px;animation:cc-pulse-falha 1.8s ease-in-out infinite;}',
+      '@keyframes cc-pulse-falha{0%,100%{stroke:#e74c3c;stroke-width:2.5;filter:drop-shadow(0 0 4px rgba(231,76,60,.5));}50%{stroke:#ff5252;stroke-width:4;filter:drop-shadow(0 0 14px #e74c3c);}}',
+      /* pausa animações durante o arrastar para zero lag */
+      '.cc-topo-area.arr *{animation-play-state:paused!important;}',
+      /* foco de busca: blur do que nao e filho */
+      '.cc-topo-inner.modo-foco .cc-nd.foco-fora{opacity:0.08;transition:opacity .2s;}',
+      '.cc-topo-inner.modo-foco .cc-nd.foco-fora rect{animation:none!important;}',
+      '.cc-topo-inner.modo-foco .cc-edge{opacity:0.05;transition:opacity .2s;}',
+      /* layout */
+      '.cc-topo-area{cursor:grab;overflow:hidden;position:relative;user-select:none;height:calc(100vh - 270px);min-height:400px;}',
+      '.cc-topo-area.arr{cursor:grabbing;}',
+      '.cc-topo-inner{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;contain:layout style paint;}'
+    ].join('');
+    box.appendChild(styleEl);
+
+    /* ── header ── */
+    var hdr = h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px 8px', borderBottom: '1px solid var(--op-divider,#2a2a38)', flexWrap: 'wrap' } });
+    hdr.appendChild(h('button', { class: 'op-btn go', type: 'button', text: '← Causa Comum', onclick: sair }));
+    hdr.appendChild(h('b', { style: { fontSize: '13px', letterSpacing: '.07em', flex: '1' }, text: 'TOPOLOGIA COMPLETA' }));
+    var nFalha = Object.keys(falhaIds).length;
+    if (nFalha) hdr.appendChild(h('span', { class: 'op-tag', style: { background: '#e74c3c', fontSize: '11px' }, text: nFalha + ' fora' }));
+    box.appendChild(hdr);
+
+    /* ── barra de controles ── */
+    var ctls = h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', background: 'var(--op-bg2,rgba(0,0,0,.18))', borderBottom: '1px solid var(--op-divider,#2a2a38)', flexWrap: 'wrap' } });
+    inputBusca = h('input', { type: 'text', class: 'trj-input', placeholder: 'Buscar site…  (Enter = próximo)' });
+    inputBusca.style.cssText = 'width:188px;height:28px;font-size:12px;padding:2px 10px;flex-shrink:0;';
+    cntBusca = h('span', { style: { fontSize: '11px', color: 'var(--op-muted,#8a8a93)', minWidth: '66px' }, text: '' });
+    inputBusca.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return; e.preventDefault();
+      buscar(inputBusca.value.trim().toUpperCase() === matchTerm && matchIdx >= 0);
+    });
+    inputBusca.addEventListener('input', function () {
+      if (!inputBusca.value.trim()) { matchIds = []; matchTerm = ''; matchIdx = -1; cntBusca.textContent = ''; removerFoco(); }
+    });
+    ctls.appendChild(inputBusca); ctls.appendChild(cntBusca);
+    ctls.appendChild(h('span', { style: { flex: '1' } }));
+    ctls.appendChild(h('span', { style: { display: 'flex', gap: '8px', alignItems: 'center', fontSize: '11px', color: 'var(--op-muted,#8a8a93)' } }, [
+      h('span', { class: 'lg fora', style: { fontSize: '11px' }, text: 'Fora s/ TSK' }),
+      h('span', { class: 'lg tsk', style: { fontSize: '11px' }, text: 'Fora c/ TSK' }),
+      h('span', { class: 'lg ok', style: { fontSize: '11px' }, text: 'Normal' })
+    ]));
+    ctls.appendChild(h('span', { style: { display: 'flex', gap: '4px', marginLeft: '6px' } }, [
+      h('button', { class: 'op-btn', type: 'button', title: 'Reduzir', text: '−', onclick: function () { zoom(0.85); } }),
+      h('button', { class: 'op-btn', type: 'button', title: 'Ajustar à tela', text: 'Ajustar', onclick: ajustar }),
+      h('button', { class: 'op-btn', type: 'button', title: 'Ampliar', text: '+', onclick: function () { zoom(1.18); } })
+    ]));
+    box.appendChild(ctls);
+    box.appendChild(h('div', { style: { fontSize: '11px', color: 'var(--op-muted,#8a8a93)', padding: '3px 14px 5px' }, text: 'Clique e arraste para mover · roda do mouse para zoom · Enter na busca = próximo · clique no fundo para sair do foco' }));
+
+    area = h('div', { class: 'cc-topo-area' });
+    box.appendChild(area);
+
+    /* ── layout com altura variavel por no ── */
+    var itens = [], arestas = [], maxCol = 0, currentY = 0;
+    var allIds = Object.keys(ix.nodes);
+    var rootIds = allIds.filter(function (id) {
+      var n = ix.nodes[id]; return !n.pid || !ix.nodes[n.pid];
+    }).sort(function (a, b) { return (ix.desc[b] || 0) - (ix.desc[a] || 0); });
+
+    var visited = {};
+    function visita(id, col) {
+      if (visited[id]) return null;
+      visited[id] = true;
+      var nh = calcNodeH(id);
+      var kids = (ix.kids[id] || []).filter(function (k) { return !visited[k]; });
+      var it = { id: id, col: col, tipo: falhaIds[id] ? 'falha' : 'ok', nh: nh };
+      maxCol = Math.max(maxCol, col);
+      if (!kids.length) {
+        it.ty = currentY; currentY += nh + GAP;
+      } else {
+        var first = null, last = null;
+        kids.forEach(function (k) {
+          var c = visita(k, col + 1);
+          if (c) { arestas.push([id, k]); if (!first) first = c; last = c; }
+        });
+        if (!first) { it.ty = currentY; currentY += nh + GAP; }
+        else { it.ty = Math.round((first.ty + last.ty + last.nh - nh) / 2); }
+      }
+      itens.push(it); return it;
+    }
+    rootIds.forEach(function (id, i) { if (i > 0) currentY += 24; visita(id, 0); });
+    var disconnected = allIds.filter(function (id) { return !visited[id]; });
+    if (disconnected.length) {
+      currentY += 24;
+      disconnected.forEach(function (id) {
+        if (visited[id]) return; visited[id] = true;
+        var nh = calcNodeH(id); itens.push({ id: id, col: 0, tipo: falhaIds[id] ? 'falha' : 'ok', nh: nh, ty: currentY }); currentY += nh + GAP;
+      });
+    }
+
+    var W = (maxCol + 1) * colW + pad * 2, H = currentY + pad;
+
+    /* ── SVG: arestas combinadas em 2 <path> (normal + falha) ── */
+    var svgEl = svg('svg', { viewBox: '0 0 ' + W + ' ' + H, width: W, height: H, class: 'cc-svg' });
+    svgEl.style.cssText = 'display:block;';
+
+    itens.forEach(function (x) { posMap[x.id] = { x: pad + x.col * colW, y: x.ty }; nodeHMap[x.id] = x.nh; });
+
+    /* combinar todos os paths em 2 elementos SVG reduz DOM de centenas para 2 */
+    var dNorm = [], dFalha = [];
+    arestas.forEach(function (a) {
+      var p = posMap[a[0]], q = posMap[a[1]]; if (!p || !q) return;
+      var nh0 = nodeHMap[a[0]] || nodeHMin, nh1 = nodeHMap[a[1]] || nodeHMin;
+      var x1 = p.x + nodeW, y1 = p.y + nh0 / 2, x2 = q.x, y2 = q.y + nh1 / 2, mx = (x1 + x2) / 2;
+      var d = 'M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2;
+      if (falhaIds[a[0]] && falhaIds[a[1]]) dFalha.push(d); else dNorm.push(d);
+    });
+    if (dNorm.length) svgEl.appendChild(svg('path', { d: dNorm.join(' '), class: 'cc-edge' }));
+    if (dFalha.length) svgEl.appendChild(svg('path', { d: dFalha.join(' '), class: 'cc-edge f' }));
+
+    /* nos: usa DocumentFragment para inserção em lote */
+    var frag = document.createDocumentFragment();
+    itens.forEach(function (x) {
+      var n2 = ix.nodes[x.id], p = posMap[x.id], nh = x.nh, kids = ix.kids[x.id] || [];
+      var gr = svg('g', { class: 'cc-nd ' + x.tipo, 'data-nid': x.id, transform: 'translate(' + p.x + ',' + p.y + ')' });
+      gr.appendChild(svg('title', {}, n2.nome + (n2.rotulo ? '\n' + n2.rotulo : '') + '\nFilhos: ' + kids.length + (falhaIds[x.id] ? '\n[FORA]' : '')));
+      gr.appendChild(svg('rect', { width: nodeW, height: nh, rx: 8 }));
+      var ly1 = nh > 48 ? Math.round(nh / 2) - 8 : Math.round(nh / 2) + 4;
+      gr.appendChild(svg('text', { x: 10, y: ly1, class: 'n1' }, cortaTxt(n2.nome.split('|')[0], 22)));
+      if (nh > 44) {
+        var l2 = n2.rotulo ? cortaTxt(n2.rotulo.replace(/^\(\d+\)\s*/, ''), 32) : (kids.length ? kids.length + ' filho(s)' : '');
+        if (falhaIds[x.id]) l2 = 'FORA' + (l2 ? ' · ' + l2 : '');
+        if (l2) gr.appendChild(svg('text', { x: 10, y: ly1 + 16, class: 'n2' }, l2));
+      }
+      if (kids.length) gr.appendChild(svg('text', { x: nodeW - 8, y: ly1, class: 'n3', 'text-anchor': 'end' }, kids.length + '↓'));
+      nodeElMap[x.id] = gr;
+      frag.appendChild(gr);
+    });
+    svgEl.appendChild(frag);
+
+    inner = h('div', { class: 'cc-topo-inner' });
+    inner.appendChild(svgEl);
+    area.appendChild(inner);
+    base = { w: W, h: H };
+
+    requestAnimationFrame(function () {
+      sc = Math.max(0.12, Math.min(0.9, (area.clientWidth || 700) / W * 0.9));
+      tx = 8; ty = 8; aplicaTransform();
+    });
+
+    /* ── pan com RAF throttle: 1 transform por frame ── */
+    var pan = { on: false, x: 0, y: 0, tx0: 0, ty0: 0, mov: false, dx: 0, dy: 0 };
+    function down(e) {
+      if (e.button !== 0) return;
+      pan.on = true; pan.mov = false; pan.x = e.clientX; pan.y = e.clientY; pan.dx = 0; pan.dy = 0;
+      pan.tx0 = tx; pan.ty0 = ty;
+      inner.style.pointerEvents = 'none';   /* elimina hit-testing durante o arrasto */
+      area.classList.add('arr');             /* pausa animacoes CSS */
+      e.preventDefault();
+    }
+    function move(e) {
+      if (!pan.on) return;
+      pan.dx = e.clientX - pan.x; pan.dy = e.clientY - pan.y;
+      if (Math.abs(pan.dx) + Math.abs(pan.dy) > 3) pan.mov = true;
+      if (!rafId) rafId = requestAnimationFrame(function () {
+        rafId = null; tx = pan.tx0 + pan.dx; ty = pan.ty0 + pan.dy; aplicaTransform();
+      });
+    }
+    function up2() {
+      pan.on = false; area.classList.remove('arr');
+      inner.style.pointerEvents = '';       /* restaura hit-testing */
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    }
+    function roda(e) {
+      e.preventDefault(); var r = area.getBoundingClientRect();
+      zoomAt(Math.max(0.12, Math.min(4, sc * (e.deltaY < 0 ? 1.12 : 0.89))), e.clientX - r.left, e.clientY - r.top);
+    }
+    function clique(e) {
+      if (pan.mov) { pan.mov = false; return; }
+      if (!e.target.closest('.cc-nd') && focoAtivo) {
+        removerFoco(); inputBusca.value = ''; matchIds = []; matchTerm = ''; matchIdx = -1; cntBusca.textContent = '';
+      }
+    }
+    area.addEventListener('mousedown', down); window.addEventListener('mousemove', move); window.addEventListener('mouseup', up2);
+    area.addEventListener('wheel', roda, { passive: false }); area.addEventListener('click', clique);
+    PAN_OFF = function () {
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up2);
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      PAN_OFF = null;
+    };
+    if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(box);
+  }
+
+  /* ================= tela: pontos comuns (topologia) ================= */
+  /* ================= tela: pontos comuns (topologia) ================= */
+  /* ================= tela: pontos comuns (topologia) ================= */
   /* ================= tela: pontos comuns (topologia) ================= */
   function textoCopia(s) {
     var l = ['*CAUSA COMUM PROVÁVEL: ' + s.nome + '*' + (s.rotulo ? ' (' + s.rotulo + ')' : ''), s.falhos + ' de ' + s.total + ' pontos abaixo estão fora (' + Math.round(s.pct * 100) + '%)'];
@@ -481,7 +770,10 @@
     if (!res) { box.appendChild(h('div', { class: 'op-empty', text: 'Topologia não carregada.' })); return; }
     var st = res.stats, pctMap = st.totSites ? Math.round(st.totMapeados / st.totSites * 100) : 0;
     box.appendChild(h('div', { class: 'cc-intro' }, [
-      h('span', { class: 'cc-cov', text: st.totMapeados + ' de ' + st.totSites + ' sites (' + pctMap + '%) têm correspondência no diagrama · ' + res.suspeitos.length + ' concentrador' + (res.suspeitos.length !== 1 ? 'es' : '') + ((res.pais || []).length ? ' · ' + res.pais.length + ' pai' + (res.pais.length !== 1 ? 's' : '') + ' com vários sites fora' : '') + (st.totIgnorados ? ' · ' + st.totIgnorados + ' site(s) desconsiderado(s) pelo tipo de falha' : '') })
+      h('span', { class: 'cc-cov', text: st.totMapeados + ' de ' + st.totSites + ' sites (' + pctMap + '%) têm correspondência no diagrama · ' + res.suspeitos.length + ' concentrador' + (res.suspeitos.length !== 1 ? 'es' : '') + ((res.pais || []).length ? ' · ' + res.pais.length + ' pai' + (res.pais.length !== 1 ? 's' : '') + ' com vários sites fora' : '') + (st.totIgnorados ? ' · ' + st.totIgnorados + ' site(s) desconsiderado(s) pelo tipo de falha' : '') }),
+    ]));
+    box.appendChild(h('div', { style: { textAlign: 'right', padding: '2px 2px 10px' } }, [
+      h('button', { class: 'op-btn', type: 'button', style: { fontWeight: '600', letterSpacing: '.04em' }, text: 'TOPOLOGIA COMPLETA →', onclick: function () { desenharTopologiaCompleta(box, res, A, lista); } })
     ]));
     if (!res.suspeitos.length && !(res.pais || []).length) box.appendChild(h('div', { class: 'op-empty', text: 'Nenhum ponto comum encontrado com os filtros atuais. 👏' }));
     function cartao(s, i) {
