@@ -131,48 +131,71 @@
     if (publico && state.aba === 'nomes') state.aba = 'retornos';
     if (state.modo === 'reabertas' && !temRe) state.modo = 'retornos';
     var emRe = state.modo === 'reabertas';
-    function noPeriodoD(d) {
-      if (!d || state.periodo === 'tudo') return true;
-      if (state.periodo === 'hoje') return mesmoDia(d, agora);
-      if (state.periodo === '24h') return agora - d <= 24 * 3600000;
-      if (state.periodo === '7d') return agora - d <= 7 * 24 * 3600000;
+    function noPeriodoD(d, per) {
+      per = per || state.periodo;
+      if (!d || per === 'tudo') return true;
+      if (per === 'hoje') return mesmoDia(d, agora);
+      if (per === '24h') return agora - d <= 24 * 3600000;
+      if (per === '7d') return agora - d <= 7 * 24 * 3600000;
       return true;
     }
-    function noPeriodo(e) { return noPeriodoD(e.retorno); }
-    function passaRe(e, semReg) {
-      if (!semReg && state.regioes.length && state.regioes.indexOf(e.regiao || 'OTHERS') < 0) return false;
-      if (state.grupo !== 'TODAS' && grupoDe(e) !== state.grupo) return false;
-      if (state.prios.length && state.prios.indexOf(e.prio) < 0) return false;
-      return noPeriodoD(e.reabertaEm);
+    /* `ex` = grupo de filtro a ignorar ('per', 'reg', 'grupo', 'prio', 'tipo', 'op'): serve para contar quanto cada opção do grupo traria
+       sem mexer na lista de opções (as opções são sempre as mesmas; só o número muda) */
+    function passaRe(e, ex) {
+      if (ex !== 'reg' && state.regioes.length && state.regioes.indexOf(e.regiao || 'OTHERS') < 0) return false;
+      if (ex !== 'grupo' && state.grupo !== 'TODAS' && grupoDe(e) !== state.grupo) return false;
+      if (ex !== 'prio' && state.prios.length && state.prios.indexOf(e.prio) < 0) return false;
+      return ex === 'per' || noPeriodoD(e.reabertaEm);
     }
-    function passa(e, semOp, semReg) {
-      if (!semReg && state.regioes.length && state.regioes.indexOf(e.regiao || 'OTHERS') < 0) return false;
-      if (state.grupo !== 'TODAS' && grupoDe(e) !== state.grupo) return false;
-      if (state.prios.length && state.prios.indexOf(e.prio) < 0) return false;
-      if (!semOp && state.op !== 'TODAS' && e.quem !== state.op) return false;
-      if (state.tipo !== 'TODOS' && e.tipo !== state.tipo) return false;
-      return noPeriodo(e);
+    function passa(e, ex) {
+      if (ex !== 'reg' && state.regioes.length && state.regioes.indexOf(e.regiao || 'OTHERS') < 0) return false;
+      if (ex !== 'grupo' && state.grupo !== 'TODAS' && grupoDe(e) !== state.grupo) return false;
+      if (ex !== 'prio' && state.prios.length && state.prios.indexOf(e.prio) < 0) return false;
+      if (ex !== 'op' && state.op !== 'TODAS' && e.quem !== state.op) return false;
+      if (ex !== 'tipo' && state.tipo !== 'TODOS' && e.tipo !== state.tipo) return false;
+      return ex === 'per' || noPeriodoD(e.retorno);
     }
     var ev = todos.filter(function (e) { return passa(e); });
     var evRe = reTodos.filter(function (e) { return passaRe(e); });
-    var porReg = {}; (emRe ? reTodos.filter(function (e) { return passaRe(e, true); }) : todos.filter(function (e) { return passa(e, false, true); })).forEach(function (e) { var r = e.regiao || 'OTHERS'; porReg[r] = (porReg[r] || 0) + 1; });
-    var operadores = {}; todos.filter(function (e) { return passa(e, true); }).forEach(function (e) { operadores[e.quem] = (operadores[e.quem] || 0) + 1; });
+    var baseCont = emRe ? reTodos : todos;
+    /* quantos itens cada opção do grupo `ex` teria com os demais filtros — chave = valor da opção (período recebe a lista de datas) */
+    function contagem(ex, chaveFn) {
+      var m = {};
+      baseCont.forEach(function (e) { if (emRe ? passaRe(e, ex) : passa(e, ex)) { var k = chaveFn(e); m[k] = (m[k] || 0) + 1; } });
+      return m;
+    }
+    var nReg = contagem('reg', function (e) { return e.regiao || 'OTHERS'; });
+    var nGrupo = contagem('grupo', function (e) { return grupoDe(e) || 'SEM'; });
+    var nPrio = contagem('prio', function (e) { return e.prio; });
+    var nTipo = contagem('tipo', function (e) { return e.tipo; });
+    var nOp = contagem('op', function (e) { return e.quem; });
+    function totalSem(ex) { return baseCont.filter(function (e) { return emRe ? passaRe(e, ex) : passa(e, ex); }); }
+    function nPeriodo(per) { return totalSem('per').filter(function (e) { return noPeriodoD(emRe ? e.reabertaEm : e.retorno, per); }).length; }
 
     /* ---------- cabeçalho / filtros ---------- */
+    /* lista de operadores fixa (todos os que já retornaram); o número ao lado é o que cada um tem com os demais filtros */
+    var nomesOp = Object.keys(todos.reduce(function (m, e) { m[e.quem] = 1; return m; }, {})).sort();
     var selOp = h('select', { class: 'trj-select', style: { width: 'auto', maxWidth: '230px' }, onchange: function () { state.op = this.value; rerender(); } },
-      [h('option', { value: 'TODAS', text: 'Todos os operadores' })].concat(Object.keys(operadores).sort().map(function (n) { return h('option', { value: n, text: n + ' (' + operadores[n] + ')', selected: state.op === n ? 'selected' : null }); })));
-    function chips(opcoes, ativoFn, clique) {
-      return h('div', { class: 'cr-chips' }, opcoes.map(function (o) { return h('button', { type: 'button', class: 'op-chip' + (ativoFn(o[0]) ? ' on' : ''), text: o[1], onclick: function () { clique(o[0]); rerender(); } }); }));
+      [h('option', { value: 'TODAS', text: 'Todos os operadores' })].concat(nomesOp.map(function (n) { return h('option', { value: n, text: n + ' (' + (nOp[n] || 0) + ')', selected: state.op === n ? 'selected' : null }); })));
+    /* chip com número; sem valores = esmaecido e com aviso (continua no mesmo lugar, o layout não muda) */
+    function chipN(rot, n, on, clique, title) {
+      var vazio = n === 0 && !on;
+      return h('button', { type: 'button', class: 'op-chip' + (on ? ' on' : '') + (vazio ? ' vazio' : ''), title: vazio ? 'Sem valores com os filtros atuais' : (title || null), onclick: function () { clique(); rerender(); } },
+        [rot, h('span', { class: 'cr-n', text: String(n) })]);
     }
-    /* regiões: seleção múltipla (vazio = todas); o número é quanto retornou na região com os demais filtros */
-    var chReg = h('div', { class: 'cr-chips' }, [h('button', { type: 'button', class: 'op-chip' + (!state.regioes.length ? ' on' : ''), text: 'Todas', onclick: function () { state.regioes = []; rerender(); } })].concat(
-      C.REGIOES.filter(function (r) { return porReg[r] || state.regioes.indexOf(r) >= 0; }).map(function (r) {
-        return h('button', { type: 'button', class: 'op-chip' + (state.regioes.indexOf(r) >= 0 ? ' on' : ''), title: 'Clique para filtrar (pode escolher várias)', text: regLabel(r) + ' ' + (porReg[r] || 0), onclick: function () { var i = state.regioes.indexOf(r); if (i >= 0) state.regioes.splice(i, 1); else state.regioes.push(r); rerender(); } });
+    function chips(opcoes, ativoFn, clique, contFn) {
+      return h('div', { class: 'cr-chips' }, opcoes.map(function (o) { return chipN(o[1], contFn(o[0]), ativoFn(o[0]), function () { clique(o[0]); }); }));
+    }
+    var totSem = function (ex) { return totalSem(ex).length; };
+    /* regiões: seleção múltipla (vazio = todas); todas as regiões ficam sempre visíveis */
+    var chReg = h('div', { class: 'cr-chips' }, [chipN('Todas', totSem('reg'), !state.regioes.length, function () { state.regioes = []; })].concat(
+      C.REGIOES.map(function (r) {
+        return chipN(regLabel(r), nReg[r] || 0, state.regioes.indexOf(r) >= 0, function () { var i = state.regioes.indexOf(r); if (i >= 0) state.regioes.splice(i, 1); else state.regioes.push(r); }, 'Clique para filtrar (pode escolher várias)');
       })));
-    var chGrupo = chips([['TODAS', 'Todas'], ['FIXA', 'FIXA'], ['MOVEL', 'MÓVEL']], function (v) { return state.grupo === v; }, function (v) { state.grupo = v; });
-    var chTipo = chips([['TODOS', 'Todos'], ['SUSPENSAO', 'Suspensões'], ['TRAMITACAO', 'Tramitações']], function (v) { return state.tipo === v; }, function (v) { state.tipo = v; });
-    var chPer = chips([['hoje', 'Hoje'], ['24h', 'Últimas 24 h'], ['7d', 'Últimos 7 dias'], ['tudo', 'Tudo']], function (v) { return state.periodo === v; }, function (v) { state.periodo = v; });
-    var chPrio = chips([['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3'], ['P4', 'P4'], ['P5', 'P5']], function (v) { return state.prios.indexOf(v) >= 0; }, function (v) { var i = state.prios.indexOf(v); if (i >= 0) state.prios.splice(i, 1); else state.prios.push(v); });
+    var chGrupo = chips([['TODAS', 'Todas'], ['FIXA', 'FIXA'], ['MOVEL', 'MÓVEL']], function (v) { return state.grupo === v; }, function (v) { state.grupo = v; }, function (v) { return v === 'TODAS' ? totSem('grupo') : (nGrupo[v] || 0); });
+    var chTipo = chips([['TODOS', 'Todos'], ['SUSPENSAO', 'Suspensões'], ['TRAMITACAO', 'Tramitações']], function (v) { return state.tipo === v; }, function (v) { state.tipo = v; }, function (v) { return v === 'TODOS' ? totSem('tipo') : (nTipo[v] || 0); });
+    var chPer = chips([['hoje', 'Hoje'], ['24h', 'Últimas 24 h'], ['7d', 'Últimos 7 dias'], ['tudo', 'Tudo']], function (v) { return state.periodo === v; }, function (v) { state.periodo = v; }, nPeriodo);
+    var chPrio = chips([['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3'], ['P4', 'P4'], ['P5', 'P5']], function (v) { return state.prios.indexOf(v) >= 0; }, function (v) { var i = state.prios.indexOf(v); if (i >= 0) state.prios.splice(i, 1); else state.prios.push(v); }, function (v) { return nPrio[v] || 0; });
     var live = h('span', { class: 'cr-live', title: publico ? 'Dados publicados pelo painel principal; a página confere sozinha a cada minuto se saiu publicação nova' : 'A página só muda quando você pede ou quando os arquivos são reimportados' },
       [h('button', { type: 'button', class: 'op-btn cr-btn-ico', onclick: function () { if (publico && app.refresh) app.refresh(); else rerender(); } }, [ico('atualizar'), 'ATUALIZAR']),
         publico && data.publicadoEm ? 'publicado em ' + new Date(data.publicadoEm).toLocaleString('pt-BR') : 'dados de ' + agora.toLocaleTimeString('pt-BR')]);
@@ -195,7 +218,8 @@
     container.appendChild(h('div', { class: 'cr-filtros' }, [
       h('div', { class: 'cr-filtros-t' }, [ico('filtro'), h('span', { text: 'FILTROS' }),
         nAtivos ? h('span', { class: 'cr-badge', text: nAtivos + (nAtivos === 1 ? ' ATIVO' : ' ATIVOS') }) : h('span', { class: 'cr-filtros-s', text: 'nenhum filtro ativo' }),
-        nAtivos ? h('button', { type: 'button', class: 'op-btn cr-btn-ico', onclick: limpaFiltros }, [ico('limpar'), 'LIMPAR']) : null]),
+        nAtivos ? h('button', { type: 'button', class: 'op-btn cr-btn-ico', onclick: limpaFiltros }, [ico('limpar'), 'LIMPAR']) : null,
+        h('span', { class: 'cr-legenda', text: 'Opção esmaecida = sem valores com os filtros atuais' })]),
       h('div', { class: 'cr-fgrid' }, [
         grupoF('PERÍODO', chPer),
         publico && data.regiaoFixa ? null : grupoF('REGIÃO', chReg),
@@ -265,10 +289,13 @@
     })();
 
     // (2) uma visão só, trocando a dimensão (operador, caminho, motivo, prioridade, região, tipo)
-    var dimsOk = DIMS.filter(function (d) { return !(d[4] && d[4].soTodos && state.tipo !== 'TODOS'); });
-    var dimAtual = dimsOk.filter(function (d) { return d[0] === state.dim; })[0] || dimsOk[0];
-    var swDim = h('div', { class: 'cr-sw-dim' }, [h('span', { class: 'cr-rot', text: 'AGRUPAR POR' }), h('div', { class: 'cr-chips' }, dimsOk.map(function (d) {
-      return h('button', { type: 'button', class: 'op-chip' + (dimAtual[0] === d[0] ? ' on' : ''), text: d[1], onclick: function () { state.dim = d[0]; rerender(); } });
+    /* os botões são sempre os mesmos; "Suspensão x tramitação" fica desabilitado quando o filtro de tipo já separa as duas */
+    function dimBloqueada(d) { return !!(d[4] && d[4].soTodos && state.tipo !== 'TODOS'); }
+    var dimsOk = DIMS;
+    var dimAtual = DIMS.filter(function (d) { return d[0] === state.dim && !dimBloqueada(d); })[0] || DIMS[0];
+    var swDim = h('div', { class: 'cr-sw-dim' }, [h('span', { class: 'cr-rot', text: 'AGRUPAR POR' }), h('div', { class: 'cr-chips' }, DIMS.map(function (d) {
+      var bloq = dimBloqueada(d);
+      return h('button', { type: 'button', class: 'op-chip' + (dimAtual[0] === d[0] ? ' on' : '') + (bloq ? ' vazio' : ''), disabled: bloq ? 'disabled' : null, title: bloq ? 'Indisponível: o filtro de tipo já mostra só um dos dois' : null, text: d[1], onclick: function () { state.dim = d[0]; rerender(); } });
     }))]);
     var tituloDim = dimAtual[0] === 'operador' ? 'Por operador (' + V.quem + ')' : 'Por ' + dimAtual[1].toLowerCase();
     var ccDim = U.chartCard(tituloDim);
@@ -294,7 +321,7 @@
       var opcoes = [['TODAS', 'Todas']].concat(ORDEM.map(function (c) { return [c, rotC(c)]; }));
       box.appendChild(h('div', { class: 'cr-fg cr-fg-linha' }, [h('span', { class: 'cr-rot', text: 'SITUAÇÃO' }), h('div', { class: 'cr-chips' }, opcoes.map(function (o) {
         var n = o[0] === 'TODAS' ? ret.length : ret.filter(function (e) { return e.classe === o[0]; }).length;
-        return h('button', { type: 'button', class: 'op-chip' + (state.classe === o[0] ? ' on' : ''), text: o[1] + ' ' + n, onclick: function () { state.classe = o[0]; rerender(); } });
+        return h('button', { type: 'button', class: 'op-chip' + (state.classe === o[0] ? ' on' : '') + (n === 0 && state.classe !== o[0] ? ' vazio' : ''), text: o[1] + ' ' + n, onclick: function () { state.classe = o[0]; rerender(); } });
       }))]));
       var lst = ret.filter(function (e) { return state.classe === 'TODAS' || e.classe === state.classe; });
       box.appendChild(lst.length ? tabelaEventos(lst) : h('div', { class: 'op-empty', text: 'Nenhum retorno com esses filtros.' }));
@@ -369,7 +396,7 @@
     container.appendChild(h('div', { class: 'cr-sec', text: 'DETALHAMENTO' }));
     container.appendChild(h('div', { class: 'cr-fg cr-fg-linha' }, [h('span', { class: 'cr-rot', text: 'MOTIVO' }), h('div', { class: 'cr-chips' }, opcoes.map(function (o) {
       var n = o[0] === 'TODOS' ? evRe.length : evRe.filter(function (e) { return e.motivo === o[0]; }).length;
-      return h('button', { type: 'button', class: 'op-chip' + (state.motivoRe === o[0] ? ' on' : ''), text: o[1] + ' ' + n, onclick: function () { state.motivoRe = o[0]; rerender(); } });
+      return h('button', { type: 'button', class: 'op-chip' + (state.motivoRe === o[0] ? ' on' : '') + (n === 0 && state.motivoRe !== o[0] ? ' vazio' : ''), text: o[1] + ' ' + n, onclick: function () { state.motivoRe = o[0]; rerender(); } });
     }))]));
     var lst = evRe.filter(function (e) { return state.motivoRe === 'TODOS' || e.motivo === state.motivoRe; });
     container.appendChild(h('div', { class: 'cr-box' }, [lst.length ? tabelaReab(lst) : h('div', { class: 'op-empty', text: 'Nenhuma TSK encerrada voltou à fila com esses filtros.' })]));

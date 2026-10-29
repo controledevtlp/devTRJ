@@ -290,6 +290,10 @@ button.cc-pb:hover { filter: brightness(1.15); } button.cc-pb:active { transform
 .cr-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .cr-sw { display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .cr-sw-dim { display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 8px; margin: -4px 0 10px; }
+.op-chip.vazio { opacity: .42; }
+.op-chip.vazio:disabled { cursor: not-allowed; }
+.op-chip .cr-n { margin-left: 6px; font-weight: 700; opacity: .75; }
+.op-chip.on .cr-n { opacity: .95; }
 .cr-rot { font-size: 10px; font-weight: 800; letter-spacing: .06em; color: var(--trj-muted); text-transform: uppercase; white-space: nowrap; }
 .cr-ico { display: inline-flex; align-items: center; }
 .cr-btn-ico { display: inline-flex; align-items: center; gap: 6px; letter-spacing: .03em; }
@@ -306,6 +310,7 @@ button.cc-pb:hover { filter: brightness(1.15); } button.cc-pb:active { transform
 .cr-filtros { background: var(--trj-card); border: 1px solid var(--trj-border); border-radius: 12px; padding: 10px 14px 12px; margin-bottom: 14px; }
 .cr-filtros-t { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 11px; font-weight: 800; letter-spacing: .06em; color: var(--trj-muted); }
 .cr-filtros-s { font-weight: 600; letter-spacing: 0; text-transform: none; }
+.cr-legenda { margin-left: auto; font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none; }
 .cr-badge { padding: 1px 8px; border-radius: 999px; background: var(--trj-primary); color: #fff; font-size: 10px; letter-spacing: .04em; }
 .cr-fgrid { display: flex; flex-wrap: wrap; gap: 10px 26px; align-items: flex-start; }
 .cr-fg { display: flex; flex-direction: column; gap: 5px; }
