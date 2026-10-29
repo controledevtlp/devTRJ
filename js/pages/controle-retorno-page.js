@@ -1,12 +1,21 @@
 /* Página: Controle de Retorno — o que foi suspenso/tramitado e VOLTOU para a fila, para a nota não ficar parada ou perdida.
  * Só entra o que já retornou (quem continua suspenso/tramitado não é controlado aqui). Os textos se ajustam ao filtro:
  * só suspensões, só tramitações ou as duas juntas. Clique na TSK copia o número; botão direito fixa o balão de detalhes.
- * Não atualiza sozinha: botão ↻ Atualizar (ou reimportação dos arquivos). */
+ * Layout: escolha da visão (suspensas/tramitadas x encerradas) → barra de filtros rotulados → resumo e gráficos → detalhamento.
+ * Não atualiza sozinha: botão ATUALIZAR (ou reimportação dos arquivos). */
 (function (TRJ) {
   TRJ.pages = TRJ.pages || {};
   var U = TRJ.ui, C = TRJ.constants, D = TRJ.domain, R = TRJ.retorno, h = U.h;
   var CL = R.CLASSES;
-  var state = { regioes: [], grupo: 'TODAS', prios: [], op: 'TODAS', periodo: 'tudo', aba: 'retornos', classe: 'TODAS', tipo: 'TODOS', dim: 'caminho', motivoRe: 'TODOS' };
+  /* modo = qual visão da página (suspensas/tramitadas que voltaram x encerradas que voltaram); aba = detalhamento dentro do modo "retornos" */
+  var state = { regioes: [], grupo: 'TODAS', prios: [], op: 'TODAS', periodo: 'tudo', modo: 'retornos', aba: 'retornos', classe: 'TODAS', tipo: 'TODOS', dim: 'caminho', motivoRe: 'TODOS' };
+  var ICO = {
+    atualizar: '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
+    filtro: '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
+    salvar: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/>',
+    limpar: '<path d="M18 6 6 18"/><path d="M6 6l12 12"/>'
+  };
+  function ico(n) { return h('span', { class: 'cr-ico', html: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICO[n] + '</svg>' }); }
   /* FIXA / MÓVEL = regra criadora (coluna DJ) classificada com as regras do operador (TRJ.operador); null = regra não reconhecida */
   function grupoDe(e) { var OP = TRJ.operador; return OP && OP.classificar && e.dj ? OP.classificar(e.dj).grupo || null : null; }
   var APEL = null, apelCarregando = false;
@@ -111,7 +120,8 @@
     V = VOC[state.tipo] || VOC.TODOS;
     if (state.dim === 'tipo' && state.tipo !== 'TODOS') state.dim = 'caminho';
     if (state.dim === 'tempo') state.dim = 'caminho';
-    if (state.aba !== 'retornos' && state.aba !== 'operadores' && state.aba !== 'nomes' && state.aba !== 'reabertas') state.aba = 'retornos';
+    if (state.aba !== 'retornos' && state.aba !== 'operadores' && state.aba !== 'nomes') state.aba = 'retornos';
+    if (state.modo !== 'retornos' && state.modo !== 'reabertas') state.modo = 'retornos';
 
     if (!publico && ROLAGEM.hash === location.hash && ROLAGEM.top) restauraRolagem();      // redesenho vindo de fora (ex.: importação): volta para onde você estava
     var res = publico ? data.retornoRes : R.analisar(data.tasksEnriched), agora = new Date();
@@ -119,8 +129,8 @@
     var resRe = publico ? data.reabertasRes : R.analisarReabertas(data.tasksEnriched);       // TSKs encerradas que voltaram à fila
     var reTodos = (resRe && resRe.eventos) || [], temRe = !!resRe;
     if (publico && state.aba === 'nomes') state.aba = 'retornos';
-    if (state.aba === 'reabertas' && !temRe) state.aba = 'retornos';
-    var emRe = state.aba === 'reabertas';
+    if (state.modo === 'reabertas' && !temRe) state.modo = 'retornos';
+    var emRe = state.modo === 'reabertas';
     function noPeriodoD(d) {
       if (!d || state.periodo === 'tudo') return true;
       if (state.periodo === 'hoje') return mesmoDia(d, agora);
@@ -155,35 +165,61 @@
       return h('div', { class: 'cr-chips' }, opcoes.map(function (o) { return h('button', { type: 'button', class: 'op-chip' + (ativoFn(o[0]) ? ' on' : ''), text: o[1], onclick: function () { clique(o[0]); rerender(); } }); }));
     }
     /* regiões: seleção múltipla (vazio = todas); o número é quanto retornou na região com os demais filtros */
-    var chReg = h('div', { class: 'cr-chips' }, [h('button', { type: 'button', class: 'op-chip' + (!state.regioes.length ? ' on' : ''), text: 'Todas as regiões', onclick: function () { state.regioes = []; rerender(); } })].concat(
+    var chReg = h('div', { class: 'cr-chips' }, [h('button', { type: 'button', class: 'op-chip' + (!state.regioes.length ? ' on' : ''), text: 'Todas', onclick: function () { state.regioes = []; rerender(); } })].concat(
       C.REGIOES.filter(function (r) { return porReg[r] || state.regioes.indexOf(r) >= 0; }).map(function (r) {
         return h('button', { type: 'button', class: 'op-chip' + (state.regioes.indexOf(r) >= 0 ? ' on' : ''), title: 'Clique para filtrar (pode escolher várias)', text: regLabel(r) + ' ' + (porReg[r] || 0), onclick: function () { var i = state.regioes.indexOf(r); if (i >= 0) state.regioes.splice(i, 1); else state.regioes.push(r); rerender(); } });
       })));
-    var chGrupo = chips([['TODAS', 'Fixa + Móvel'], ['FIXA', 'FIXA'], ['MOVEL', 'MÓVEL']], function (v) { return state.grupo === v; }, function (v) { state.grupo = v; });
-    var chTipo = chips([['TODOS', 'Suspensões + tramitações'], ['SUSPENSAO', 'Só suspensões'], ['TRAMITACAO', 'Só tramitações']], function (v) { return state.tipo === v; }, function (v) { state.tipo = v; });
-    var chPer = chips([['hoje', 'Hoje'], ['24h', '24 h'], ['7d', '7 dias'], ['tudo', 'Todo o período']], function (v) { return state.periodo === v; }, function (v) { state.periodo = v; });
+    var chGrupo = chips([['TODAS', 'Todas'], ['FIXA', 'FIXA'], ['MOVEL', 'MÓVEL']], function (v) { return state.grupo === v; }, function (v) { state.grupo = v; });
+    var chTipo = chips([['TODOS', 'Todos'], ['SUSPENSAO', 'Suspensões'], ['TRAMITACAO', 'Tramitações']], function (v) { return state.tipo === v; }, function (v) { state.tipo = v; });
+    var chPer = chips([['hoje', 'Hoje'], ['24h', 'Últimas 24 h'], ['7d', 'Últimos 7 dias'], ['tudo', 'Tudo']], function (v) { return state.periodo === v; }, function (v) { state.periodo = v; });
     var chPrio = chips([['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3'], ['P4', 'P4'], ['P5', 'P5']], function (v) { return state.prios.indexOf(v) >= 0; }, function (v) { var i = state.prios.indexOf(v); if (i >= 0) state.prios.splice(i, 1); else state.prios.push(v); });
     var live = h('span', { class: 'cr-live', title: publico ? 'Dados publicados pelo painel principal; a página confere sozinha a cada minuto se saiu publicação nova' : 'A página só muda quando você pede ou quando os arquivos são reimportados' },
-      [h('button', { type: 'button', class: 'op-btn', text: '↻ Atualizar', onclick: function () { if (publico && app.refresh) app.refresh(); else rerender(); } }),
+      [h('button', { type: 'button', class: 'op-btn cr-btn-ico', onclick: function () { if (publico && app.refresh) app.refresh(); else rerender(); } }, [ico('atualizar'), 'ATUALIZAR']),
         publico && data.publicadoEm ? 'publicado em ' + new Date(data.publicadoEm).toLocaleString('pt-BR') : 'dados de ' + agora.toLocaleTimeString('pt-BR')]);
-    container.appendChild(U.pageHeader('Controle de Retorno', V.sub, h('div', { class: 'flex items-center gap-2 flex-wrap' }, [publico && data.regiaoFixa ? null : chReg, emRe ? null : selOp, chGrupo, emRe ? null : chTipo, chPer, chPrio, live])));
+    container.appendChild(U.pageHeader('Controle de Retorno', emRe ? 'TSKs encerradas que foram reabertas e voltaram para a fila' : V.sub, live));
 
-    if (!res.temCampos && !emRe) container.appendChild(h('div', { class: 'op-banner', text: 'ℹ Faltam dados de suspensão nos arquivos carregados. Reimporte os arquivos de atividades em “Importar dados”.' }));
+    /* 1) qual visão: cada botão diz o que é e quantos itens há com os filtros atuais */
+    var modos = [
+      ['retornos', 'SUSPENSAS E TRAMITADAS', 'Voltaram para a fila depois de suspensas ou tramitadas', ev.length],
+      temRe ? ['reabertas', 'ENCERRADAS', 'Voltaram para a fila depois de encerradas', evRe.length] : null
+    ].filter(Boolean);
+    if (modos.length > 1) container.appendChild(h('div', { class: 'cr-modos' }, modos.map(function (m) {
+      return h('button', { type: 'button', class: 'cr-modo' + (state.modo === m[0] ? ' on' : ''), onclick: function () { state.modo = m[0]; rerender(); } },
+        [h('span', { class: 'cr-modo-t', text: m[1] }), h('b', { class: 'cr-modo-n', text: String(m[3]) }), h('span', { class: 'cr-modo-s', text: m[2] })]);
+    })));
+
+    /* 2) filtros: uma barra só, cada grupo com o seu rótulo; só aparecem os que valem para a visão escolhida */
+    function grupoF(rot, conteudo) { return h('div', { class: 'cr-fg' }, [h('span', { class: 'cr-rot', text: rot }), conteudo]); }
+    var nAtivos = (state.periodo !== 'tudo' ? 1 : 0) + (state.regioes.length ? 1 : 0) + (state.grupo !== 'TODAS' ? 1 : 0) + (state.prios.length ? 1 : 0) + (!emRe && state.tipo !== 'TODOS' ? 1 : 0) + (!emRe && state.op !== 'TODAS' ? 1 : 0);
+    function limpaFiltros() { state.periodo = 'tudo'; state.regioes = []; state.grupo = 'TODAS'; state.prios = []; state.tipo = 'TODOS'; state.op = 'TODAS'; state.classe = 'TODAS'; state.motivoRe = 'TODOS'; rerender(); }
+    container.appendChild(h('div', { class: 'cr-filtros' }, [
+      h('div', { class: 'cr-filtros-t' }, [ico('filtro'), h('span', { text: 'FILTROS' }),
+        nAtivos ? h('span', { class: 'cr-badge', text: nAtivos + (nAtivos === 1 ? ' ATIVO' : ' ATIVOS') }) : h('span', { class: 'cr-filtros-s', text: 'nenhum filtro ativo' }),
+        nAtivos ? h('button', { type: 'button', class: 'op-btn cr-btn-ico', onclick: limpaFiltros }, [ico('limpar'), 'LIMPAR']) : null]),
+      h('div', { class: 'cr-fgrid' }, [
+        grupoF('PERÍODO', chPer),
+        publico && data.regiaoFixa ? null : grupoF('REGIÃO', chReg),
+        grupoF('EQUIPE', chGrupo),
+        grupoF('PRIORIDADE', chPrio),
+        emRe ? null : grupoF('TIPO', chTipo),
+        emRe ? null : grupoF('OPERADOR', selOp)
+      ])
+    ]));
+
+    if (!res.temCampos && !emRe) container.appendChild(h('div', { class: 'op-banner', text: 'Faltam dados de suspensão nos arquivos carregados. Reimporte os arquivos de atividades em “Importar dados”.' }));
     if (!todos.length && !reTodos.length) { container.appendChild(h('div', { class: 'op-empty', text: 'Nenhuma suspensão ou tramitação que tenha retornado à fila nos arquivos carregados.' })); return; }
 
-    /* abas (a de "Encerradas que voltaram" mostra o seu próprio resumo e gráficos no lugar dos de retorno) */
+    /* detalhamento (visão "suspensas e tramitadas"): lista, ranking e nomes */
     function barraAbas() {
       var abas = [
-        ['retornos', V.ret, ev.length],
-        temRe ? ['reabertas', 'Encerradas que voltaram', evRe.length] : null,
-        ['operadores', 'Ranking de operadores', null], ['nomes', 'Nomes dos caminhos', Object.keys(res.catalogo.caminho).length + Object.keys(res.catalogo.motivo).length]
+        ['retornos', 'RETORNOS', ev.length],
+        ['operadores', 'RANKING DE OPERADORES', null], ['nomes', 'NOMES DOS CAMINHOS', Object.keys(res.catalogo.caminho).length + Object.keys(res.catalogo.motivo).length]
       ].filter(function (a) { return a && !(publico && a[0] === 'nomes'); });
       return h('div', { class: 'op-tabs', style: { marginBottom: '10px' } }, abas.map(function (a) {
         return h('button', { type: 'button', class: 'op-tab' + (state.aba === a[0] ? ' active' : ''), onclick: function () { state.aba = a[0]; rerender(); } }, [a[1], a[2] != null ? h('span', { class: 'n', text: String(a[2]) }) : null]);
       }));
     }
     if (emRe) {
-      container.appendChild(barraAbas());
       viewReabertas(container, evRe, rerender, agora);
       if (TRJ.theme && TRJ.theme.adapt) TRJ.theme.adapt(container);
       return;
@@ -231,9 +267,9 @@
     // (2) uma visão só, trocando a dimensão (operador, caminho, motivo, prioridade, região, tipo)
     var dimsOk = DIMS.filter(function (d) { return !(d[4] && d[4].soTodos && state.tipo !== 'TODOS'); });
     var dimAtual = dimsOk.filter(function (d) { return d[0] === state.dim; })[0] || dimsOk[0];
-    var swDim = h('span', { class: 'cr-sw cr-sw-dim' }, dimsOk.map(function (d) {
+    var swDim = h('div', { class: 'cr-sw-dim' }, [h('span', { class: 'cr-rot', text: 'AGRUPAR POR' }), h('div', { class: 'cr-chips' }, dimsOk.map(function (d) {
       return h('button', { type: 'button', class: 'op-chip' + (dimAtual[0] === d[0] ? ' on' : ''), text: d[1], onclick: function () { state.dim = d[0]; rerender(); } });
-    }));
+    }))]);
     var tituloDim = dimAtual[0] === 'operador' ? 'Por operador (' + V.quem + ')' : 'Por ' + dimAtual[1].toLowerCase();
     var ccDim = U.chartCard(tituloDim);
     ccDim.card.insertBefore(swDim, ccDim.card.children[1] || null);        // botões de visão numa linha própria (cabem todos, sem espremer o título)
@@ -251,11 +287,15 @@
     [ccHora, ccDim].forEach(function (cc) { try { cc.canvas.__draw(); } catch (e) { console.error(e); } });
 
     /* ---------- tabelas ---------- */
+    container.appendChild(h('div', { class: 'cr-sec', text: 'DETALHAMENTO' }));
     container.appendChild(barraAbas());
     var box = h('div', { class: 'cr-box' }); container.appendChild(box);
     if (state.aba === 'retornos') {
-      var opcoes = [['TODAS', 'Todos']].concat(ORDEM.map(function (c) { return [c, rotC(c)]; }));
-      box.appendChild(h('div', { class: 'cr-chips', style: { marginBottom: '8px' } }, opcoes.map(function (o) { return h('button', { type: 'button', class: 'op-chip' + (state.classe === o[0] ? ' on' : ''), text: o[1], onclick: function () { state.classe = o[0]; rerender(); } }); })));
+      var opcoes = [['TODAS', 'Todas']].concat(ORDEM.map(function (c) { return [c, rotC(c)]; }));
+      box.appendChild(h('div', { class: 'cr-fg cr-fg-linha' }, [h('span', { class: 'cr-rot', text: 'SITUAÇÃO' }), h('div', { class: 'cr-chips' }, opcoes.map(function (o) {
+        var n = o[0] === 'TODAS' ? ret.length : ret.filter(function (e) { return e.classe === o[0]; }).length;
+        return h('button', { type: 'button', class: 'op-chip' + (state.classe === o[0] ? ' on' : ''), text: o[1] + ' ' + n, onclick: function () { state.classe = o[0]; rerender(); } });
+      }))]));
       var lst = ret.filter(function (e) { return state.classe === 'TODAS' || e.classe === state.classe; });
       box.appendChild(lst.length ? tabelaEventos(lst) : h('div', { class: 'op-empty', text: 'Nenhum retorno com esses filtros.' }));
     } else if (state.aba === 'operadores') box.appendChild(rankingOperadores(ev, drill));
@@ -325,11 +365,12 @@
     [ccH, ccR].forEach(function (cc) { grid.appendChild(cc.card); });
     container.appendChild(grid);
     [ccH, ccR].forEach(function (cc) { try { cc.canvas.__draw(); } catch (e) { console.error(e); } });
-    var opcoes = [['TODOS', 'Todos os motivos']].concat(ORDEM_MOT.map(function (m) { return [m, MOT[m].rot]; }));
-    container.appendChild(h('div', { class: 'cr-chips', style: { margin: '4px 0 8px' } }, opcoes.map(function (o) {
+    var opcoes = [['TODOS', 'Todos']].concat(ORDEM_MOT.map(function (m) { return [m, MOT[m].rot]; }));
+    container.appendChild(h('div', { class: 'cr-sec', text: 'DETALHAMENTO' }));
+    container.appendChild(h('div', { class: 'cr-fg cr-fg-linha' }, [h('span', { class: 'cr-rot', text: 'MOTIVO' }), h('div', { class: 'cr-chips' }, opcoes.map(function (o) {
       var n = o[0] === 'TODOS' ? evRe.length : evRe.filter(function (e) { return e.motivo === o[0]; }).length;
       return h('button', { type: 'button', class: 'op-chip' + (state.motivoRe === o[0] ? ' on' : ''), text: o[1] + ' ' + n, onclick: function () { state.motivoRe = o[0]; rerender(); } });
-    })));
+    }))]));
     var lst = evRe.filter(function (e) { return state.motivoRe === 'TODOS' || e.motivo === state.motivoRe; });
     container.appendChild(h('div', { class: 'cr-box' }, [lst.length ? tabelaReab(lst) : h('div', { class: 'op-empty', text: 'Nenhuma TSK encerrada voltou à fila com esses filtros.' })]));
   }
@@ -383,10 +424,10 @@
     var tb = h('tbody'); tab.appendChild(tb);
     linhas.forEach(function (l) {
       var inp = h('input', { type: 'text', class: 'cc-inp', style: { minWidth: '200px' }, placeholder: 'dar um nome curto…', value: (APEL && APEL[l.tipo + ':' + l.valor]) || '' });
-      var btn = h('button', { type: 'button', class: 'op-btn', text: '💾', title: 'Salvar (compartilhado com a equipe)', onclick: function () {
+      var btn = h('button', { type: 'button', class: 'op-btn cr-btn-ico', title: 'Salvar (compartilhado com a equipe)', onclick: function () {
         btn.disabled = true;
         salvaApelido(l.tipo, l.valor, inp.value.trim()).then(function () { U.toast('Nome salvo', 'ok'); reRenderMantendoRolagem(app); }, function (e) { btn.disabled = false; U.toast('Salvo só neste navegador: ' + ((e && e.message) || e), 'err'); });
-      } });
+      } }, [ico('salvar'), 'SALVAR']);
       tb.appendChild(h('tr', { class: l.novo ? 'cr-novo' : '' }, [h('td', { text: l.rot }), h('td', { text: l.valor, style: { fontWeight: '700' } }), h('td', { text: String(l.n) }),
         h('td', null, [l.novo ? tag('NOVO — dê um nome', '#d68910') : tag('conhecido', '#6b7280')]), h('td', null, [h('div', { style: { display: 'flex', gap: '6px' } }, [inp, btn])])]));
     });
