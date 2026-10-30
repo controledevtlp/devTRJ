@@ -278,6 +278,21 @@ body::before {
   box-shadow: 10px 0 36px var(--trj-shadow);
 }
 body.trj-sidebar-open #sidebar { transform: translateX(0); }
+
+/* O menu nunca passa da altura da tela: a lista de abas rola e o rodapé (link público, tema, sair) fica sempre visível */
+#sidebar { display: flex; flex-direction: column; overflow: hidden; height: 100vh; height: 100dvh; }
+#sidebar > :first-child, #sidebar > :last-child { flex-shrink: 0; }
+#sidebar nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+#sidebar .trj-link .ico { display: inline-flex; justify-content: center; }
+@media (max-height: 820px) {
+  #sidebar .trj-link { padding-top: 7px; padding-bottom: 7px; }
+  #sidebar > :first-child { padding-top: 10px !important; padding-bottom: 8px !important; }
+}
+@media (max-height: 640px) {
+  #sidebar .trj-link { padding-top: 5px; padding-bottom: 5px; font-size: 13px; }
+  #sidebar > :last-child { padding-top: 6px !important; padding-bottom: 6px !important; }
+  #sidebar > :last-child > div:first-child { display: none; }
+}
 #sidebar-hover-zone { position: fixed; top: 0; left: 0; width: 16px; height: 100vh; z-index: 64; }
 #sidebar-toggle-btn {
   position: fixed; top: 14px; left: 14px; z-index: 70;

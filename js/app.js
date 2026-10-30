@@ -29,6 +29,9 @@
     cadastro: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 14h5"/>',
     config: '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5L5 11a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/>',
     refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/>',
+    link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
     retorno:       '<path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/><path d="M12 7v5l3 2"/>',
     causa:         '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M12 7.5v4M12 11.5l-5.5 5.5M12 11.5l5.5 5.5"/>',
@@ -116,16 +119,16 @@
         buildShell(); render(); // refaz o menu (ícone/label do tema) e a página atual
       }
     }, [
-      U.h('span', { class: 'ico', text: temaAtual === 'light' ? '🌙' : '☀️' }),
+      U.h('span', { class: 'ico', html: icon(temaAtual === 'light' ? 'moon' : 'sun') }),
       U.h('span', { text: temaAtual === 'light' ? 'Tema escuro' : 'Tema claro' })
     ]);
     var btnLinkPublico = U.h('button', {
       class: 'trj-link w-full', title: 'Copiar o link de visualização pública do Dashboard',
       onclick: function () {
         var url = location.href.replace(/index\.html.*$/, '').replace(/\/?(#.*)?$/, '/') + 'dashboard-publico.html';
-        if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { U.toast('Link público copiado!', 'ok'); }, function () { U.toast(url, 'info'); });
+        U.copyText(url, 'Link público copiado!');
       }
-    }, [U.h('span', { class: 'ico', text: '🔗' }), U.h('span', { text: 'Copiar link público' })]);
+    }, [U.h('span', { class: 'ico', html: icon('link') }), U.h('span', { text: 'Copiar link público' })]);
     var footer = U.h('div', { class: 'px-3 py-3', style: { borderTop: '1px solid var(--trj-border)' } }, [
       U.h('div', { class: 'text-xs px-2 mb-2 truncate', style: { color: 'var(--trj-muted)' }, text: user.email || '' }),
       btnLinkPublico,

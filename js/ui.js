@@ -249,14 +249,15 @@
 
   // ---------- Copiar texto (clipboard) ----------
   U.copyText = function (text, msg) {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).then(
-        function () { U.toast(msg || 'Copiado!', 'ok'); },
-        function () { U.toast('Não foi possível copiar.', 'err'); }
-      );
-    } else {
-      U.toast('Cópia não suportada neste navegador.', 'err');
+    function ok() { U.toast(msg || 'Copiado!', 'ok'); }
+    function falhou() { U.toast(String(text).length <= 160 ? 'Copie manualmente: ' + text : 'Não foi possível copiar.', 'err'); }
+    function viaTextarea() {          // navegador sem permissão para a área de transferência (http, arquivo local, iframe)
+      var ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      var certo = false; try { certo = document.execCommand('copy'); } catch (e) {}
+      ta.remove(); if (certo) ok(); else falhou();
     }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, viaTextarea); else viaTextarea();
   };
 
   // ---------- Chart card (titulo + canvas) ----------
