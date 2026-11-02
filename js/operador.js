@@ -8,7 +8,8 @@
  * Abas: Fazer agora · Bloco de notas (P - vencimento - TSK / SITE + linha do tempo dos updates, com cópia completa) ·
  *       Sem update +1h30 · Sites fora · B2B / Premium · Concentradores · Backbone / LD · Mapa
  * Alerta de TSK NOVA: aparece no snapshot depois da 1ª abertura e ainda sem update → faixa vermelha + sirene (WebAudio)
- * na(s) região(ões) filtrada(s) (ou em todas, sem filtro) até o 1º update; a sirene volta a cada 3 min; "Silenciar" cala por 10 min.
+ * na(s) região(ões) E equipe (FIXA / MÓVEL) filtradas (ou em todas, sem filtro) até o 1º update. O som toca só quando a TSK cai
+ * (sem lembretes); "Silenciar" cala por 10 min.
  * Filtros: regra criadora (FIXA / MÓVEL — coluna DJ), prioridade, situação, regiões (chips), busca.
  * Visão por região: cada região é um bloco (lado a lado quando há mais de uma), com botão de cópia
  * ("Prioridade -> TSK / SITE - FALHA") logo acima.
@@ -26,7 +27,6 @@
   var LS_KEY = 'trj_operador_v2';
   var POLL_MS = 60000, TICK_MS = 30000, STALE_MIN = 20, PAGE = 40;
   var UPD_LIM_H = 1.5;            // "sem update": mais de 1h30 desde o último update do operador
-  var LEMBRETE_MS = 180000;       // com TSK nova esperando o 1º update, a sirene volta a tocar a cada 3 min
   var SONECA_MS = 600000;         // "Silenciar" cala a sirene por 10 min (o alerta visual continua)
   var SEMKEY = '__SEM__';
   var TABS = ['fila', 'notas', 'semupd', 'sites', 'causa', 'retorno', 'b2b', 'conc', 'backbone', 'mapa'];
@@ -53,8 +53,11 @@
      O alerta vale para a(s) região(ões) filtrada(s); sem filtro de região, vale para todas. */
   var LS_VISTAS = 'trj_operador_vistas', LS_NOVAS = 'trj_operador_novas';
   var vistas = lsGet(LS_VISTAS), novas = lsGet(LS_NOVAS) || {};       // os -> instante em que foi vista / detectada como nova
-  var alerta = { ultimoSom: 0, soneca: 0, bloqueado: false };
-  var audio = { ctx: null, osc: null };
+  var alerta = { soneca: 0, bloqueado: false };
+  var audio = { ctx: null, fontes: [], buf: undefined };
+  /* toque do alerta: a gravação do operador. Salve o arquivo em assets/ com um destes nomes (a 1ª que existir é usada);
+     sem arquivo (ou se não abrir), toca a sirene sintética. */
+  var AUDIO_ALERTA = ['assets/alerta-operador.mp3', 'assets/alerta-operador.wav', 'assets/alerta-operador.ogg', 'assets/alerta-operador.m4a'];
 
   function detectarNovas() {
     var agora = Date.now(), primeira = !vistas, achadas = [];
@@ -75,12 +78,17 @@
     try { localStorage.setItem(LS_VISTAS, JSON.stringify(vistas)); localStorage.setItem(LS_NOVAS, JSON.stringify(novas)); } catch (e) {}
     return achadas;
   }
+  /* mesmo critério do filtro FIXA / MÓVEL (e das "Regras criadoras") da fila: sem filtro de equipe, vale para todas */
+  function passaGrupo(it) {
+    if (state.regras.length) return state.regras.indexOf(regraKey(it)) >= 0;
+    return state.grupo === 'TODAS' || it.regra.grupo === state.grupo;
+  }
   function novasEscopo() {
     if (!model) return [];
     var out = [];
     Object.keys(novas).forEach(function (os) {
       var it = model.byOs[os];
-      if (it && !it.pend && (!state.regioes.length || state.regioes.indexOf(it.regiao) >= 0)) out.push(it);
+      if (it && !it.pend && (!state.regioes.length || state.regioes.indexOf(it.regiao) >= 0) && passaGrupo(it)) out.push(it);
     });
     out.sort(function (a, b) { return (prioNum(a.prio) - prioNum(b.prio)) || ((a.criacao ? a.criacao.getTime() : 0) - (b.criacao ? b.criacao.getTime() : 0)); });
     return out;
@@ -95,27 +103,52 @@
       return audio.ctx.resume().then(function () { return audio.ctx.state === 'running'; }, function () { return false; });
     } catch (e) { return Promise.resolve(false); }
   }
-  function pararSirene() { try { if (audio.osc) audio.osc.stop(); } catch (e) {} audio.osc = null; }
-  function tocarSirene(seg) {
+  function pararSirene() { audio.fontes.forEach(function (s) { try { s.stop(); } catch (e) {} }); audio.fontes = []; }
+  /* carrega (uma vez) a gravação do alerta; null = não há arquivo utilizável → usa a sirene sintética */
+  function carregarGravacao() {
+    if (audio.buf !== undefined) return Promise.resolve(audio.buf);
+    var i = 0;
+    function tenta() {
+      if (i >= AUDIO_ALERTA.length) { audio.buf = null; return null; }
+      return fetch(AUDIO_ALERTA[i++]).then(function (r) { if (!r.ok) throw new Error('sem arquivo'); return r.arrayBuffer(); })
+        .then(function (ab) { return new Promise(function (res, rej) { audio.ctx.decodeAudioData(ab, res, rej); }); })
+        .then(function (buf) { audio.buf = buf; return buf; }, tenta);
+    }
+    return Promise.resolve(tenta()).then(function (b) { return b || null; }, function () { audio.buf = null; return null; });
+  }
+  function sireneSintetica(c, dur) {
+    var t0 = c.currentTime, osc = c.createOscillator(), g = c.createGain();
+    osc.type = 'sawtooth'; osc.connect(g); g.connect(c.destination);
+    for (var t = 0; t < dur; t += 1.2) {                // sobe e desce entre 650 e 1150 Hz, 1,2 s por ciclo
+      osc.frequency.setValueAtTime(650, t0 + t); osc.frequency.linearRampToValueAtTime(1150, t0 + t + 0.6); osc.frequency.linearRampToValueAtTime(650, t0 + t + 1.2);
+    }
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.2, t0 + 0.08);
+    g.gain.setValueAtTime(0.2, t0 + dur - 0.2); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.start(t0); osc.stop(t0 + dur + 0.05); audio.fontes.push(osc);
+  }
+  function tocarGravacao(c, buf, vezes) {
+    var t = c.currentTime + 0.05;
+    for (var i = 0; i < vezes; i++) {
+      var s = c.createBufferSource(); s.buffer = buf; s.connect(c.destination); s.start(t); audio.fontes.push(s);
+      t += buf.duration + 0.7;
+    }
+  }
+  /* toca a gravação (vezes = quantas vezes seguidas) ou, sem arquivo, a sirene sintética por `seg` segundos */
+  function tocarSirene(seg, vezes) {
     if (!state.som) return;
     liberarAudio().then(function (ok) {
       var mudou = alerta.bloqueado !== !ok; alerta.bloqueado = !ok;
-      if (!ok) { if (mudou) atualizarFaixaAlerta(); return; }
       if (mudou) atualizarFaixaAlerta();
-      pararSirene();
-      var c = audio.ctx, t0 = c.currentTime, dur = seg || 8, osc = c.createOscillator(), g = c.createGain();
-      osc.type = 'sawtooth'; osc.connect(g); g.connect(c.destination);
-      for (var t = 0; t < dur; t += 1.2) {                // sobe e desce entre 650 e 1150 Hz, 1,2 s por ciclo
-        osc.frequency.setValueAtTime(650, t0 + t); osc.frequency.linearRampToValueAtTime(1150, t0 + t + 0.6); osc.frequency.linearRampToValueAtTime(650, t0 + t + 1.2);
-      }
-      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.2, t0 + 0.08);
-      g.gain.setValueAtTime(0.2, t0 + dur - 0.2); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      osc.start(t0); osc.stop(t0 + dur + 0.05); audio.osc = osc;
+      if (!ok) return;
+      return carregarGravacao().then(function (buf) {
+        pararSirene();
+        if (buf) tocarGravacao(audio.ctx, buf, vezes || 1); else sireneSintetica(audio.ctx, seg || 8);
+      });
     });
   }
   function alternarSom() {
     state.som = !state.som; saveState();
-    if (state.som) liberarAudio().then(function (ok) { alerta.bloqueado = !ok; if (ok) tocarSirene(1.8); if (model) render(true); });
+    if (state.som) liberarAudio().then(function (ok) { alerta.bloqueado = !ok; if (ok) tocarSirene(1.8, 1); if (model) render(true); });
     else { pararSirene(); if (model) render(true); }
   }
   function silenciar() { pararSirene(); alerta.soneca = Date.now() + SONECA_MS; atualizarFaixaAlerta(); }
@@ -123,12 +156,13 @@
   function dispararAlerta(achadas) {
     var no = {}; novasEscopo().forEach(function (it) { no[up(it.os)] = 1; });
     if (!achadas.some(function (it) { return no[up(it.os)]; })) return;
-    var agora = Date.now(); alerta.ultimoSom = agora;
-    if (agora >= alerta.soneca) tocarSirene(8);
+    if (Date.now() >= alerta.soneca) tocarSirene(8, 2);
   }
   function faixaAlerta() {
     var lista = novasEscopo(); if (!lista.length) return null;
     var esc = state.regioes.length ? state.regioes.map(regiaoLabel).join(' + ') : 'todas as regiões', calada = Date.now() < alerta.soneca;
+    if (state.regras.length) esc += ' · ' + state.regras.length + (state.regras.length > 1 ? ' regras criadoras' : ' regra criadora');
+    else if (state.grupo !== 'TODAS') esc += ' · ' + (state.grupo === 'FIXA' ? 'FIXA' : 'MÓVEL');
     var chips = lista.slice(0, 10).map(function (it) {
       return h('span', { class: 'op-achip' }, [h('b', { style: { color: PRIO_COR[it.prio] || 'inherit' }, text: it.prio }), h('span', { class: 'op-tsk', dataset: { os: it.os }, text: it.os }), h('span', { text: it.site || it.end || '—' })]);
     });
@@ -1708,15 +1742,10 @@
       render(true);
     } else atualizarIdade();
   }, TICK_MS);
-  /* alerta: libera o som no primeiro clique, repete a sirene a cada 3 min enquanto houver TSK nova sem 1º update e faz o título piscar */
+  /* alerta: libera o som no primeiro clique e faz o título piscar enquanto houver TSK nova sem 1º update (o som toca só quando a TSK cai) */
   document.addEventListener('pointerdown', function () {
     if (state.som && (!audio.ctx || audio.ctx.state !== 'running')) liberarAudio().then(function (ok) { if (alerta.bloqueado === ok) { alerta.bloqueado = !ok; atualizarFaixaAlerta(); } });
   }, true);
-  setInterval(function () {
-    if (!model || !state.som) return;
-    var agora = Date.now();
-    if (novasEscopo().length && agora >= alerta.soneca && agora - alerta.ultimoSom >= LEMBRETE_MS) { alerta.ultimoSom = agora; tocarSirene(6); }
-  }, 15000);
   var pisca = false;
   setInterval(function () {
     var n = model ? novasEscopo().length : 0;
