@@ -83,17 +83,20 @@
     if (state.regras.length) return state.regras.indexOf(regraKey(it)) >= 0;
     return state.grupo === 'TODAS' || it.regra.grupo === state.grupo;
   }
+  /* prioridades que entram no alerta (escolhidas na barra do topo; "S/P" = TSK sem prioridade) */
+  var PRIOS_ALERTA = ['P1', 'P2', 'P3', 'P4', 'P5', 'S/P'];
+  function prioAlerta(it) { return (state.alertaPrios || []).indexOf(/^P[1-5]$/.test(it.prio) ? it.prio : 'S/P') >= 0; }
   function novasEscopo() {
     if (!model) return [];
     var out = [];
     Object.keys(novas).forEach(function (os) {
       var it = model.byOs[os];
-      if (it && !it.pend && (!state.regioes.length || state.regioes.indexOf(it.regiao) >= 0) && passaGrupo(it)) out.push(it);
+      if (it && !it.pend && (!state.regioes.length || state.regioes.indexOf(it.regiao) >= 0) && passaGrupo(it) && prioAlerta(it)) out.push(it);
     });
     out.sort(function (a, b) { return (prioNum(a.prio) - prioNum(b.prio)) || ((a.criacao ? a.criacao.getTime() : 0) - (b.criacao ? b.criacao.getTime() : 0)); });
     return out;
   }
-  function ehNova(it) { return !!novas[up(it.os)] && !it.pend; }
+  function ehNova(it) { return !!novas[up(it.os)] && !it.pend && prioAlerta(it); }
 
   /* sirene gerada no navegador (sem arquivo de áudio). Navegadores só liberam som depois de um clique na página. */
   function liberarAudio() {
@@ -209,7 +212,7 @@
 
   /* ---------- estado dos filtros (lembrado no navegador) ---------- */
   var state = (function () {
-    var d = { tab: 'fila', grupo: 'TODAS', regras: [], prios: [], situacao: 'TODAS', regioes: [], ordem: 'padrao', pend: false, lado: true, som: false, hist: 0 };
+    var d = { tab: 'fila', grupo: 'TODAS', regras: [], prios: [], situacao: 'TODAS', regioes: [], ordem: 'padrao', pend: false, lado: true, som: false, hist: 0, alertaPrios: ['P1', 'P2', 'P3', 'P4', 'P5', 'S/P'] };
     try { var s = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); if (s) Object.keys(d).forEach(function (k) { if (s[k] !== undefined) d[k] = s[k]; }); } catch (e) {}
     if (TABS.indexOf(d.tab) < 0 || (d.tab === 'causa' && !temCausa()) || (d.tab === 'retorno' && !temRetorno())) d.tab = 'fila';
     d.busca = ''; d.lim = {};
@@ -975,7 +978,14 @@
         h('span', { class: 'op-dot' + (velho ? ' stale' : '') }),
         h('span', { id: 'op-age', text: savedAt ? ('Atualizado há ' + fmtDur(idade) + ' · ' + fmtDt(new Date(savedAt))) : 'Dados publicados' }),
         h('button', { class: 'op-btn' + (state.som ? ' on' : ''), type: 'button', text: state.som ? 'Alerta sonoro: ligado' : 'Alerta sonoro: desligado',
-          title: 'Sirene quando entrar TSK nova na(s) região(ões) filtrada(s). O navegador só libera o som depois de um clique na página.', onclick: alternarSom }),
+          title: 'Sirene quando entrar TSK nova na(s) região(ões) e equipe (FIXA / MÓVEL) filtradas. O navegador só libera o som depois de um clique na página.', onclick: alternarSom }),
+        h('span', { class: 'op-aprios', title: 'Prioridades das TSKs novas que entram no alerta (som, faixa vermelha e etiqueta NOVA). "S/P" = TSK sem prioridade.' },
+          [h('span', { class: 'op-lbl', text: 'ALERTAR' })].concat(PRIOS_ALERTA.map(function (p) {
+            var on = (state.alertaPrios || []).indexOf(p) >= 0;
+            return h('button', { class: 'op-chip' + (on ? ' on' : ''), type: 'button', text: p, onclick: function () {
+              var a = (state.alertaPrios || []).slice(), i = a.indexOf(p); if (i >= 0) a.splice(i, 1); else a.push(p);
+              state.alertaPrios = a; saveState(); render(true); } });
+          }))),
         h('button', { class: 'op-btn', type: 'button', text: '⬇ Excel', title: 'Exporta o que está filtrado, com resumo e atalhos entre as abas', onclick: exportarExcel }),
         h('button', { class: 'op-btn', type: 'button', text: '↻ Atualizar', onclick: function () { carregarDados(false, true); } }),
         h('button', { class: 'op-btn', type: 'button', text: document.body.classList.contains('op-tv') ? '✕ Sair do modo TV' : '📺 Modo TV', onclick: toggleTV })
