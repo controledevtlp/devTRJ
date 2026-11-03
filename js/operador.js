@@ -155,7 +155,14 @@
       return h('span', { class: 'op-achip' }, [h('b', { style: { color: PRIO_COR[it.prio] || 'inherit' }, text: it.prio }), h('span', { class: 'op-tsk', dataset: { os: it.os }, text: it.os }), h('span', { text: it.site || it.end || '—' })]);
     });
     if (lista.length > 10) chips.push(h('span', { class: 'op-achip', text: '+ ' + (lista.length - 10) }));
-    var acts = [h('button', { class: 'op-btn', type: 'button', text: 'Ver só as novas', onclick: function () { setSit('NOVAS'); } })];
+    var acts = [
+      h('button', { class: 'op-btn', type: 'button', text: 'Copiar para acionar', title: 'Copia TODAS as TSKs desta faixa (respeita região, FIXA/MÓVEL e prioridades do alerta), separadas por região: *PRIORIDADE* - TSK / SITE - ACIONAR',
+        onclick: function () {
+          copiar(TRJ.alertaNovas.textoAcionar(lista.map(function (it) { return { prio: it.prio, tsk: it.os, site: it.site, end: it.end, regiao: it.regiao }; })),
+            lista.length + (lista.length > 1 ? ' TSKs novas copiadas' : ' TSK nova copiada') + ' (por região)');
+        } }),
+      h('button', { class: 'op-btn', type: 'button', text: 'Ver só as novas', onclick: function () { setSit('NOVAS'); } })
+    ];
     if (state.som && !calada) acts.push(h('button', { class: 'op-btn', type: 'button', text: 'Silenciar 10 min', title: 'Cala a sirene; o alerta na tela continua até o 1º update', onclick: silenciar }));
     if (!state.som) acts.push(h('button', { class: 'op-btn go', type: 'button', text: 'Ligar alerta sonoro', onclick: alternarSom }));
     var dica = null;

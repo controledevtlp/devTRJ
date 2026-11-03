@@ -65,6 +65,22 @@
     return out;
   };
 
+  /* Texto para colar (WhatsApp / bloco de notas): um bloco por REGIÃO, uma linha por TSK, blocos separados por uma linha tracejada.
+     lista = [{ prio, tsk, site, end, regiao }]  (a ordem dentro da região é a da lista) */
+  var SEPARADOR = '--------------------------------------------';
+  AN.textoAcionar = function (lista) {
+    var ordem = (C && C.REGIOES) || [], por = {};
+    lista.forEach(function (it) { (por[it.regiao] = por[it.regiao] || []).push(it); });
+    var regs = Object.keys(por).sort(function (a, b) {
+      var ia = ordem.indexOf(a), ib = ordem.indexOf(b);
+      return ((ia < 0 ? 998 : ia) - (ib < 0 ? 998 : ib)) || (a < b ? -1 : 1);
+    });
+    return regs.map(function (r) {
+      var nome = String((C && C.REGIAO_LABELS && C.REGIAO_LABELS[r]) || r).toUpperCase();
+      return nome + '\n\n' + por[r].map(function (it) { return '*' + AN.chavePrio(it.prio) + '* - ' + it.tsk + ' / ' + (it.site || it.end || '—') + ' - ACIONAR'; }).join('\n');
+    }).join('\n' + SEPARADOR + '\n\n');
+  };
+
   /* ---------- painel (dashboard): detector + faixa visual ---------- */
   AN.painel = function (prefixo) {
     var det = AN.detector(prefixo), LS_P = prefixo + '_alerta_prios', itens = [];
@@ -106,6 +122,11 @@
           ]);
         });
         if (lista.length > 12) chips.push(h('span', { class: 'op-achip', text: '+ ' + (lista.length - 12) }));
+        var btnCopia = h('button', { class: 'op-btn', type: 'button', text: 'Copiar para acionar', title: 'Copia TODAS as TSKs desta faixa, separadas por região: *PRIORIDADE* - TSK / SITE - ACIONAR',
+          onclick: function () {
+            U.copyText(AN.textoAcionar(lista.map(function (it) { return { prio: it.prio, tsk: it.osRaw, site: it.site, end: it.end, regiao: it.regiao }; })),
+              lista.length + (lista.length > 1 ? ' TSKs novas copiadas' : ' TSK nova copiada') + ' (por região)');
+          } });
         return h('div', { class: 'op-alerta' }, [
           h('span', { class: 'op-sirene' }),
           h('div', { class: 'op-ainfo' }, [
@@ -113,7 +134,7 @@
             h('span', { class: 'op-aesc', text: ' · ' + esc + ' · aguardando o 1º update' }),
             h('div', { class: 'op-achips' }, chips)
           ]),
-          (opcoes && opcoes.semControle) ? null : h('div', { class: 'op-aacts' }, [api.controlePrios(aoMudar)])      // semControle: a tela já mostra o seletor em outro lugar
+          h('div', { class: 'op-aacts' }, [btnCopia].concat((opcoes && opcoes.semControle) ? [] : [api.controlePrios(aoMudar)]))      // semControle: a tela já mostra o seletor em outro lugar
         ]);
       },
       /* título da aba piscando enquanto houver TSK nova no escopo atual */
