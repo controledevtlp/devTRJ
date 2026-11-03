@@ -26,6 +26,7 @@
 <script src="js/operador-regras.js"></script>
 <script src="js/compute.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/alerta-novas.js"></script>
 <script src="js/pages/mapa.js"></script>
 <script src="js/pages/dashboard-excel.js"></script>
 <script src="js/pages/sla.js"></script>
@@ -103,6 +104,13 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
   var state = { regiao: 'TODAS', prioridades: [], grupo: 'TODAS' };
   var activeTab = 'dashboard';
 
+  /* TSKs novas aguardando o 1º update: só aviso VISUAL (a versão com som é o link do operador).
+     Vale para a região e a equipe (FIXA/MÓVEL) que estão selecionadas aqui; sem filtro, para todas. */
+  var alertas = TRJ.alertaNovas.painel('trj_dashboard');
+  function escopoAlerta() { return { regioes: state.regiao && state.regiao !== 'TODAS' ? [state.regiao] : [], grupo: state.grupo }; }
+  function faixaAlertaPub(semControle) { return alertas.faixa(escopoAlerta(), function () { renderView(); }, { semControle: !!semControle }); }
+  function controleAlertaPub() { return alertas.controlePrios(function () { renderView(); }); }
+
   var REGIAO_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="26" height="26"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 0 0-8 8c0 6 8 14 8 14s8-8 8-14a8 8 0 0 0-8-8z"/></svg>';
 
   // ── Carregamento ────────────────────────────────────────────────────────────
@@ -142,6 +150,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       raw.retornoCompacto = Array.isArray(json.data.retorno) ? json.data.retorno : null;
       raw.retornoApelidos = json.data.retornoApelidos || null;
       raw.reabertasCompacto = Array.isArray(json.data.reabertas) ? json.data.reabertas : null;
+      try { alertas.atualizar(raw.tasksEnriched); } catch (e) { console.warn('Alerta de TSKs novas:', e); }       // nunca atrapalha o carregamento
 
       // Sincronizar dados do mapa para o localStorage E para o objeto raw
       function _lsSave(key, val) {
@@ -229,6 +238,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     });
     root.appendChild(U.h('div', { class: 'pub-topbar' }, [btnVoltarMapa, liveElGlobal()]));
     root.appendChild(buildTabBar('mapa'));
+    var faixaMapa = faixaAlertaPub(); if (faixaMapa) root.appendChild(faixaMapa);
     var mapaContainer = U.h('div');
     root.appendChild(mapaContainer);
     if (TRJ.pages && TRJ.pages.mapa) {
@@ -254,6 +264,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       onclick: function(){ view='dashboard'; activeTab='dashboard'; renderDashboard(); }
     });
     root.appendChild(U.h('div', { class:'pub-topbar' }, [btnV, liveElGlobal()]));
+    var faixaSla = faixaAlertaPub(); if (faixaSla) root.appendChild(faixaSla);
     var slaContainer = U.h('div');
     root.appendChild(slaContainer);
     if (TRJ.pages && TRJ.pages.sla) {
@@ -627,6 +638,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
       U.h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, [
         grupoSelect,
         prioSelect,
+        controleAlertaPub(),
         U.h('button', {
           class: 'trj-btn clickable',
           style: { fontSize: '11px', padding: '3px 8px', background: 'rgba(46,204,113,.15)', color: '#2ecc71', border: '1px solid rgba(46,204,113,.3)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace:'nowrap' },
@@ -698,6 +710,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     }());
 
     root.appendChild(buildTabBar('dashboard'));
+    var faixaDash = faixaAlertaPub(true); if (faixaDash) root.appendChild(faixaDash);
 
     root.appendChild(U.h('div', { class: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-4' }, kpis.map(function (k) {
       return U.kpiCard({ label: k.label, value: k.value, cor: k.cor, onClick: k.spec ? function (kk) { return function () { openDrillTasks(kk.spec, f, kk.t, kk.opts || {}); }; }(k) : null });
@@ -1035,6 +1048,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
     ]));
 
     root.appendChild(buildTabBar(tabId));
+    var faixaAba = faixaAlertaPub(); if (faixaAba) root.appendChild(faixaAba);
 
     var tabContent = U.h('div', { style: { minHeight: '200px' } });
     root.appendChild(tabContent);
@@ -1113,6 +1127,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
   // Tema claro/escuro: botão flutuante + redesenho da tela atual ao alternar
   TRJ.theme.mountToggle();
   TRJ.theme.onChange(function () { if (!savedAt && !(raw.tasksEnriched && raw.tasksEnriched.length)) return; try { renderView(); } catch (e) {} });
+  alertas.piscarTitulo(escopoAlerta);
   carregarDados();
   setInterval(function () { carregarDados(true); }, 60000);
 })();

@@ -4,9 +4,19 @@
   var U = TRJ.ui, C = TRJ.constants, Comp = TRJ.compute;
   var state = { regiao: 'TODAS', prioridades: [], grupo: 'TODAS' };
 
+  /* TSKs novas aguardando o 1º update — só aviso VISUAL (a versão com som é o link do operador).
+     Vale para a região e a equipe (FIXA/MÓVEL) selecionadas aqui; sem filtro, para todas. Regra em js/alerta-novas.js. */
+  var alertas = TRJ.alertaNovas.painel('trj_dashboard_auth'), dadosAlerta = null, tituloAlerta = false;
+  function escopoAlerta() { return { regioes: state.regiao !== 'TODAS' ? [state.regiao] : [], grupo: state.grupo }; }
+
   TRJ.pages.dashboard = function (container, ctx) {
     var data = ctx.data, app = ctx.app;
     if (!data) { container.appendChild(U.h('div', { class: 'trj-card p-6', text: 'Sem dados carregados.' })); return; }
+    if (dadosAlerta !== data) {                         // só quando os dados foram recarregados (importação / atualização), não a cada filtro
+      dadosAlerta = data;
+      try { alertas.atualizar(data.tasksEnriched); } catch (e) { console.warn('Alerta de TSKs novas:', e); }
+    }
+    if (!tituloAlerta) { tituloAlerta = true; alertas.piscarTitulo(escopoAlerta); }
 
     // Calcula o dashboard. Se algo vier vazio/indefinido, usamos defaults
     // defensivos para nunca quebrar a renderização (ex.: kpis.foraSla).
@@ -83,9 +93,11 @@
       U.h('span', { text: 'Extrair Excel' })
     ]);
     var btnRef = U.h('button', { class: 'trj-btn trj-btn-primary', html: app.icon('refresh') + ' Atualizar', onclick: function () { app.refresh(); } });
-    var right = U.h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg, selGrupo, selPri, btnWa, btnExcel, btnRef]);
+    var right = U.h('div', { class: 'flex items-center gap-2 flex-wrap' }, [selReg, selGrupo, selPri, alertas.controlePrios(function () { app.render(); }), btnWa, btnExcel, btnRef]);
     var atualizadoEm = d.atualizadoEm ? new Date(d.atualizadoEm).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR');
     container.appendChild(U.pageHeader('Dashboard Operacional', 'Atualizado em ' + atualizadoEm, right));
+    var faixaNovas = alertas.faixa(escopoAlerta(), function () { app.render(); }, { semControle: true });     // o seletor de prioridades do alerta já está no cabeçalho
+    if (faixaNovas) container.appendChild(faixaNovas);
 
     // ---- KPIs ----
     var kpiDefs = [

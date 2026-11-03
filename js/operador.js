@@ -51,8 +51,8 @@
      Continua nova (e o alerta continua na tela) até receber o PRIMEIRO update — ou sair da fila.
      A primeira abertura só registra o que já existe (não alerta o backlog inteiro).
      O alerta vale para a(s) região(ões) filtrada(s); sem filtro de região, vale para todas. */
-  var LS_VISTAS = 'trj_operador_vistas', LS_NOVAS = 'trj_operador_novas';
-  var vistas = lsGet(LS_VISTAS), novas = lsGet(LS_NOVAS) || {};       // os -> instante em que foi vista / detectada como nova
+  var det = TRJ.alertaNovas.detector('trj_operador');     // regra de "nova" + memória do aparelho (js/alerta-novas.js, a mesma do dashboard)
+  var novas = det.novas;                                    // os -> instante em que foi detectada como nova
   var alerta = { soneca: 0, bloqueado: false };
   var audio = { ctx: null, fontes: [], buf: undefined };
   /* toque do alerta: a gravação do operador. Salve o arquivo em assets/ com um destes nomes (a 1ª que existir é usada);
@@ -60,23 +60,8 @@
   var AUDIO_ALERTA = ['assets/alerta-operador.mp3', 'assets/alerta-operador.wav', 'assets/alerta-operador.ogg', 'assets/alerta-operador.m4a'];
 
   function detectarNovas() {
-    var agora = Date.now(), primeira = !vistas, achadas = [];
-    vistas = vistas || {};
-    model.items.forEach(function (it) {
-      if (it.pend) return;
-      var os = up(it.os); if (!os) return;
-      if (!(os in vistas)) {
-        vistas[os] = agora;
-        if (!primeira && it.upd.estado === 'sem' && !(os in novas)) { novas[os] = agora; achadas.push(it); }
-      }
-    });
-    Object.keys(novas).forEach(function (os) {          // sai da lista quando recebe o 1º update ou deixa a fila
-      var it = model.byOs[os];
-      if (!it || it.pend || it.upd.estado !== 'sem') delete novas[os];
-    });
-    Object.keys(vistas).forEach(function (os) { if (!model.byOs[os] && agora - vistas[os] > 72 * 3600000) delete vistas[os]; });
-    try { localStorage.setItem(LS_VISTAS, JSON.stringify(vistas)); localStorage.setItem(LS_NOVAS, JSON.stringify(novas)); } catch (e) {}
-    return achadas;
+    var chaves = det.detectar(model.items.map(function (it) { return { os: up(it.os), pend: it.pend, semUpd: it.upd.estado === 'sem' }; }));
+    return chaves.map(function (os) { return model.byOs[os]; }).filter(Boolean);
   }
   /* mesmo critério do filtro FIXA / MÓVEL (e das "Regras criadoras") da fila: sem filtro de equipe, vale para todas */
   function passaGrupo(it) {
