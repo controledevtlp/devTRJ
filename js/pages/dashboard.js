@@ -17,6 +17,8 @@
       try { alertas.atualizar(data.tasksEnriched); } catch (e) { console.warn('Alerta de TSKs novas:', e); }
     }
     if (!tituloAlerta) { tituloAlerta = true; alertas.piscarTitulo(escopoAlerta); }
+    // balão de detalhes da TSK (passar o mouse; botão direito fixa) nas TSKs da faixa de novas e nos detalhamentos
+    if (TRJ.tipTsk && TRJ.tipTsk.instalarAuth) TRJ.tipTsk.instalarAuth(data, app, function (t, m) { U.copyText(t, m); });
 
     // Calcula o dashboard. Se algo vier vazio/indefinido, usamos defaults
     // defensivos para nunca quebrar a renderização (ex.: kpis.foraSla).

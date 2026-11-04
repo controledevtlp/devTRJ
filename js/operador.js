@@ -60,7 +60,7 @@
   var AUDIO_ALERTA = ['assets/alerta-operador.mp3', 'assets/alerta-operador.wav', 'assets/alerta-operador.ogg', 'assets/alerta-operador.m4a'];
 
   function detectarNovas() {
-    var chaves = det.detectar(model.items.map(function (it) { return { os: up(it.os), pend: it.pend, semUpd: it.upd.estado === 'sem' }; }));
+    var chaves = det.detectar(model.items.map(function (it) { return { os: up(it.os), pend: it.pend, semUpd: it.upd.estado === 'sem', criacao: it.criacao }; }));
     return chaves.map(function (os) { return model.byOs[os]; }).filter(Boolean);
   }
   /* mesmo critério do filtro FIXA / MÓVEL (e das "Regras criadoras") da fila: sem filtro de equipe, vale para todas */

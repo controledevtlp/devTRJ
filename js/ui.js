@@ -547,7 +547,7 @@
     else if (st === 'NÃO INICIADO' || st === 'NAO INICIADO') { cor = '#9a7d00'; bg = 'rgba(241,196,15,.35)'; }
     var texto = (m.osNumero || '—') + (m.total > 1 ? ' (+' + (m.total - 1) + ')' : '');
     var tooltip = (m.status || '') + (m.filaAtual ? '\n' + m.filaAtual : '');
-    return h('span', { class: 'trj-badge', style: { background: bg, color: cor, fontWeight: '700', cursor: 'help' }, title: tooltip }, texto);
+    return h('span', { class: 'trj-badge', style: { background: bg, color: cor, fontWeight: '700', cursor: 'help' }, title: tooltip, dataset: m.osNumero ? { os: m.osNumero } : {} }, texto);       // data-os: balão de detalhes da TSK
   };
 
   // Padrões de anotações automáticas do sistema (bot) — ignoradas ao extrair o último update manual.
@@ -669,9 +669,10 @@
       var rawNTT = t.dataCriacaoAS || t.dataCriacao;
       var dtNTT = rawNTT ? (D.parsePlatformDate ? D.parsePlatformDate(rawNTT) : null) : null;
       var pCell = t.prioridade || '—';
-      return h('tr', null, [
+      // o número da TSK ganha o balão de detalhes (passar o mouse) e a linha inteira fixa o balão com o botão direito
+      return h('tr', { dataset: { osSel: t.osNumero || '' } }, [
         h('td', { text: C.REGIAO_LABELS[t.regiao] || t.regiao || '—' }),
-        h('td', { text: t.osNumero || '—' }),
+        h('td', null, t.osNumero ? [h('span', { class: 'op-tsk', dataset: { os: t.osNumero }, title: 'Passe o mouse para ver os detalhes · botão direito fixa o balão', text: t.osNumero })] : '—'),
         h('td', { text: t.siteId || t.enderecoId || '—' }),
         h('td', { text: t.cidade || '—' }),
         h('td', { text: t.tipoFalha || '—' }),

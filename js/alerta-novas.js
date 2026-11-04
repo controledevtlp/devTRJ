@@ -15,6 +15,9 @@
   var U = TRJ.ui, D = TRJ.domain, OP = TRJ.operador, C = TRJ.constants, h = U.h;
   var AN = TRJ.alertaNovas = {};
   AN.PRIOS = ['P1', 'P2', 'P3', 'P4', 'P5', 'S/P'];                 // "S/P" = TSK sem prioridade
+  /* Na PRIMEIRA abertura de uma tela neste aparelho não há "antes" para comparar. Em vez de zerar o alerta, TSKs sem update criadas
+     há no máximo este tempo já contam como novas (só aviso visual, sem som); o restante do backlog fica como já visto. */
+  AN.JANELA_INICIAL_MIN = 60;
   var PRIO_COR = { P1: '#c62839', P2: '#d35400', P3: '#b85a00', P4: '#1f6fb5', P5: '#6b7280' };
 
   function up(s) { return (s == null ? '' : String(s)).trim().toUpperCase(); }
@@ -29,16 +32,19 @@
     return {
       novas: novas,                                                  // mesmo objeto, alterado no lugar
       ehNova: function (os) { return !!novas[up(os)]; },
-      /* itens = TODAS as TSKs corretivas da fila: [{ os, pend, semUpd }]. Devolve as chaves (os) que viraram novas AGORA. */
+      /* itens = TODAS as TSKs corretivas da fila: [{ os, pend, semUpd, criacao }]. Devolve as chaves (os) que viraram novas AGORA
+         (na 1ª abertura as "recentes" viram novas mas não são devolvidas: aparecem na faixa, sem disparar som). */
       detectar: function (itens) {
-        var agora = Date.now(), primeira = !vistas, achadas = [], por = {};
+        var agora = Date.now(), primeira = !vistas, achadas = [], por = {}, janela = AN.JANELA_INICIAL_MIN * 60000;
         vistas = vistas || {};
         itens.forEach(function (it) {
           if (!it.os) return;
           por[it.os] = it;
           if (it.pend || (it.os in vistas)) return;
           vistas[it.os] = agora;
-          if (!primeira && it.semUpd && !(it.os in novas)) { novas[it.os] = agora; achadas.push(it.os); }
+          if (!it.semUpd || (it.os in novas)) return;
+          if (!primeira) { novas[it.os] = agora; achadas.push(it.os); }
+          else if (it.criacao && agora - it.criacao.getTime() <= janela) novas[it.os] = agora;
         });
         Object.keys(novas).forEach(function (os) {                   // sai quando recebe o 1º update ou deixa a fila
           var it = por[os];
@@ -117,7 +123,7 @@
         var chips = lista.slice(0, 12).map(function (it) {
           return h('span', { class: 'op-achip' }, [
             h('b', { style: { color: PRIO_COR[it.prio] || 'inherit' }, text: it.prio }),
-            h('span', { class: 'op-tsk', style: { cursor: 'pointer' }, title: 'Clique para copiar a TSK', text: it.osRaw, onclick: function () { U.copyText(it.osRaw, it.osRaw + ' copiada'); } }),
+            h('span', { class: 'op-tsk', style: { cursor: 'pointer' }, dataset: { os: it.osRaw }, title: 'Clique: copiar a TSK · passe o mouse para ver os detalhes · botão direito fixa o balão', text: it.osRaw, onclick: function () { U.copyText(it.osRaw, it.osRaw + ' copiada'); } }),
             h('span', { text: it.site || it.end || '—' })
           ]);
         });

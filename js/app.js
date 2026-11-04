@@ -341,8 +341,8 @@
   App.openDrillTasks = function (spec, filtros, title, opts, onCopy) {
     if (!App.data) return;
     var rows = Comp.drillTasks(App.data.tasksEnriched, spec, filtros || {});
-    // GMG na fila: o número da TSK ganha o balão de detalhes (onde está, status, atualizada ou não, último update…)
-    if (opts && opts.modoGmg && TRJ.tipTsk && TRJ.tipTsk.instalarAuth) TRJ.tipTsk.instalarAuth(App.data, App, function (t, m) { U.copyText(t, m); });
+    // o número da TSK ganha o balão de detalhes (onde está, status, atualizada ou não, último update…): passar o mouse / botão direito fixa
+    if (TRJ.tipTsk && TRJ.tipTsk.instalarAuth) TRJ.tipTsk.instalarAuth(App.data, App, function (t, m) { U.copyText(t, m); });
     U.openModal(title || 'Detalhamento', U.taskTable(rows, opts || {}), {
       onCopy: onCopy || function () { return U.taskTableCopyText(rows, title, opts); }
     });
@@ -351,6 +351,7 @@
     if (!App.data) return;
     opts = opts || {};
     var rows = Comp.drillIncidents(App.data.incidentsEnriched, spec);
+    if (TRJ.tipTsk && TRJ.tipTsk.instalarAuth) TRJ.tipTsk.instalarAuth(App.data, App, function (t, m) { U.copyText(t, m); });       // balão de detalhes na etiqueta da TSK
     U.openModal(title || 'Detalhamento', U.incidentTable(rows, App.data.tasksEnriched), {
       onCopy: opts.onCopy || function () { return U.incidentTableCopyText(rows, title); }
     });
