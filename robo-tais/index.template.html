@@ -1,0 +1,153 @@
+<title>Robô Tais</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: coluna única de instalação; três caminhos lado a lado em ordem de preferência, código escondido até pedir. */
+:root{
+  --bg:#f5f6f8; --surface:#ffffff; --fg:#1b2230; --muted:#5b6578; --line:#d9dde5;
+  --accent:#1f4fd8; --accent-fg:#ffffff; --ok:#17803d; --ok-bg:#e4f4ea; --warn:#8a5a00; --warn-bg:#fdf1d2;
+  --code-bg:#eef0f4;
+  --f-body:'IBM Plex Sans',system-ui,Segoe UI,Arial,sans-serif; --f-mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12161f; --surface:#1a2030; --fg:#e6eaf2; --muted:#9aa5ba; --line:#2d3649;
+  --accent:#7b9cff; --accent-fg:#0b1020; --ok:#5fd68a; --ok-bg:#16301f; --warn:#f0c15a; --warn-bg:#35290d; --code-bg:#11151e; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161f; --surface:#1a2030; --fg:#e6eaf2; --muted:#9aa5ba; --line:#2d3649;
+  --accent:#7b9cff; --accent-fg:#0b1020; --ok:#5fd68a; --ok-bg:#16301f; --warn:#f0c15a; --warn-bg:#35290d; --code-bg:#11151e; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.55;
+  padding-block:32px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1{font-size:30px;line-height:1.15;margin:0;font-weight:600;text-wrap:balance}
+h2{font-size:18px;margin:0 0 6px;font-weight:600;text-wrap:balance}
+p{margin:0}.lead{color:var(--muted);max-width:62ch;margin-top:8px}
+.sites{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.sites span{font-family:var(--f-mono);font-size:12px;background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:3px 8px;overflow-wrap:anywhere}
+section{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;min-width:0}
+section.rec{border-color:var(--accent)}
+.tag{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;border-radius:4px;padding:2px 7px;margin-bottom:8px;background:var(--code-bg);color:var(--muted)}
+.rec .tag{background:var(--accent);color:var(--accent-fg)}
+ol{margin:10px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:7px}
+li::marker{color:var(--muted);font-weight:600}
+code{font-family:var(--f-mono);font-size:13px;background:var(--code-bg);border-radius:4px;padding:1px 5px;overflow-wrap:anywhere}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+button,.bm{font:500 14px var(--f-body);border-radius:7px;padding:8px 13px;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+button.pri{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button:focus-visible,.bm:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bm{display:inline-block;text-decoration:none;cursor:grab;border-style:dashed;border-color:var(--accent);color:var(--accent)}
+.ok{color:var(--ok);font-weight:500;align-self:center;font-size:13px}
+.note{margin-top:12px;font-size:13px;color:var(--warn);background:var(--warn-bg);border-radius:7px;padding:8px 11px}
+.good{background:var(--ok-bg);color:var(--ok);border-radius:7px;padding:8px 11px;font-size:13px;margin-top:12px}
+details{margin-top:12px}summary{cursor:pointer;color:var(--accent);font-weight:500}
+textarea{width:100%;height:150px;margin-top:8px;font:12px/1.4 var(--f-mono);background:var(--code-bg);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:8px;resize:vertical}
+table{border-collapse:collapse;width:100%;font-size:14px}
+.tw{overflow-x:auto;margin-top:10px}
+th,td{text-align:left;padding:7px 10px;border-top:1px solid var(--line);vertical-align:top}th{border-top:0;color:var(--muted);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+</style>
+
+<main>
+  <header>
+    <h1>Robô Tais</h1>
+    <p class="lead">Valida TSKs, testa NE-ID e END-ID a partir da planilha e anexa o resultado no chamado quando a TSK está normalizada. Roda dentro da sua aba da Tais, com o seu login. Não lê nem guarda senha.</p>
+    <div class="sites"><span>web.telegram.org/k/#@tim_tais_bot</span><span>tim-access-portal-prd…codeengine.appdomain.cloud</span></div>
+  </header>
+
+  <section class="rec">
+    <span class="tag">Recomendado</span>
+    <h2>Extensão do Edge</h2>
+    <p>Fica instalada, abre o painel sozinha nos dois sites e continua o teste se o portal recarregar por ociosidade.</p>
+    <ol>
+      <li>Crie uma pasta no PC chamada <code>robo-tais</code>.</li>
+      <li>Salve dentro dela dois arquivos de texto, com estes nomes exatos. Use o Bloco de Notas e escolha “Todos os arquivos” ao salvar.</li>
+    </ol>
+    <div class="row">
+      <button class="pri" data-copy="manifest" id="cMan">Copiar manifest.json</button>
+      <button class="pri" data-copy="codigo" id="cJs">Copiar robo-tais.js</button>
+      <span class="ok" id="okA" hidden>Copiado.</span>
+    </div>
+    <ol start="3">
+      <li>No Edge, abra <code>edge://extensions</code> e ligue <b>Modo de desenvolvedor</b>.</li>
+      <li>Clique em <b>Carregar sem pacote</b> e escolha a pasta <code>robo-tais</code>.</li>
+      <li>Abra o Telegram Web ou o Portal. O painel aparece no canto direito da tela.</li>
+    </ol>
+    <p class="note">Alguns computadores de empresa bloqueiam o Modo de desenvolvedor. Se for o seu caso, use a opção de favorito abaixo.</p>
+  </section>
+
+  <section>
+    <span class="tag">Sem instalar nada</span>
+    <h2>Favorito na barra do Edge</h2>
+    <p>Um clique no favorito abre o painel na aba da Tais. Se o portal recarregar, clique de novo: o progresso fica salvo e o painel oferece continuar.</p>
+    <ol>
+      <li>Clique em <b>Copiar código do favorito</b>.</li>
+      <li>No Edge, pressione <code>Ctrl+D</code>, dê o nome “Robô Tais” e salve. Abra o menu do favorito, escolha <b>Editar</b> e cole o código no campo de endereço (URL).</li>
+      <li>Na aba da Tais, clique nesse favorito.</li>
+    </ol>
+    <div class="row">
+      <button class="pri" id="cFav">Copiar código do favorito</button>
+      <a class="bm" id="bmLink" href="#">🤖 Robô Tais</a>
+      <span class="ok" id="okB" hidden>Copiado.</span>
+    </div>
+    <p style="margin-top:8px;font-size:13px;color:var(--muted)">Se a barra de favoritos estiver visível, também dá para arrastar o botão tracejado até ela.</p>
+    <details>
+      <summary>Outra forma: colar no console (F12)</summary>
+      <p style="margin-top:8px">Na aba da Tais, pressione <code>F12</code>, abra <b>Console</b>, cole o código e tecle Enter. Vale só até a página recarregar.</p>
+      <div class="row"><button id="cJs2">Copiar código</button><span class="ok" id="okC" hidden>Copiado.</span></div>
+    </details>
+  </section>
+
+  <section>
+    <h2>Como usar</h2>
+    <ol>
+      <li>Abra a Tais e faça login como sempre.</li>
+      <li>No painel, escolha <b>Validar TSK</b>, <b>Testar NE-ID</b> ou <b>Testar END-ID</b>.</li>
+      <li>Suba a planilha .xlsx. O robô acha as colunas <code>Número</code>, <code>NE ID</code> e <code>END ID</code>. Também dá para colar uma lista.</li>
+      <li>Marque <b>Modo simulação</b> e rode uma vez para ver o painel funcionando sem mexer na Tais.</li>
+      <li>Desmarque a simulação, deixe <b>Quantos testar</b> em 3 e confira no chamado se o anexo entrou. Depois coloque 0 para rodar tudo.</li>
+      <li>Enquanto roda, a caixa verde lista as TSKs prontas para encerrar. Ao final, baixe o Excel.</li>
+    </ol>
+    <div class="tw"><table>
+      <thead><tr><th>Cor</th><th>Significa</th><th>O robô faz</th></tr></thead>
+      <tbody>
+        <tr><td><span class="dot" style="background:#2e9e57"></span>Verde</td><td>Normalizado</td><td>Em Validar TSK, responde Sim e confere a confirmação de anexo</td></tr>
+        <tr><td><span class="dot" style="background:#d6403f"></span>Vermelho</td><td>Não normalizado</td><td>Guarda evento e alarmes; não anexa</td></tr>
+        <tr><td><span class="dot" style="background:#9aa0aa"></span>Cinza</td><td>Sem regra de validação</td><td>Deixa de lado e segue</td></tr>
+        <tr><td><span class="dot" style="background:#e0b020"></span>Amarelo</td><td>Resposta não reconhecida</td><td>Guarda o texto para você conferir</td></tr>
+      </tbody></table></div>
+    <p class="good">O Excel final tem as abas Normalizados, Não normalizados, Não validáveis, Indefinidos e Todos, com a coluna “Anexado no chamado”.</p>
+  </section>
+
+  <section>
+    <h2>Se algo não bater</h2>
+    <ol>
+      <li>A mensagem enviada vem como <code>{codigo} validar</code> e <code>{codigo} testar</code>. Se você digita de outro jeito, troque o campo “Mensagem enviada”.</li>
+      <li>Em <b>Calibração e frases</b>, use <b>Testar conexão</b>. Se o campo de mensagem não for achado, clique em <b>Marcar campo de mensagem</b> e depois no campo da Tais.</li>
+      <li>Resposta amarela: copie o texto dela na tabela (clique na linha) e ajuste as frases de normalizado, não normalizado ou sem regra.</li>
+      <li>Anexo “VERIFICAR” significa que o robô clicou em Sim, mas não viu a frase de confirmação. Confira o chamado.</li>
+    </ol>
+    <p class="note">Este robô ainda não foi testado na Tais real, apenas em chats de simulação. Rode primeiro com poucos itens e confirme os anexos.</p>
+  </section>
+</main>
+
+<script type="text/plain" id="codigo">/*__CODIGO__*/</script>
+<script type="text/plain" id="manifest">/*__MANIFEST__*/</script>
+<script>
+(function(){
+  var get=function(id){return document.getElementById(id).textContent.replace(/^\n/,'')};
+  function copiar(texto,okId){
+    var ok=document.getElementById(okId);
+    function feito(){ok.hidden=false;setTimeout(function(){ok.hidden=true},2500)}
+    function plano(){var ta=document.createElement('textarea');ta.value=texto;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');feito()}catch(e){}ta.remove()}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(texto).then(feito,plano)}else{plano()}
+  }
+  var fav=function(){return 'javascript:'+encodeURIComponent(get('codigo'))};
+  document.getElementById('cMan').onclick=function(){copiar(get('manifest').replace(/<\\\//g,'</'),'okA')};
+  document.getElementById('cJs').onclick=function(){copiar(get('codigo'),'okA')};
+  document.getElementById('cJs2').onclick=function(){copiar(get('codigo'),'okC')};
+  document.getElementById('cFav').onclick=function(){copiar(fav(),'okB')};
+  var bm=document.getElementById('bmLink');
+  try{bm.setAttribute('href',fav())}catch(e){}
+  bm.addEventListener('click',function(e){e.preventDefault();copiar(fav(),'okB')});
+})();
+</script>
