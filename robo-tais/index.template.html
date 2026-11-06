@@ -60,17 +60,19 @@ th,td{text-align:left;padding:7px 10px;border-top:1px solid var(--line);vertical
     <p>Fica instalada, abre o painel sozinha nos dois sites e continua o teste se o portal recarregar por ociosidade.</p>
     <ol>
       <li>Crie uma pasta no PC chamada <code>robo-tais</code>.</li>
-      <li>Salve dentro dela dois arquivos de texto, com estes nomes exatos. Use o Bloco de Notas e escolha “Todos os arquivos” ao salvar.</li>
+      <li>Salve dentro dela três arquivos de texto, com estes nomes exatos. Use o Bloco de Notas e escolha “Todos os arquivos” ao salvar.</li>
     </ol>
     <div class="row">
       <button class="pri" data-copy="manifest" id="cMan">Copiar manifest.json</button>
       <button class="pri" data-copy="codigo" id="cJs">Copiar robo-tais.js</button>
+      <button class="pri" id="cBg">Copiar background.js</button>
       <span class="ok" id="okA" hidden>Copiado.</span>
     </div>
     <ol start="3">
       <li>Abra a página de extensões e ligue <b>Modo de desenvolvedor</b>. No Edge é <code>edge://extensions</code>. No Chrome é <code>chrome://extensions</code>.</li>
       <li>Clique em <b>Carregar sem pacote</b> (Edge) ou <b>Carregar sem compactação</b> (Chrome) e escolha a pasta <code>robo-tais</code>.</li>
-      <li>Abra o Telegram Web ou o Portal. O painel aparece no canto direito da tela.</li>
+      <li>Atualize a aba do Telegram Web ou do Portal com <code>F5</code>. O painel aparece no canto direito da tela.</li>
+      <li>Se não aparecer, clique no ícone <b>Robô Tais</b> na barra de extensões do navegador (o ícone de peça de quebra-cabeça, onde dá para fixá-lo). Ele abre o painel na aba atual.</li>
     </ol>
     <p class="note">Alguns computadores de empresa bloqueiam o Modo de desenvolvedor, no Edge e no Chrome. Se for o seu caso, use a opção de favorito abaixo.</p>
   </section>
@@ -121,6 +123,7 @@ th,td{text-align:left;padding:7px 10px;border-top:1px solid var(--line);vertical
   <section>
     <h2>Se algo não bater</h2>
     <ol>
+      <li>Painel não aparece: atualize a aba com <code>F5</code>, confirme em <code>chrome://extensions</code> ou <code>edge://extensions</code> que o Robô Tais está ligado e clique no ícone dele na barra. Se o painel foi fechado no X, procure o botão redondo 🤖 no canto direito superior.</li>
       <li>A mensagem enviada vem como <code>{codigo} validar</code> e <code>{codigo} testar</code>. Se você digita de outro jeito, troque o campo “Mensagem enviada”.</li>
       <li>Em <b>Calibração e frases</b>, use <b>Testar conexão</b>. Se o campo de mensagem não for achado, clique em <b>Marcar campo de mensagem</b> e depois no campo da Tais.</li>
       <li>Resposta amarela: copie o texto dela na tabela (clique na linha) e ajuste as frases de normalizado, não normalizado ou sem regra.</li>
@@ -131,6 +134,7 @@ th,td{text-align:left;padding:7px 10px;border-top:1px solid var(--line);vertical
 </main>
 
 <script type="text/plain" id="codigo">/*__CODIGO__*/</script>
+<script type="text/plain" id="bgjs">/*__BG__*/</script>
 <script type="text/plain" id="manifest">/*__MANIFEST__*/</script>
 <script>
 (function(){
@@ -144,6 +148,7 @@ th,td{text-align:left;padding:7px 10px;border-top:1px solid var(--line);vertical
   var fav=function(){return 'javascript:'+encodeURIComponent(get('codigo'))};
   document.getElementById('cMan').onclick=function(){copiar(get('manifest').replace(/<\\\//g,'</'),'okA')};
   document.getElementById('cJs').onclick=function(){copiar(get('codigo'),'okA')};
+  document.getElementById('cBg').onclick=function(){copiar(get('bgjs'),'okA')};
   document.getElementById('cJs2').onclick=function(){copiar(get('codigo'),'okC')};
   document.getElementById('cFav').onclick=function(){copiar(fav(),'okB')};
   var bm=document.getElementById('bmLink');

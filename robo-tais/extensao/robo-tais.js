@@ -5,7 +5,7 @@
   'use strict';
   if (window.__roboTais) { window.__roboTais.mostrar(); return; }
 
-  const VERSAO = '1.1';
+  const VERSAO = '1.2';
   const LS = 'robotais_v1_';
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();

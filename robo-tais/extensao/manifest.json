@@ -1,12 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Robô Tais",
-  "version": "1.1",
+  "version": "1.2",
   "description": "Valida TSKs e testa NE-ID/END-ID na Tais (Telegram Web ou Portal TIM) a partir de uma planilha, com painel em tempo real.",
+  "permissions": ["scripting"],
+  "host_permissions": [
+    "https://*.telegram.org/*",
+    "https://tim-access-portal-prd.133e5xtaze4h.us-south.codeengine.appdomain.cloud/*"
+  ],
+  "action": { "default_title": "Abrir Robô Tais" },
+  "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
       "matches": [
-        "https://web.telegram.org/*",
+        "https://*.telegram.org/*",
         "https://tim-access-portal-prd.133e5xtaze4h.us-south.codeengine.appdomain.cloud/*"
       ],
       "js": ["robo-tais.js"],
