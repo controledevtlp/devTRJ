@@ -239,9 +239,9 @@ body.op-tv .op-kpi .v { font-size: 40px; }
 .cc-dg-bar .cc-zoom { margin-left: auto; display: inline-flex; gap: 4px; }
 .cc-legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 11px; margin-bottom: 8px; color: var(--trj-muted); }
 .cc-legend .lg::before { content: ''; display: inline-block; width: 14px; height: 14px; border-radius: 4px; margin-right: 6px; vertical-align: -3px; border: 2px solid; }
-.cc-legend .sus::before { background: #ff8c00; border-color: #b85a00; }
-.cc-legend .fora::before { background: #f8c9cf; border-color: #c62839; }
-.cc-legend .tsk::before { background: #c6dcf5; border-color: #1f6fb5; }
+.cc-legend .sus::before { background: rgba(255,140,0,.35); border-color: #ff8c00; }
+.cc-legend .fora::before { background: rgba(231,76,60,.35); border-color: #e74c3c; }
+.cc-legend .tsk::before { background: rgba(52,152,219,.35); border-color: #3498db; }
 .cc-legend .ok::before { background: var(--trj-card2); border-color: var(--trj-border2); }
 .cc-legend .rota::before { background: transparent; border-color: var(--trj-muted); border-style: dashed; }
 .cc-dica { margin-left: auto; font-style: italic; }
@@ -251,28 +251,34 @@ body.op-tv .op-kpi .v { font-size: 40px; }
 .cc-edge { fill: none; stroke: var(--trj-muted); stroke-opacity: .45; stroke-width: 1.5; }
 .cc-edge.f { stroke: #ff8c00; stroke-opacity: 1; stroke-width: 2.4; }
 .cc-acima { fill: var(--trj-muted); font-size: 11px; }
-.cc-nd rect { fill: var(--trj-card2); stroke: var(--trj-border2); stroke-width: 1.5; }
+.cc-nd rect.bx { fill: var(--trj-card2); stroke: var(--trj-border2); stroke-width: 1.3; }
+.cc-nd .n1, .cc-nd .n2, .cc-nd .n3 { text-anchor: middle; dominant-baseline: central; }
 .cc-nd .n1 { fill: var(--trj-fg); font-size: 12px; font-weight: 800; }
 .cc-nd .n2 { fill: var(--trj-muted); font-size: 10px; }
 .cc-nd .n3 { fill: var(--trj-muted); font-size: 10px; font-weight: 700; }
-.cc-nd.rota rect { fill: none; stroke: var(--trj-muted); stroke-opacity: .55; stroke-dasharray: 5 4; }
+.cc-nd.rota rect.bx { fill: none; stroke: var(--trj-muted); stroke-opacity: .55; stroke-dasharray: 5 4; }
 .cc-nd.rota .n1 { fill: var(--trj-muted); font-weight: 700; }
-.cc-nd.falha.sem rect { fill: #f8c9cf; stroke: #c62839; stroke-width: 2; }
-.cc-nd.falha.sem .n1 { fill: #5c0f1b; } .cc-nd.falha.sem .n2 { fill: #b3202f; font-weight: 800; } .cc-nd.falha.sem .n3 { fill: #5c0f1b; }
-.cc-nd.falha.tsk rect { fill: #c6dcf5; stroke: #1f6fb5; stroke-width: 2; }
-.cc-nd.falha.tsk .n1 { fill: #0b2c4d; } .cc-nd.falha.tsk .n2 { fill: #174f86; font-weight: 800; } .cc-nd.falha.tsk .n3 { fill: #0b2c4d; }
+.cc-nd.falha.sem rect.bx { fill: rgba(231,76,60,.20); stroke: #e74c3c; stroke-width: 2.2; }
+.cc-nd.falha.sem .n2 { fill: var(--trj-red); font-weight: 800; }
+.cc-nd.falha.tsk rect.bx { fill: rgba(52,152,219,.20); stroke: #3498db; stroke-width: 2.2; }
+.cc-nd.falha.tsk .n2 { fill: var(--trj-blue); font-weight: 800; }
+/* marcadores do visual novo: bolinha na borda direita (de onde saem os filhos), rótulo do enlace sobre a linha, ponto roxo = anotação */
+.cc-mk { fill: var(--trj-bg); stroke-width: 1.8; }
+.cc-cmt { fill: #9b7fd4; }
+.cc-elb { fill: var(--trj-muted); font-size: 9px; text-anchor: middle; dominant-baseline: central; paint-order: stroke; stroke: var(--trj-card); stroke-width: 6px; stroke-linejoin: round; }
+.cc-elb.ruim { fill: #d68910; }
 .cc-nd[data-os] { cursor: pointer; }
 /* maior correlação (grifada) e pai em comum */
 .cc-edge.best { stroke: #ffd400; stroke-opacity: 1; stroke-width: 4.5; filter: drop-shadow(0 0 3px rgba(255,212,0,.8)); }
-.cc-nd.best rect { stroke: #ffd400; stroke-width: 4; filter: drop-shadow(0 0 4px rgba(255,212,0,.8)); }
-.cc-nd.pai rect { fill: #c6dcf5; stroke: #1f6fb5; stroke-width: 3; }
-.cc-nd.pai .n1 { fill: #0b2c4d; font-size: 13px; } .cc-nd.pai .n2 { fill: #174f86; font-weight: 800; } .cc-nd.pai .n3 { fill: #0b2c4d; }
-.cc-legend .pai::before { background: #c6dcf5; border-color: #1f6fb5; }
+.cc-nd.best rect.bx { stroke: #ffd400 !important; stroke-width: 4 !important; filter: drop-shadow(0 0 4px rgba(255,212,0,.8)); }
+.cc-nd.pai rect.bx { fill: rgba(52,152,219,.14); stroke: #3498db; stroke-width: 3; }
+.cc-nd.pai .n1 { font-size: 13px; } .cc-nd.pai .n2 { fill: var(--trj-blue); font-weight: 800; }
+.cc-legend .pai::before { background: rgba(52,152,219,.2); border-color: #3498db; }
 .cc-legend .melhor::before { background: #ffd400; border-color: #b8860b; }
 .cc-card.melhor { box-shadow: 0 0 0 2px #d4a017 inset, 0 0 14px rgba(212,160,23,.35); }
 .cc-best-tag { background: #d4a017; color: #1c1204; }
-.cc-nd.sus rect { fill: #ff8c00; stroke: #b85a00; stroke-width: 3; }
-.cc-nd.sus .n1 { fill: #1c1204; font-size: 13px; } .cc-nd.sus .n2 { fill: #3a2300; font-weight: 800; } .cc-nd.sus .n3 { fill: #3a2300; }
+.cc-nd.sus rect.bx { fill: rgba(255,140,0,.20); stroke: #ff8c00; stroke-width: 3; }
+.cc-nd.sus .n1 { font-size: 13px; } .cc-nd.sus .n2 { fill: var(--trj-primary); font-weight: 800; }
 /* associação: botões de papel por linha */
 .cc-papel { white-space: nowrap; }
 .cc-pb { display: inline-block; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; border: 1px solid transparent; margin-right: 4px; font-family: inherit; }
