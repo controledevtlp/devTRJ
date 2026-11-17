@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Gera extensao/robo-tais.js, robo-tais-extensao.zip e index.html (página de instalação) a partir de robo-tais.js."""
-import zipfile, pathlib, html
+import zipfile, pathlib, html, base64
 d = pathlib.Path(__file__).parent
 js = (d/'robo-tais.js').read_text(encoding='utf-8')
 assert '</script' not in js
@@ -11,6 +11,8 @@ with zipfile.ZipFile(d/'robo-tais-extensao.zip', 'w', zipfile.ZIP_DEFLATED) as z
 tpl = (d/'index.template.html').read_text(encoding='utf-8')
 manifest = (d/'extensao'/'manifest.json').read_text(encoding='utf-8')
 bg = (d/'extensao'/'background.js').read_text(encoding='utf-8')
-out = tpl.replace('/*__BG__*/', bg).replace('/*__CODIGO__*/', js).replace('/*__MANIFEST__*/', manifest.replace('</', '<\\/'))
+uri = lambda n: 'data:image/jpeg;base64,' + base64.b64encode((d/'img'/n).read_bytes()).decode()
+out = tpl.replace('/*__IMG_DARK__*/', uri('preview-dark.jpg')).replace('/*__IMG_LIGHT__*/', uri('preview-light.jpg'))
+out = out.replace('/*__BG__*/', bg).replace('/*__CODIGO__*/', js).replace('/*__MANIFEST__*/', manifest.replace('</', '<\\/'))
 (d/'index.html').write_text(out, encoding='utf-8')
 print('ok', len(out)//1024, 'KB')
