@@ -5,7 +5,8 @@
   'use strict';
   if (window.__roboTais) { window.__roboTais.mostrar(); return; }
 
-  const VERSAO = '1.9';
+  const VERSAO = '2.0';
+  const LOGO_URI = '';   // a logo (base64) é inserida pelo build.py
   const LS = 'robotais_v1_';
   // Temporizador que não atrasa quando a aba fica em segundo plano (usa um Worker; se não der, usa o do navegador)
   const tempo = (() => {
@@ -660,6 +661,7 @@
     largura: svgI('<path d="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4"/>'),
     menos2: svgI('<path d="M6 12h12"/>')
   };
+  const logoImg = px => LOGO_URI ? '<img class="lg" src="' + LOGO_URI + '" width="' + px + '" height="' + px + '" alt="">' : ROBO(px, 1.6);
   const ROBO = (w, sw) => '<svg width="' + w + '" height="' + w + '" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8.5 5v10L12 22l-8.5-5V7z" fill="none" stroke="currentColor" stroke-width="' + sw + '"/><circle cx="9" cy="11" r="1.4" fill="currentColor"/><circle cx="15" cy="11" r="1.4" fill="currentColor"/><path d="M9 15h6" stroke="currentColor" stroke-width="' + sw + '" stroke-linecap="round"/></svg>';
   const host = document.createElement('div');
   host.id = '__roboTais';
@@ -783,6 +785,11 @@ tr.normalizado .sti{color:var(--ok)}tr.nao_normalizado .sti{color:var(--bad)}tr.
 .prontos h4 .i{width:16px;height:16px}
 .f span{display:inline-flex;align-items:center;gap:6px}.f .i{color:var(--acc)}
 .lanc .i{width:28px;height:28px}
+.logo .lg{display:block;border-radius:50%;box-shadow:0 0 0 1px rgba(212,175,55,.65),0 0 14px rgba(212,175,55,.38)}
+.bt .lg{border-radius:50%;box-shadow:0 0 0 1px rgba(212,175,55,.6)}
+.lanc-logo{background:#000;padding:0;overflow:hidden;box-shadow:0 0 0 2px rgba(212,175,55,.75),0 8px 26px rgba(212,175,55,.38);animation:pulsog 2.4s ease-in-out infinite}
+.lanc-logo .lg{width:100%;height:100%;display:block;border-radius:50%}
+.lanc-logo:hover{transform:scale(1.08)}
 .ups{display:grid;grid-template-columns:1fr;gap:8px}
 .up{border:1px dashed var(--line);border-radius:12px;padding:10px;background:var(--inp);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 12px;align-items:center;transition:.2s;min-width:0}
 .up:hover,.up.drag{border-color:var(--acc);box-shadow:0 0 0 3px var(--ring)}
@@ -814,15 +821,16 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
 @keyframes giro{to{transform:rotate(360deg)}}
 @keyframes in{from{opacity:0;transform:translateY(-10px) scale(.98)}to{opacity:1;transform:none}}
 @keyframes pulse{50%{opacity:.35;transform:scale(.8)}}
+@keyframes pulsog{50%{box-shadow:0 0 0 2px rgba(212,175,55,.95),0 8px 40px rgba(212,175,55,.65)}}
 @keyframes pulseb{50%{box-shadow:0 8px 40px var(--glow),0 0 0 8px var(--ring)}}
 @keyframes slide{to{background-position:-200% 0}}
 @keyframes sweep{to{left:110%}}
 @keyframes rowglow{50%{background:var(--t-acc)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
-<button class="lanc" id="lanc" title="Abrir Robô Tais">${ROBO(28, 1.7)}</button>
+<button class="lanc${LOGO_URI ? ' lanc-logo' : ''}" id="lanc" title="Abrir Robô Tais">${LOGO_URI ? logoImg(52) : ROBO(28, 1.7)}</button>
 <div class="p" id="p">
- <div class="h" id="h"><span class="logo">${ROBO(26, 1.6)}</span><div class="tit"><b>Robô Tais</b><small>VALIDAÇÃO AUTOMÁTICA · v${VERSAO}</small></div><span class="led" id="led" title="Estado do robô"></span><button class="ib" id="bTema" title="Tema claro ou escuro">${IC.tema}</button><button class="ib" id="bLargo" title="Aumentar ou diminuir o painel">${IC.largura}</button><button class="ib" id="bMin" title="Minimizar">${IC.menos2}</button><button class="ib" id="bX" title="Esconder o painel (o robô continua)">${IC.x}</button></div>
+ <div class="h" id="h"><span class="logo">${LOGO_URI ? logoImg(36) : ROBO(26, 1.6)}</span><div class="tit"><b>Robô Tais</b><small>VALIDAÇÃO AUTOMÁTICA · v${VERSAO}</small></div><span class="led" id="led" title="Estado do robô"></span><button class="ib" id="bTema" title="Tema claro ou escuro">${IC.tema}</button><button class="ib" id="bLargo" title="Aumentar ou diminuir o painel">${IC.largura}</button><button class="ib" id="bMin" title="Minimizar">${IC.menos2}</button><button class="ib" id="bX" title="Esconder o painel (o robô continua)">${IC.x}</button></div>
  <div class="c">
   <fieldset><legend>1. O que fazer</legend>
    <div class="modos"><button data-m="tsk">${IC.escudo}Validar TSK</button><button data-m="ne">${IC.antena}Testar NE-ID</button><button data-m="end">${IC.predio}Testar END-ID</button></div>
@@ -1057,7 +1065,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     if ($('.modal')) return;
     const ov = document.createElement('div'); ov.className = 'modal';
     const card = document.createElement('div'); card.className = 'balao';
-    const t = document.createElement('div'); t.className = 'bt'; t.innerHTML = ROBO(18, 1.8); t.append(titulo);
+    const t = document.createElement('div'); t.className = 'bt'; t.innerHTML = LOGO_URI ? logoImg(22) : ROBO(18, 1.8); t.append(titulo);
     const x = document.createElement('div'); x.className = 'bx'; x.textContent = texto;
     const bb = document.createElement('div'); bb.className = 'bb';
     botoes.concat([{ rotulo: 'Cancelar', cancelar: true }]).forEach(b => {
