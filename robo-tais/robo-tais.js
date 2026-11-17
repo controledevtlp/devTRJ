@@ -5,9 +5,28 @@
   'use strict';
   if (window.__roboTais) { window.__roboTais.mostrar(); return; }
 
-  const VERSAO = '1.7';
+  const VERSAO = '1.8';
   const LS = 'robotais_v1_';
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // Temporizador que não atrasa quando a aba fica em segundo plano (usa um Worker; se não der, usa o do navegador)
+  const tempo = (() => {
+    let w = null, n = 0; const pend = new Map();
+    const liberar = i => { const p = pend.get(i); if (p) { pend.delete(i); clearTimeout(p.t); p.r(); } };
+    try {
+      w = new Worker(URL.createObjectURL(new Blob(['onmessage=function(e){var i=e.data.i;setTimeout(function(){postMessage(i)},e.data.ms)}'], { type: 'text/javascript' })));
+      w.onmessage = e => liberar(e.data);
+      w.onerror = () => { w = null; [...pend.keys()].forEach(liberar); };
+    } catch (e) { w = null; }
+    return {
+      worker: () => !!w,
+      esperar: ms => new Promise(r => {
+        if (!w) { setTimeout(r, ms); return; }
+        const i = ++n, p = { r, t: setTimeout(() => liberar(i), ms + 2500) };   // reserva: se o Worker não responder, segue pelo relógio normal
+        pend.set(i, p);
+        try { w.postMessage({ i, ms }); } catch (e) { liberar(i); }
+      })
+    };
+  })();
+  const sleep = ms => tempo.esperar(ms);
   const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const soLetras = s => norm(s).replace(/[^a-z]/g, '');
   const agora = () => new Date().toLocaleTimeString('pt-BR');
@@ -24,18 +43,19 @@
     cadeia: ['cadeia de tickets', 'apenas de um evento'],
     nao: ['não atende', 'não normalizad', 'não está normalizad'],
     sim: ['atende aos critérios', 'está normalizad', 'sem alarme', 'nenhum alarme ativo'],
-    pergunta: ['gostaria de inserir'],
-    conf: ['inserid', 'anexad', 'sucesso', 'registrad', 'adicionad'],
-    erro: ['não foi possível', 'erro', 'falha ao', 'não foi inserido']
+    pergunta: ['gostaria de inserir', 'deseja que eu insira', 'insira o resultado'],
+    conf: ['inserid', 'anexad', 'sucesso', 'registrad', 'adicionad', 'incluíd', 'salv'],
+    erro: ['não foi possível', 'erro', 'falha ao', 'não foi inserido', 'não consegui inserir']
   };
   const salvo = store.get('cfg', {});
   const CFG = Object.assign({
     tmpl: { tsk: '{codigo} validar', ne: '{codigo} testar', end: '{codigo} testar' },
-    limite: 3, pausa: 2, espera: 90, estavel: 3, simulacao: false, retomar: true, tema: 'dark',
+    limite: 3, pausa: 2, espera: 90, estavel: 3, esperaInput: 20, simulacao: false, retomar: true, tema: 'dark',
     selInput: '', selMsgs: '', selEnviar: ''
   }, salvo);
   CFG.tmpl = Object.assign({ tsk: '{codigo} validar', ne: '{codigo} testar', end: '{codigo} testar' }, salvo.tmpl || {});
-  CFG.frases = Object.assign({}, FRASES_PADRAO, salvo.frases || {});
+  CFG.frases = {};
+  Object.keys(FRASES_PADRAO).forEach(k => { CFG.frases[k] = [...new Set([...FRASES_PADRAO[k], ...((salvo.frases && salvo.frases[k]) || [])])]; });
   const salvarCfg = () => store.set('cfg', CFG);
 
   /* ============ ESTADO ============ */
@@ -191,21 +211,22 @@
       const f = inp.closest('form'); if (f && f.requestSubmit) { try { f.requestSubmit(); } catch (e) { } }
       await esperar(900);
     }
-    if (valorDe(inp).trim() === msg.trim()) throw new Error('Não consegui enviar. Use “Marcar botão enviar” nos Ajustes da Tais.');
+    if (valorDe(inp).trim() === msg.trim()) throw new Infra('Não consegui enviar. Use “Marcar botão enviar” nos Ajustes da Tais.');
   }
   class Parado extends Error { }
+  class Infra extends Error { }   // o chat da Tais não respondeu ao robô (não é resultado da TSK)
   async function esperar(ms) {
     const fim = Date.now() + ms;
     while (Date.now() < fim) { if (parar) throw new Parado(); await sleep(Math.min(200, fim - Date.now())); }
     if (parar) throw new Parado();
   }
   async function aguardarInput() {
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < Math.max(2, Math.round(CFG.esperaInput * 2)); i++) {
       const e = acharInput();
       if (e && !e.disabled && !e.readOnly) return e;
       await esperar(500);
     }
-    throw new Error('Não achei o campo de mensagem. Abra o chat da Tais ou use “Marcar campo” nos Ajustes da Tais.');
+    throw new Infra('Não achei o campo de mensagem. Abra o chat da Tais ou use “Marcar campo” nos Ajustes da Tais.');
   }
 
   /* ============ CLASSIFICAÇÃO ============ */
@@ -246,7 +267,11 @@
     let ultimo = '', mudou = Date.now(), cls = null;
     let cadeiaDesde = 0, cadeiaOk = false, baseResp = null, escolhido = '';
     const evn = (it.eventos || []).map(e => norm(e).replace(/\s/g, '')).filter(Boolean);
-    while (Date.now() - t0 < CFG.espera * 1000) {
+    let limite = t0 + CFG.espera * 1000, ext = 0;
+    while (true) {
+      if (Date.now() >= limite) {
+        if (document.hidden && !ultimo && ext < 2) { ext++; limite += CFG.espera * 1000; } else break;   // aba escondida e sem nenhuma resposta: espera mais um pouco
+      }
       await esperar(500);
       const nl = novasLinhas(antesL, linhasPagina());
       const txt = nl.join('\n');
@@ -292,7 +317,7 @@
   }
   async function anexar(antesB) {
     let sim = null;
-    for (let i = 0; i < 20 && !sim; i++) {
+    for (let i = 0; i < 30 && !sim; i++) {
       const novos = botoes('sim').filter(e => !antesB.has(e));
       if (novos.length) sim = novos[novos.length - 1]; else await esperar(500);
     }
@@ -328,6 +353,8 @@
     if (!pend.length) { log('Nenhum item pendente. Use “Limpar” para recomeçar.'); return; }
     if (CFG.limite > 0) pend = pend.slice(0, CFG.limite);
     rodando = true; parar = false; store.set('rodando', true);
+    let falhasChat = 0, parouChat = false, fimExec = false, soltarLock = null;
+    try { if (navigator.locks) navigator.locks.request('robotais-executando', () => new Promise(r => { if (fimExec) r(); else soltarLock = r; })); } catch (e) { }
     log('Iniciando ' + pend.length + ' item(ns): ' + NOMES_MODO[modo] + (CFG.simulacao ? ' (simulação)' : ''));
     atualizarBotoes();
     for (const it of pend) {
@@ -336,19 +363,26 @@
       try {
         const r = CFG.simulacao ? await simular(it) : await testarReal(it);
         Object.assign(it, r, { hora: agora() });
+        falhasChat = 0;
         log(it.codigo + ': ' + STATUS_TXT[it.status] + (it.anexado ? ' | anexo: ' + it.anexado : '') + (it.evento ? ' | ' + it.evento : ''));
       } catch (e) {
         if (e instanceof Parado) { it.status = 'pendente'; log('Parado.'); atualizarLinha(it); break; }
-        it.status = 'indefinido'; it.resposta = 'ERRO: ' + e.message; it.hora = agora();
+        // falha do chat: o item continua pendente; qualquer outro erro vira Indefinido. Em ambos os casos segue para o próximo.
+        const chat = e instanceof Infra;
+        it.status = chat ? 'pendente' : 'indefinido'; it.resposta = 'Erro: ' + e.message; it.hora = agora();
+        falhasChat = chat ? falhasChat + 1 : 0;
         log('Atenção: ' + it.codigo + ': ' + e.message);
         atualizarLinha(it); salvarSessao();
-        if (/Campo de mensagem|enviar/.test(e.message)) { parar = true; break; }
+        if (falhasChat >= 3) { parouChat = true; parar = true; }
       }
       itemAtual = null; atualizarLinha(it); salvarSessao(); renderResumo();
       if (!parar && it !== pend[pend.length - 1]) { try { faseTxt = 'Próximo item em instantes'; await esperar(CFG.pausa * 1000); } catch (e) { break; } }
     }
     rodando = false; itemAtual = null; faseTxt = ''; store.set('rodando', false);
-    log(itens.some(i => i.status === 'pendente') ? 'Fim do lote. Ainda há itens pendentes.' : 'Todos os itens foram testados. Baixe o Excel.');
+    fimExec = true; if (soltarLock) soltarLock();
+    const faltam = itens.filter(i => i.status === 'pendente').length;
+    if (parouChat) log('Atenção: parei após 3 falhas seguidas no chat da Tais. Abra o chat e clique em Iniciar.');
+    else log(faltam ? 'Fim do lote: faltam ' + faltam + ' item(ns). Clique em Iniciar para continuar.' : 'Todos os itens foram testados. Baixe o Excel.');
     atualizarBotoes(); renderResumo();
   }
   function salvarSessao() {
@@ -839,7 +873,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
    <div class="l" style="margin-top:6px"><button class="b" id="bFr">Salvar frases</button><button class="b" id="bFrPad">Restaurar padrão</button></div>
   </details>
  </div>
- <div class="f"><span>${IC.raio}Desenvolvido por <b>Marcio</b></span><span>v${VERSAO}</span></div>
+ <div class="f"><span>${IC.raio}Desenvolvido por <b>Lucas e Marcio</b></span><span>v${VERSAO}</span></div>
  <div class="toast" id="toast" hidden></div>
 </div>`;
   function aplicarTema() { host.setAttribute('data-tema', CFG.tema === 'light' ? 'light' : 'dark'); }
@@ -1111,8 +1145,9 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
   }
   window.__roboTais = {
     mostrar() { host.style.display = ''; $('#p').style.display = ''; $('#lanc').style.display = 'none'; },
-    _debug: { get itens() { return itens; }, CFG, classificar, extrair, gerarXlsx, lerXlsx }
+    _debug: { get itens() { return itens; }, CFG, classificar, extrair, gerarXlsx, lerXlsx, sleep, get timerWorker() { return tempo.worker(); } }
   };
+  host.dataset.timer = tempo.worker() ? 'worker' : 'padrao';
   preencherCfg(); atualizarBotoes(); renderResumo();
   log('Robô Tais pronto.');
   if (store.get('rodando', false) && CFG.retomar && restaurar(true)) {
