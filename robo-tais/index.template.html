@@ -1,0 +1,241 @@
+<title>Robô Tais</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Exo+2:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: página escura de console técnico. Hero em duas colunas (texto e prévia do painel), depois cartões de instalação com brilho ao passar o mouse. */
+:root{
+  --bg:#070b14; --surface:rgba(255,255,255,.04); --fg:#e7eefb; --muted:#8da0bf; --line:rgba(130,170,255,.2);
+  --accent:#22d3ee; --accent2:#3b82f6; --accent-fg:#031420; --glow:rgba(34,211,238,.35); --halo:rgba(34,211,238,.13); --grid:rgba(120,170,255,.06);
+  --ok:#34d399; --ok-bg:rgba(52,211,153,.12); --warn:#fbbf24; --warn-bg:rgba(251,191,36,.12); --bad:#fb7185; --gray:#94a3b8; --code-bg:#0a1121;
+  --f-display:'Exo 2','Segoe UI',system-ui,sans-serif; --f-body:'IBM Plex Sans','Segoe UI',system-ui,sans-serif; --f-mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+  color-scheme:dark}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){
+  --bg:#f1f6fd; --surface:#ffffff; --fg:#0e1a2f; --muted:#566884; --line:#d3dcec;
+  --accent:#0891b2; --accent2:#2563eb; --accent-fg:#ffffff; --glow:rgba(8,145,178,.28); --halo:rgba(37,99,235,.12); --grid:rgba(37,99,235,.06);
+  --ok:#047857; --ok-bg:rgba(16,185,129,.12); --warn:#a16207; --warn-bg:rgba(234,179,8,.16); --bad:#be123c; --gray:#516078; --code-bg:#e8eff9; color-scheme:light}}
+:root[data-theme="light"]{
+  --bg:#f1f6fd; --surface:#ffffff; --fg:#0e1a2f; --muted:#566884; --line:#d3dcec;
+  --accent:#0891b2; --accent2:#2563eb; --accent-fg:#ffffff; --glow:rgba(8,145,178,.28); --halo:rgba(37,99,235,.12); --grid:rgba(37,99,235,.06);
+  --ok:#047857; --ok-bg:rgba(16,185,129,.12); --warn:#a16207; --warn-bg:rgba(234,179,8,.16); --bad:#be123c; --gray:#516078; --code-bg:#e8eff9; color-scheme:light}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.6;position:relative;
+  background-image:radial-gradient(900px 520px at 88% -8%,var(--halo),transparent 62%),radial-gradient(700px 420px at 4% 30%,var(--halo),transparent 65%);
+  padding-block:28px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:34px 34px;-webkit-mask-image:linear-gradient(180deg,#000,transparent 70%);mask-image:linear-gradient(180deg,#000,transparent 70%)}
+main{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:26px}
+.top{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:11px;font-family:var(--f-display);font-weight:800;font-size:17px;letter-spacing:.2em;text-transform:uppercase}
+.brand-logo{display:block;border-radius:50%;box-shadow:0 0 0 1px rgba(212,175,55,.65),0 0 18px rgba(212,175,55,.35)}
+.brand span{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.toggle{font:500 13px var(--f-body);display:flex;align-items:center;gap:7px;border-radius:99px;padding:7px 13px;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--fg);transition:.18s}
+.ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.cred{display:inline-flex;align-items:center;gap:7px}.cred .ic{color:var(--accent)}
+.toggle:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 6px 20px var(--glow);transform:translateY(-1px)}
+.hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:34px;align-items:center}
+.eyebrow{font:500 12px var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+h1{font-family:var(--f-display);font-weight:800;font-size:clamp(34px,5.6vw,54px);line-height:1.04;margin:10px 0 0;text-wrap:balance}
+h1 em{font-style:normal;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{color:var(--muted);max-width:56ch;margin-top:16px;font-size:16px}
+.sites{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+.sites span{font:12px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:5px 10px;overflow-wrap:anywhere}
+.cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
+.shot{position:relative;border-radius:18px;padding:6px;background:linear-gradient(145deg,var(--accent),var(--accent2) 55%,transparent);box-shadow:0 24px 70px var(--glow);min-width:0}
+.shot img{display:block;width:100%;height:auto;border-radius:13px}
+.shot img.pv-l{display:none}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .shot img.pv-d{display:none}:root:not([data-theme="dark"]) .shot img.pv-l{display:block}}
+:root[data-theme="light"] .shot img.pv-d{display:none}:root[data-theme="light"] .shot img.pv-l{display:block}
+:root[data-theme="dark"] .shot img.pv-d{display:block}:root[data-theme="dark"] .shot img.pv-l{display:none}
+.cap{font-size:12px;color:var(--muted);margin-top:9px;text-align:center}
+section{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:24px;min-width:0;transition:border-color .2s,box-shadow .25s,transform .25s}
+section:hover{border-color:var(--accent);box-shadow:0 14px 44px var(--glow);transform:translateY(-2px)}
+section.rec{border-color:var(--accent);box-shadow:0 0 0 1px var(--glow) inset,0 10px 40px var(--halo)}
+.tag{display:inline-block;font:500 11px var(--f-mono);letter-spacing:.12em;text-transform:uppercase;border-radius:6px;padding:3px 9px;margin-bottom:10px;background:var(--code-bg);color:var(--muted);border:1px solid var(--line)}
+.rec .tag{background:linear-gradient(90deg,var(--accent),var(--accent2));color:var(--accent-fg);border-color:transparent}
+h2{font-family:var(--f-display);font-weight:600;font-size:23px;margin:0 0 6px;text-wrap:balance}
+p{margin:0}
+ol{margin:14px 0 0;padding:0;list-style:none;counter-reset:passo;display:flex;flex-direction:column;gap:10px}
+ol li{counter-increment:passo;display:grid;grid-template-columns:26px minmax(0,1fr);gap:11px;align-items:start}
+ul{margin:14px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:9px}
+ul li::marker{color:var(--accent)}
+ol li::before{content:counter(passo);font:500 12px var(--f-mono);display:grid;place-items:center;width:26px;height:26px;border-radius:8px;border:1px solid var(--accent);color:var(--accent);background:var(--code-bg)}
+ol[start="3"]{counter-reset:passo 2}
+code{font-family:var(--f-mono);font-size:12.5px;background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px;overflow-wrap:anywhere}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;align-items:center}
+button,.bm{font:600 14px var(--f-body);border-radius:11px;padding:10px 16px;cursor:pointer;border:1px solid var(--line);background:var(--code-bg);color:var(--fg);transition:.18s}
+button:hover,.bm:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 24px var(--glow)}
+button.pri{background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--accent-fg);border-color:transparent;box-shadow:0 8px 24px var(--glow)}
+button.pri:hover{color:var(--accent-fg);filter:brightness(1.1)}
+button:focus-visible,.bm:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.bm{display:inline-block;text-decoration:none;cursor:grab;border-style:dashed;border-color:var(--accent);color:var(--accent)}
+.ok{color:var(--ok);font-weight:600;font-size:13px}
+.note{margin-top:14px;font-size:13.5px;color:var(--warn);background:var(--warn-bg);border:1px solid var(--warn);border-radius:11px;padding:10px 13px}
+.good{background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok);border-radius:11px;padding:10px 13px;font-size:13.5px;margin-top:14px}
+details{margin-top:14px}summary{cursor:pointer;color:var(--accent);font-weight:600}
+.tw{overflow-x:auto;margin-top:14px;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:520px}
+th,td{text-align:left;padding:9px 12px;border-top:1px solid var(--line);vertical-align:top}
+th{border-top:0;color:var(--muted);font:500 11px var(--f-mono);text-transform:uppercase;letter-spacing:.1em;background:var(--code-bg)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;box-shadow:0 0 10px currentColor;background:currentColor}
+footer{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--line);padding-top:18px;color:var(--muted);font-size:13px}
+footer b{color:var(--accent);font-family:var(--f-display);letter-spacing:.06em;text-shadow:0 0 14px var(--glow)}
+footer span:last-child{font-family:var(--f-mono);font-size:12px}
+@media (max-width:820px){.hero{grid-template-columns:minmax(0,1fr)}.shot{max-width:440px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<main>
+  <div class="top">
+    <div class="brand"><img class="brand-logo" src="/*__LOGO_URI__*/" width="40" height="40" alt=""><span>Robô Tais</span></div>
+    <button class="toggle" id="tema" type="button" aria-label="Alternar tema claro e escuro"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></svg><span id="temaTxt">Tema</span></button>
+  </div>
+
+  <header class="hero">
+    <div>
+      <div class="eyebrow">Validação automática · v2.1</div>
+      <h1>Valide TSKs e teste NE-ID e END-ID <em>sem repetir nada</em></h1>
+      <p class="lead">Suba a planilha, escolha o modo e acompanhe cada item em tempo real. O robô anexa o resultado no chamado quando a TSK está normalizada e entrega um Excel com tudo separado. Roda na sua aba da Tais, com o seu login. Não lê nem guarda senha.</p>
+      <div class="sites"><span>web.telegram.org/k/#@tim_tais_bot</span><span>tim-access-portal-prd…codeengine.appdomain.cloud</span></div>
+      <div class="cta"><button class="pri" type="button" id="irInstalar">Instalar agora</button><button type="button" id="irUsar">Como usar</button></div>
+    </div>
+    <div>
+      <div class="shot">
+        <img class="pv-d" alt="Painel do Robô Tais no tema escuro, com tabela colorida, contadores e lista de TSKs prontas para encerrar" src="/*__IMG_DARK__*/">
+        <img class="pv-l" alt="Painel do Robô Tais no tema claro, com tabela colorida, contadores e lista de TSKs prontas para encerrar" src="/*__IMG_LIGHT__*/">
+      </div>
+      <p class="cap">Painel do robô (exemplo com dados de simulação)</p>
+    </div>
+  </header>
+
+  <section class="rec" id="instalar">
+    <span class="tag">Recomendado</span>
+    <h2>Extensão para Edge, Chrome, Brave e Opera</h2>
+    <p>Fica instalada, abre o painel sozinha nos dois sites e continua o teste se o portal recarregar por ociosidade.</p>
+    <ol>
+      <li><span>Crie uma pasta no PC chamada <code>robo-tais</code>.</span></li>
+      <li><span>Salve dentro dela três arquivos de texto, com estes nomes exatos. Use o Bloco de Notas e escolha “Todos os arquivos” ao salvar.</span></li>
+    </ol>
+    <div class="row">
+      <button class="pri" data-copy="manifest" id="cMan">Copiar manifest.json</button>
+      <button class="pri" data-copy="codigo" id="cJs">Copiar robo-tais.js</button>
+      <button class="pri" id="cBg">Copiar background.js</button>
+      <span class="ok" id="okA" hidden>Copiado.</span>
+    </div>
+    <ol start="3">
+      <li><span>Abra a página de extensões e ligue <b>Modo de desenvolvedor</b>: <code>edge://extensions</code> (Edge), <code>chrome://extensions</code> (Chrome), <code>brave://extensions</code> (Brave) ou <code>opera://extensions</code> (Opera).</span></li>
+      <li><span>Clique em <b>Carregar sem pacote</b> (Edge), <b>Carregar sem compactação</b> (Chrome e Brave) ou <b>Carregar descompactada</b> (Opera) e escolha a pasta <code>robo-tais</code>.</span></li>
+      <li><span>Atualize a aba do Telegram Web ou do Portal com <code>F5</code>. O painel aparece no canto direito da tela.</span></li>
+      <li><span>Se não aparecer, clique no ícone <b>Robô Tais</b> na barra de extensões do navegador (o ícone de peça de quebra-cabeça, onde dá para fixá-lo). Ele abre o painel na aba atual.</span></li>
+    </ol>
+    <p class="note">Alguns computadores de empresa bloqueiam o Modo de desenvolvedor, no Edge e no Chrome. Se for o seu caso, use a opção de favorito abaixo.</p>
+  </section>
+
+  <section>
+    <span class="tag">Sem instalar nada</span>
+    <h2>Favorito na barra do navegador</h2>
+    <p>Um clique no favorito abre o painel na aba da Tais. Se o portal recarregar, clique de novo: o progresso fica salvo e o painel oferece continuar.</p>
+    <ol>
+      <li><span>Clique em <b>Copiar código do favorito</b>.</span></li>
+      <li><span>No Edge ou no Chrome, pressione <code>Ctrl+D</code>, dê o nome “Robô Tais” e salve. Clique com o botão direito no favorito, escolha <b>Editar</b> e cole o código no campo de endereço (URL).</span></li>
+      <li><span>Na aba da Tais, clique nesse favorito.</span></li>
+    </ol>
+    <div class="row">
+      <button class="pri" id="cFav">Copiar código do favorito</button>
+      <a class="bm" id="bmLink" href="#">Robô Tais</a>
+      <span class="ok" id="okB" hidden>Copiado.</span>
+    </div>
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Se a barra de favoritos estiver visível, também dá para arrastar o botão tracejado até ela.</p>
+    <details>
+      <summary>Outra forma: colar no console (F12)</summary>
+      <p style="margin-top:8px">Na aba da Tais, pressione <code>F12</code>, abra <b>Console</b>, cole o código e tecle Enter. Vale só até a página recarregar.</p>
+      <div class="row"><button id="cJs2">Copiar código</button><span class="ok" id="okC" hidden>Copiado.</span></div>
+    </details>
+  </section>
+
+  <section id="usar">
+    <span class="tag">Passo a passo</span>
+    <h2>Como usar</h2>
+    <ol>
+      <li><span>Abra a Tais e faça login como sempre.</span></li>
+      <li><span>No painel, escolha <b>Validar TSK</b>, <b>Testar NE-ID</b> ou <b>Testar END-ID</b>.</span></li>
+      <li><span>Suba as planilhas: <b>Agendado</b> (nome com a data de hoje, como <code>Atividades-TRJ_FMMT_17_11_26</code>) e <b>Não agendado</b> (nome com “não agendada”). O robô junta as duas numa lista só. Se subir apenas uma, ele pergunta se pode seguir só com ela.</span></li>
+      <li><span>Marque <b>Simulação</b> e rode uma vez para ver o painel funcionando sem usar a Tais.</span></li>
+      <li><span>Desmarque a simulação. Na primeira vez, coloque <b>Quantidade</b> em 3 e confira no chamado se o anexo entrou. Depois volte para 0 para rodar tudo.</span></li>
+      <li><span>Enquanto roda, a caixa verde lista as TSKs prontas para encerrar. Ao final, baixe o Excel.</span></li>
+    </ol>
+    <div class="tw"><table>
+      <thead><tr><th>Cor</th><th>Significa</th><th>O robô faz</th></tr></thead>
+      <tbody>
+        <tr><td><span class="dot" style="color:var(--ok)"></span>Verde</td><td>Normalizado</td><td>Em Validar TSK, responde Sim e confere a confirmação de anexo</td></tr>
+        <tr><td><span class="dot" style="color:var(--bad)"></span>Vermelho</td><td>Não normalizado</td><td>Guarda evento e alarmes; não anexa</td></tr>
+        <tr><td><span class="dot" style="color:var(--gray)"></span>Cinza</td><td>Sem regra de validação</td><td>Deixa de lado e segue</td></tr>
+        <tr><td><span class="dot" style="color:var(--warn)"></span>Amarelo</td><td>Indefinido: resposta não reconhecida ou “não é possível afirmar”</td><td>Nunca vira normalizado. Guarda o texto para você conferir</td></tr>
+      </tbody></table></div>
+    <p class="good">O Excel final tem as abas Normalizados, Não normalizados, Não validáveis, Indefinidos e Todos, com a coluna “Anexado no chamado”.</p>
+  </section>
+
+  <section>
+    <span class="tag">Regras da lista</span>
+    <h2>O que entra no teste</h2>
+    <ul>
+      <li>Só valem as linhas com <b>Tipo da Atividade</b> (coluna D) igual a “Planta Interna - Manutenção Corretiva”.</li>
+      <li>Dessas, só entram as com <b>Estado</b> (coluna E) “Não iniciado” ou “Iniciado”.</li>
+      <li>A TSK vem da coluna B. Se ela aparecer em mais de uma linha válida, o robô usa a de <b>maior ID da atividade</b> (coluna C), que é a mais recente. A comparação é numérica, então 100 vale mais que 99.</li>
+      <li>Ficam de fora as TSKs cuja <b>regra usuário criador</b> (coluna DJ), na linha escolhida, contém <code>PREDITIVA</code>, <code>SUPORTE ACESSO</code> ou <code>MABE</code>.</li>
+      <li>Quando a Tais pergunta qual evento da cadeia validar, o robô escolhe o evento da coluna GF da linha escolhida da TSK. Sem evento na planilha, ou sem opção igual na pergunta, a TSK vai para Indefinidos e o robô não clica em nada.</li>
+      <li>Resposta “Não encontrei regras de validação… não é possível afirmar” vai para Indefinidos, nunca para Normalizados.</li>
+    </ul>
+  </section>
+
+  <section>
+    <span class="tag">Ajuda</span>
+    <h2>Se algo não bater</h2>
+    <ol>
+      <li><span>Painel não aparece: atualize a aba com <code>F5</code>, confirme em <code>chrome://extensions</code> ou <code>edge://extensions</code> que o Robô Tais está ligado e clique no ícone dele na barra. Se o painel foi fechado no X, procure o botão redondo no canto direito superior.</span></li>
+      <li><span>A mensagem enviada vem como <code>{codigo} validar</code> e <code>{codigo} testar</code>. Se você digita de outro jeito, troque o campo “Mensagem enviada” no painel.</span></li>
+      <li><span>Em <b>Ajustes da Tais</b>, use <b>Testar conexão</b>. Se o campo de mensagem não for achado, clique em <b>Marcar campo de mensagem</b> e depois no campo da Tais.</span></li>
+      <li><span>Resposta amarela: copie o texto dela na tabela (clique na linha) e ajuste as frases de normalizado, não normalizado ou sem regra.</span></li>
+      <li><span>Pode trocar de aba ou de janela: o robô continua. Para mais segurança, deixe a Tais numa janela própria, sem minimizar.</span></li>
+      <li><span>O robô não clicou no <b>Sim</b> do anexo? Ele tenta vários jeitos de clicar e confere se a tela reagiu. Se ainda assim falhar, abra <b>Ajustes da Tais</b>, clique em <b>Copiar diagnóstico</b> e envie o texto para quem desenvolve.</span></li>
+      <li><span>Em casos raros, o navegador mostra a faixa “Robô Tais começou a depurar este navegador”. É o clique reforçado, usado só quando o clique comum não funciona. A faixa some sozinha.</span></li>
+      <li><span>Edge, Chrome e Brave suspendem abas em segundo plano. Nas configurações de desempenho, adicione a Tais à lista de sites que nunca entram em suspensão (Edge: abas em suspensão; Chrome e Brave: economia de memória).</span></li>
+      <li><span>Anexo “VERIFICAR” significa que o robô clicou em Sim, mas não viu a frase de confirmação. Confira o chamado.</span></li>
+    </ol>
+    <p class="note">Este robô ainda não foi testado na Tais real, apenas em chats de simulação. Rode primeiro com poucos itens e confirme os anexos.</p>
+  </section>
+
+  <footer><span class="cred"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></svg>Desenvolvido por <b>Lucas e Marcio</b></span><span>Robô Tais v2.1</span></footer>
+</main>
+
+<script type="text/plain" id="codigo">/*__CODIGO__*/</script>
+<script type="text/plain" id="bgjs">/*__BG__*/</script>
+<script type="text/plain" id="manifest">/*__MANIFEST__*/</script>
+<script>
+(function(){
+  var get=function(id){return document.getElementById(id).textContent.replace(/^\n/,'')};
+  function copiar(texto,okId){
+    var ok=document.getElementById(okId);
+    function feito(){ok.hidden=false;setTimeout(function(){ok.hidden=true},2500)}
+    function plano(){var ta=document.createElement('textarea');ta.value=texto;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');feito()}catch(e){}ta.remove()}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(texto).then(feito,plano)}else{plano()}
+  }
+  var fav=function(){return 'javascript:'+encodeURIComponent(get('codigo'))};
+  document.getElementById('cMan').onclick=function(){copiar(get('manifest').replace(/<\\\//g,'</'),'okA')};
+  document.getElementById('cJs').onclick=function(){copiar(get('codigo'),'okA')};
+  document.getElementById('cBg').onclick=function(){copiar(get('bgjs'),'okA')};
+  document.getElementById('cJs2').onclick=function(){copiar(get('codigo'),'okC')};
+  document.getElementById('cFav').onclick=function(){copiar(fav(),'okB')};
+  var bm=document.getElementById('bmLink');
+  try{bm.setAttribute('href',fav())}catch(e){}
+  bm.addEventListener('click',function(e){e.preventDefault();copiar(fav(),'okB')});
+  function ir(id){return function(){var el=document.getElementById(id);if(el)el.scrollIntoView({behavior:'smooth',block:'start'})}}
+  document.getElementById('irInstalar').onclick=ir('instalar');
+  document.getElementById('irUsar').onclick=ir('usar');
+  // tema claro/escuro
+  var raiz=document.documentElement,btn=document.getElementById('tema'),txt=document.getElementById('temaTxt');
+  function escuroAgora(){var t=raiz.getAttribute('data-theme');if(t)return t==='dark';return !(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)}
+  function rotulo(){txt.textContent=escuroAgora()?'Tema escuro':'Tema claro'}
+  try{var salvo=localStorage.getItem('robotais_tema');if(salvo==='dark'||salvo==='light')raiz.setAttribute('data-theme',salvo)}catch(e){}
+  rotulo();
+  btn.addEventListener('click',function(){var novo=escuroAgora()?'light':'dark';raiz.setAttribute('data-theme',novo);try{localStorage.setItem('robotais_tema',novo)}catch(e){}rotulo()});
+})();
+</script>
