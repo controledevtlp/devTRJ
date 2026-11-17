@@ -703,6 +703,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}
 th{position:sticky;top:0;z-index:1;background:var(--th);color:var(--muted);text-align:left;padding:6px 8px;font-size:10px;letter-spacing:.1em;text-transform:uppercase}
 td{padding:5px 8px;border-top:1px solid var(--line);vertical-align:top;word-break:break-word}
 td:nth-child(1),td:nth-child(2){white-space:nowrap;font-family:var(--mono)}
+td:nth-child(5),th:nth-child(5){white-space:nowrap;font-size:11px}
 tr{cursor:pointer;transition:background .15s}tr:hover td{background:var(--hov)}
 tr.normalizado{background:var(--t-ok)}tr.nao_normalizado{background:var(--t-bad)}tr.nao_validavel{background:var(--t-gray)}tr.indefinido{background:var(--t-warn)}
 tr.normalizado td:first-child{box-shadow:inset 3px 0 0 var(--ok)}tr.nao_normalizado td:first-child{box-shadow:inset 3px 0 0 var(--bad)}tr.nao_validavel td:first-child{box-shadow:inset 3px 0 0 var(--gray)}tr.indefinido td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
