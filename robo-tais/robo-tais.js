@@ -5,7 +5,7 @@
   'use strict';
   if (window.__roboTais) { window.__roboTais.mostrar(); return; }
 
-  const VERSAO = '1.6';
+  const VERSAO = '1.7';
   const LS = 'robotais_v1_';
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -765,8 +765,11 @@ tr.normalizado .sti{color:var(--ok)}tr.nao_normalizado .sti{color:var(--bad)}tr.
 .balao::after{content:"";position:absolute;left:34px;bottom:-9px;width:16px;height:16px;background:var(--solid);border-right:1px solid var(--acc);border-bottom:1px solid var(--acc);transform:rotate(45deg)}
 .bt{font-weight:800;color:var(--acc);letter-spacing:.03em;margin-bottom:6px}.bx{font-size:13px;line-height:1.5;color:var(--fg)}
 .bb{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.bb .go{flex:none;font-size:12px}
-.log{height:118px;overflow:auto;background:#060a14;color:#86efc7;font:11px/1.5 var(--mono);padding:8px 10px;border-radius:12px;border:1px solid var(--line);white-space:pre-wrap;box-shadow:inset 0 0 24px rgba(34,211,238,.06);scrollbar-width:thin;scrollbar-color:#25314d transparent}
 .nota{font-size:11px;color:var(--muted)}
+.toast{position:absolute;left:12px;right:12px;bottom:46px;z-index:5;display:flex;gap:8px;align-items:flex-start;padding:9px 12px;border-radius:12px;background:var(--solid);color:var(--fg);border:1px solid var(--acc);box-shadow:0 10px 30px rgba(0,0,0,.4),0 0 22px var(--glow);font-size:12px;line-height:1.4;cursor:pointer;animation:in .2s}
+.toast[hidden]{display:none}.toast .tic{display:inline-flex;margin-top:1px;color:var(--ok)}
+.toast.warn{border-color:var(--warn)}.toast.warn .tic{color:var(--warn)}
+.min .toast{display:none}
 details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;transition:.15s}details>summary:hover{filter:brightness(1.2)}
 .f{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--line);background:var(--card);font-size:11px;color:var(--muted)}
 .f b{color:var(--acc);letter-spacing:.05em;text-shadow:0 0 12px var(--glow)}.f span:last-child{font-family:var(--mono)}
@@ -821,7 +824,6 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
   <div class="prontos" id="prontos"><h4>${IC.certo}Prontos para encerrar: <span id="nPront">0</span> <button class="b mini" id="bCopia" title="Copia a lista de TSKs prontas">${IC.copiar}Copiar</button></h4><div class="chips" id="chips"></div></div>
   <div><div class="l" style="margin-bottom:4px"><label>Mostrar<select id="filtro"><option value="">Todos</option><option value="normalizado">Normalizados</option><option value="nao_normalizado">Não normalizados</option><option value="nao_validavel">Não validáveis</option><option value="indefinido">Indefinidos</option><option value="pendente">Pendentes</option></select></label></div>
    <div class="tab"><table><thead><tr><th>#</th><th>Código</th><th id="thTsk">TSK</th><th>Status</th><th>Anexo</th></tr></thead><tbody id="tb"></tbody></table></div></div>
-  <div class="log" id="log"></div>
   <details><summary>Ajustes da Tais</summary>
    <div class="nota" style="margin-top:6px">Use se o robô não achar o chat ou não entender uma resposta.</div>
    <div class="l" style="margin:6px 0"><button class="b" id="bConn" title="Confere se o robô encontra o chat">${IC.plugue}Testar conexão</button><button class="b" id="pInp" title="Clique no campo onde se digita">${IC.alvo}Marcar campo de mensagem</button><button class="b" id="pMsg" title="Clique na área da conversa">${IC.alvo}Marcar área das mensagens</button><button class="b" id="pEnv" title="Clique no botão de enviar">${IC.alvo}Marcar botão enviar</button><button class="b" id="pZera" title="Volta à detecção automática">Automático</button></div>
@@ -837,18 +839,26 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
    <div class="l" style="margin-top:6px"><button class="b" id="bFr">Salvar frases</button><button class="b" id="bFrPad">Restaurar padrão</button></div>
   </details>
  </div>
- <div class="f"><span>${IC.raio}Desenvolvido por <b>Lucas Infante</b></span><span>v${VERSAO}</span></div>
+ <div class="f"><span>${IC.raio}Desenvolvido por <b>Marcio</b></span><span>v${VERSAO}</span></div>
+ <div class="toast" id="toast" hidden></div>
 </div>`;
   function aplicarTema() { host.setAttribute('data-tema', CFG.tema === 'light' ? 'light' : 'dark'); }
   aplicarTema();
   const $ = s => sr.querySelector(s);
   const $$ = s => [...sr.querySelectorAll(s)];
 
+  // Avisos curtos na tela: só o que o usuário precisa ver (erros, confirmações e fim do lote)
+  const MOSTRAR = /^(Atenção|Campo|Clique|Marcado|Cancelado|Copiado|Excel gerado|Frases|Resultados|Fim do lote|Todos os itens|Parando|Sessão|Nada|Carregue|Nenhum)/;
+  let toastT = null;
   function log(m) {
-    const el = $('#log'); if (!el) return;
-    el.textContent += '[' + agora() + '] ' + m + '\n';
-    const ls = el.textContent.split('\n'); if (ls.length > 300) el.textContent = ls.slice(-250).join('\n');
-    el.scrollTop = el.scrollHeight;
+    if (!MOSTRAR.test(m)) return;
+    const t = $('#toast'); if (!t) return;
+    const aviso = /^Atenção|não encontrado/.test(m);
+    t.className = 'toast' + (aviso ? ' warn' : ''); t.textContent = '';
+    const ic = document.createElement('span'); ic.className = 'tic'; ic.innerHTML = aviso ? IC.alerta : IC.certo;
+    const tx = document.createElement('span'); tx.textContent = m.replace(/^Atenção: /, '');
+    t.append(ic, tx); t.hidden = false;
+    clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 6500);
   }
   const linhasTr = new Map();
   function renderTabela() {
@@ -1045,6 +1055,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
   $('#bCopia').addEventListener('click', () => copiar(prontos().map(i => modo === 'tsk' ? i.codigo : (i.tsk || i.codigo)).join('\n')));
   $('#bX').addEventListener('click', () => { $('#p').style.display = 'none'; $('#lanc').style.display = 'block'; });
   $('#lanc').addEventListener('click', () => { $('#p').style.display = ''; $('#lanc').style.display = 'none'; });
+  $('#toast').addEventListener('click', () => { $('#toast').hidden = true; });
   $('#bTema').addEventListener('click', () => { CFG.tema = CFG.tema === 'light' ? 'dark' : 'light'; salvarCfg(); aplicarTema(); });
   $('#bMin').addEventListener('click', () => $('#p').classList.toggle('min'));
   $('#bLargo').addEventListener('click', () => $('#p').classList.toggle('largo'));
