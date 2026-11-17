@@ -91,7 +91,7 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
 
   <header class="hero">
     <div>
-      <div class="eyebrow">Validação automática · v2.0</div>
+      <div class="eyebrow">Validação automática · v2.1</div>
       <h1>Valide TSKs e teste NE-ID e END-ID <em>sem repetir nada</em></h1>
       <p class="lead">Suba a planilha, escolha o modo e acompanhe cada item em tempo real. O robô anexa o resultado no chamado quando a TSK está normalizada e entrega um Excel com tudo separado. Roda na sua aba da Tais, com o seu login. Não lê nem guarda senha.</p>
       <div class="sites"><span>web.telegram.org/k/#@tim_tais_bot</span><span>tim-access-portal-prd…codeengine.appdomain.cloud</span></div>
@@ -108,7 +108,7 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
 
   <section class="rec" id="instalar">
     <span class="tag">Recomendado</span>
-    <h2>Extensão do Edge ou do Chrome</h2>
+    <h2>Extensão para Edge, Chrome, Brave e Opera</h2>
     <p>Fica instalada, abre o painel sozinha nos dois sites e continua o teste se o portal recarregar por ociosidade.</p>
     <ol>
       <li><span>Crie uma pasta no PC chamada <code>robo-tais</code>.</span></li>
@@ -121,8 +121,8 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
       <span class="ok" id="okA" hidden>Copiado.</span>
     </div>
     <ol start="3">
-      <li><span>Abra a página de extensões e ligue <b>Modo de desenvolvedor</b>. No Edge é <code>edge://extensions</code>. No Chrome é <code>chrome://extensions</code>.</span></li>
-      <li><span>Clique em <b>Carregar sem pacote</b> (Edge) ou <b>Carregar sem compactação</b> (Chrome) e escolha a pasta <code>robo-tais</code>.</span></li>
+      <li><span>Abra a página de extensões e ligue <b>Modo de desenvolvedor</b>: <code>edge://extensions</code> (Edge), <code>chrome://extensions</code> (Chrome), <code>brave://extensions</code> (Brave) ou <code>opera://extensions</code> (Opera).</span></li>
+      <li><span>Clique em <b>Carregar sem pacote</b> (Edge), <b>Carregar sem compactação</b> (Chrome e Brave) ou <b>Carregar descompactada</b> (Opera) e escolha a pasta <code>robo-tais</code>.</span></li>
       <li><span>Atualize a aba do Telegram Web ou do Portal com <code>F5</code>. O painel aparece no canto direito da tela.</span></li>
       <li><span>Se não aparecer, clique no ícone <b>Robô Tais</b> na barra de extensões do navegador (o ícone de peça de quebra-cabeça, onde dá para fixá-lo). Ele abre o painel na aba atual.</span></li>
     </ol>
@@ -195,12 +195,15 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
       <li><span>Em <b>Ajustes da Tais</b>, use <b>Testar conexão</b>. Se o campo de mensagem não for achado, clique em <b>Marcar campo de mensagem</b> e depois no campo da Tais.</span></li>
       <li><span>Resposta amarela: copie o texto dela na tabela (clique na linha) e ajuste as frases de normalizado, não normalizado ou sem regra.</span></li>
       <li><span>Pode trocar de aba ou de janela: o robô continua. Para mais segurança, deixe a Tais numa janela própria, sem minimizar.</span></li>
+      <li><span>O robô não clicou no <b>Sim</b> do anexo? Ele tenta vários jeitos de clicar e confere se a tela reagiu. Se ainda assim falhar, abra <b>Ajustes da Tais</b>, clique em <b>Copiar diagnóstico</b> e envie o texto para quem desenvolve.</span></li>
+      <li><span>Em casos raros, o navegador mostra a faixa “Robô Tais começou a depurar este navegador”. É o clique reforçado, usado só quando o clique comum não funciona. A faixa some sozinha.</span></li>
+      <li><span>Edge, Chrome e Brave suspendem abas em segundo plano. Nas configurações de desempenho, adicione a Tais à lista de sites que nunca entram em suspensão (Edge: abas em suspensão; Chrome e Brave: economia de memória).</span></li>
       <li><span>Anexo “VERIFICAR” significa que o robô clicou em Sim, mas não viu a frase de confirmação. Confira o chamado.</span></li>
     </ol>
     <p class="note">Este robô ainda não foi testado na Tais real, apenas em chats de simulação. Rode primeiro com poucos itens e confirme os anexos.</p>
   </section>
 
-  <footer><span class="cred"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></svg>Desenvolvido por <b>Lucas e Marcio</b></span><span>Robô Tais v2.0</span></footer>
+  <footer><span class="cred"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></svg>Desenvolvido por <b>Lucas e Marcio</b></span><span>Robô Tais v2.1</span></footer>
 </main>
 
 <script type="text/plain" id="codigo">/*__CODIGO__*/</script>

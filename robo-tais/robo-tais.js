@@ -5,7 +5,7 @@
   'use strict';
   if (window.__roboTais) { window.__roboTais.mostrar(); return; }
 
-  const VERSAO = '2.0';
+  const VERSAO = '2.1';
   const LOGO_URI = '';   // a logo (base64) é inserida pelo build.py
   const LS = 'robotais_v1_';
   // Temporizador que não atrasa quando a aba fica em segundo plano (usa um Worker; se não der, usa o do navegador)
@@ -52,7 +52,7 @@
   if (!salvo.v || salvo.v < 2) { delete salvo.limite; salvo.v = 2; }
   const CFG = Object.assign({
     tmpl: { tsk: '{codigo} validar', ne: '{codigo} testar', end: '{codigo} testar' },
-    limite: 0, pausa: 2, espera: 90, estavel: 3, esperaInput: 20, simulacao: false, retomar: true, tema: 'dark',
+    limite: 0, pausa: 2, espera: 90, estavel: 3, esperaInput: 20, esperaEfeito: 6, simulacao: false, retomar: true, tema: 'dark',
     selInput: '', selMsgs: '', selEnviar: ''
   }, salvo);
   CFG.tmpl = Object.assign({ tsk: '{codigo} validar', ne: '{codigo} testar', end: '{codigo} testar' }, salvo.tmpl || {});
@@ -147,9 +147,16 @@
     return out;
   }
   // botões/folhas de texto visíveis cujo texto (já sem acento e minúsculo) satisfaz fn; sempre em ordem do documento
+  // elementos que casam com o seletor, inclusive dentro de componentes com shadow DOM aberto
+  function consultarTudo(d, sel) {
+    const out = [...d.querySelectorAll(sel)];
+    const entrar = raiz => raiz.querySelectorAll('*').forEach(el => { const sr = el.shadowRoot; if (sr) { out.push(...sr.querySelectorAll(sel)); entrar(sr); } });
+    entrar(d);
+    return out;
+  }
   function botoesQue(fn) {
     const alvo = new Set(), lista = [];
-    docs().forEach(d => d.querySelectorAll('button,[role=button],a,input[type=button],input[type=submit],.reply-markup-button,span,div,p,li,label').forEach(el => {
+    docs().forEach(d => consultarTudo(d, 'button,[role=button],a,input[type=button],input[type=submit],.reply-markup-button,span,div,p,li,label').forEach(el => {
       if (el.childElementCount > 3) return;
       const t = el.tagName === 'INPUT' ? el.value : el.textContent;
       if (!t || t.length > 200 || !fn(norm(t))) return;
@@ -161,14 +168,103 @@
     }));
     return lista;
   }
-  const botoes = rotulo => botoesQue(t => t.replace(/[^a-z]/g, '') === rotulo);
-  function clicar(el) {
-    try { el.scrollIntoView({ block: 'center' }); } catch (e) { }
-    const w = el.ownerDocument.defaultView;
-    ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(t => {
-      try { el.dispatchEvent(new w.MouseEvent(t, { bubbles: true, cancelable: true, view: w })); } catch (e) { }
-    });
-    el.click();
+  // rótulos curtos que começam com Sim / Não (aceita “Sim, inserir”, “✅ Sim” etc.)
+  const ehSim = t => t.length <= 24 && /^[^a-z0-9]*(sim|yes)\b/.test(t);
+  const ehNao = t => t.length <= 24 && /^[^a-z0-9]*(nao|no)\b/.test(t);
+  const botoes = rotulo => botoesQue(rotulo === 'sim' ? ehSim : ehNao);
+  const clicavel = e => { try { return /^(BUTTON|A|INPUT)$/.test(e.tagName) || e.getAttribute('role') === 'button' || /\b(btn|button|reply-markup-button)\b/.test(String(e.className)) || e.ownerDocument.defaultView.getComputedStyle(e).cursor === 'pointer'; } catch (x) { return false; } };
+  // entre vários candidatos fica o botão de verdade que está mais embaixo na tela (o mais novo)
+  function escolherMaisRecente(lista) {
+    const rank = e => (clicavel(e) ? 1e9 : 0) + e.getBoundingClientRect().bottom;
+    return lista.slice().sort((a, b) => rank(a) - rank(b)).pop();
+  }
+  // elemento que está de fato naquele ponto da tela (entra em shadow DOM aberto)
+  function alvoNoPonto(d, x, y) {
+    let at = d.elementFromPoint(x, y);
+    while (at && at.shadowRoot) { const i = at.shadowRoot.elementFromPoint(x, y); if (!i || i === at) break; at = i; }
+    return at;
+  }
+  // ponto do botão que não está coberto por outro elemento (o painel do robô não conta), em coordenadas da página e da aba
+  function geom(el) {
+    try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) { }
+    const d = el.ownerDocument, w = d.defaultView, r = el.getBoundingClientRect();
+    let lx = r.left + r.width / 2, ly = r.top + r.height / 2, alvo = null;
+    const ph = host.style.pointerEvents; host.style.pointerEvents = 'none';
+    try {
+      for (const [fx, fy] of [[.5, .5], [.2, .5], [.8, .5], [.5, .2], [.5, .8]]) {
+        const x = r.left + r.width * fx, y = r.top + r.height * fy, at = alvoNoPonto(d, x, y);
+        if (at && (at === el || el.contains(at))) { lx = x; ly = y; alvo = at; break; }
+      }
+    } finally { host.style.pointerEvents = ph; }
+    let x = lx, y = ly;
+    try { while (w && w.frameElement) { const f = w.frameElement.getBoundingClientRect(); x += f.left; y += f.top; w = w.parent; } } catch (e) { }
+    return { x, y, lx, ly, alvo: alvo || el };
+  }
+  // 1 = clique simples, 2 = mouse e ponteiro completos, 3 = toque na tela
+  function disparar(el, metodo) {
+    const d = el.ownerDocument, w = d.defaultView, g = geom(el);
+    const alvo = g.alvo;
+    const mk = (C, t, o) => { try { alvo.dispatchEvent(new w[C](t, Object.assign({ bubbles: true, cancelable: true, composed: true, view: w, clientX: g.lx, clientY: g.ly, screenX: g.x, screenY: g.y, button: 0 }, o))); } catch (e) { } };
+    const ptr = (t, o) => mk('PointerEvent', t, Object.assign({ pointerId: 1, pointerType: 'mouse', isPrimary: true, width: 1, height: 1 }, o));
+    const mou = (t, o) => mk('MouseEvent', t, o);
+    if (metodo === 1) {
+      ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(t => { try { el.dispatchEvent(new w.MouseEvent(t, { bubbles: true, cancelable: true, view: w })); } catch (e) { } });
+      el.click();
+    } else if (metodo === 2) {
+      ptr('pointerover'); mou('mouseover'); ptr('pointermove'); mou('mousemove');
+      ptr('pointerdown', { buttons: 1 }); mou('mousedown', { buttons: 1, detail: 1 });
+      try { if (el.focus) el.focus({ preventScroll: true }); } catch (e) { }
+      ptr('pointerup'); mou('mouseup', { detail: 1 }); mou('click', { detail: 1 });
+    } else {
+      try {
+        const tc = new w.Touch({ identifier: 1, target: alvo, clientX: g.lx, clientY: g.ly, pageX: g.lx + w.scrollX, pageY: g.ly + w.scrollY, screenX: g.x, screenY: g.y });
+        const ev = (t, o) => alvo.dispatchEvent(new w.TouchEvent(t, Object.assign({ bubbles: true, cancelable: true, composed: true, view: w }, o)));
+        ev('touchstart', { touches: [tc], targetTouches: [tc], changedTouches: [tc] });
+        ev('touchend', { touches: [], targetTouches: [], changedTouches: [tc] });
+      } catch (e) { }
+      mou('mousedown', { buttons: 1, detail: 1 }); mou('mouseup', { detail: 1 }); mou('click', { detail: 1 });
+    }
+  }
+  const clicar = el => disparar(el, 1);
+  // clique real do navegador (de confiança), feito pelo serviço da extensão. Só é usado se os outros métodos falharem.
+  async function cliqueReal(el) {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) return false;
+      geom(el); await tempo.esperar(250);
+      const g = geom(el), ph = host.style.pointerEvents;
+      host.style.pointerEvents = 'none';   // o clique do navegador não pode cair no painel do robô
+      try {
+        const r = await chrome.runtime.sendMessage({ tipo: 'clique-real', x: g.x, y: g.y });
+        return !!(r && r.ok);
+      } finally { host.style.pointerEvents = ph; }
+    } catch (e) { return false; }
+  }
+  // houve reação ao clique? (botão sumiu, ficou desativado ou apareceu texto novo)
+  const desativado = e => { try { return !!e.disabled || e.getAttribute('aria-disabled') === 'true'; } catch (x) { return false; } };
+  function houveEfeito(el, base, estavaAtivo) {
+    try {
+      if (!el.isConnected || !visivel(el)) return true;
+      if (estavaAtivo && desativado(el)) return true;
+    } catch (e) { return true; }
+    return novasLinhas(base, linhasPagina()).length > 0;
+  }
+  async function esperarEfeito(el, base, estavaAtivo) {
+    const fim = Date.now() + CFG.esperaEfeito * 1000;
+    while (Date.now() < fim) { await esperar(400); if (houveEfeito(el, base, estavaAtivo)) return true; }
+    return false;
+  }
+  // relatório do último anexo (para a pessoa enviar a quem desenvolve se algo falhar)
+  let diag = store.get('diag', null);
+  const salvarDiag = () => store.set('diag', diag);
+  function descrever(e) {
+    try {
+      const r = e.getBoundingClientRect(), cs = e.ownerDocument.defaultView.getComputedStyle(e);
+      return { tag: e.tagName.toLowerCase(), classe: String(e.className).slice(0, 80), texto: (e.textContent || '').trim().slice(0, 40), visivel: visivel(e), desativado: !!e.disabled || e.getAttribute('aria-disabled') === 'true', cursor: cs.cursor, pointerEvents: cs.pointerEvents, caixa: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], html: e.outerHTML.slice(0, 400), pai: e.parentElement ? e.parentElement.outerHTML.slice(0, 600) : '' };
+    } catch (x) { return { erro: String(x) }; }
+  }
+  function textoDiagnostico() {
+    const i = acharInput();
+    return JSON.stringify({ robo: VERSAO, navegador: navigator.userAgent, pagina: location.host, quadros: docs().length - 1, extensao: typeof chrome !== 'undefined' && !!(chrome.runtime && chrome.runtime.id), temporizador: tempo.worker() ? 'worker' : 'padrao', campo: i ? descrever(i) : null, ultimoAnexo: diag }, null, 1);
   }
 
   /* ============ ENVIO ============ */
@@ -312,29 +408,46 @@
     } else if (cls === 'nao_normalizado' || (cls === 'normalizado' && modo !== 'tsk')) {
       if (pergunta) {                                    // limpa a pergunta de anexo sem anexar
         const n = botoes('nao').filter(e => !antesB.has(e));
-        if (n.length) { clicar(n[n.length - 1]); await esperar(800); }
+        if (n.length) { clicar(escolherMaisRecente(n)); await esperar(800); }
       }
     }
     return r;
   }
   async function anexar(antesB) {
+    diag = { quando: new Date().toISOString(), tentativas: [] };
     let sim = null;
     for (let i = 0; i < 30 && !sim; i++) {
       const novos = botoes('sim').filter(e => !antesB.has(e));
-      if (novos.length) sim = novos[novos.length - 1]; else await esperar(500);
+      if (novos.length) sim = escolherMaisRecente(novos); else await esperar(500);
     }
-    if (!sim) { log('Atenção: o botão Sim do anexo não apareceu.'); return 'FALHOU'; }
+    if (!sim) {
+      diag.problema = 'botão Sim não apareceu'; diag.candidatos = botoes('sim').slice(-4).map(descrever); salvarDiag();
+      log('Atenção: o botão Sim do anexo não apareceu.'); return 'FALHOU';
+    }
+    diag.botao = descrever(sim);
+    for (let i = 0; i < 20 && desativado(sim); i++) await esperar(500);   // botão ainda desativado: espera liberar
+    const ativo = !desativado(sim);
     const base = linhasPagina();
-    clicar(sim);
+    let reagiu = false;
+    for (const metodo of [1, 2, 3, 4]) {
+      if (metodo === 4) { if (!(await cliqueReal(sim))) { diag.tentativas.push({ metodo, resultado: 'indisponível' }); break; } }
+      else disparar(sim, metodo);
+      reagiu = await esperarEfeito(sim, base, ativo);
+      diag.tentativas.push({ metodo, reagiu });
+      if (reagiu) break;
+    }
+    diag.resultado = reagiu ? 'clique com reação' : 'sem reação'; salvarDiag();
+    if (!reagiu) { log('Atenção: cliquei no Sim, mas a Tais não reagiu.'); return 'FALHOU'; }
     const t0 = Date.now(); let ult = '', mudou = Date.now();
     while (Date.now() - t0 < 25000) {
       await esperar(500);
       const txt = novasLinhas(base, linhasPagina()).join('\n');
       if (txt !== ult) { ult = txt; mudou = Date.now(); }
       const n = norm(txt);
-      if (tem(n, CFG.frases.erro)) return 'FALHOU';
-      if (tem(n, CFG.frases.conf) && Date.now() - mudou >= 1500) return 'SIM';
+      if (tem(n, CFG.frases.erro)) { diag.resultado = 'a Tais respondeu com erro'; salvarDiag(); return 'FALHOU'; }
+      if (tem(n, CFG.frases.conf) && Date.now() - mudou >= 1500) { diag.resultado = 'confirmado'; salvarDiag(); return 'SIM'; }
     }
+    diag.resultado = 'clicou, sem frase de confirmação'; salvarDiag();
     return 'VERIFICAR';
   }
   async function simular(it) {
@@ -869,7 +982,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
    <div class="tab"><table><thead><tr><th>#</th><th>Código</th><th id="thTsk">TSK</th><th>Status</th><th>Anexo</th></tr></thead><tbody id="tb"></tbody></table></div></div>
   <details><summary>Ajustes da Tais</summary>
    <div class="nota" style="margin-top:6px">Use se o robô não achar o chat ou não entender uma resposta.</div>
-   <div class="l" style="margin:6px 0"><button class="b" id="bConn" title="Confere se o robô encontra o chat">${IC.plugue}Testar conexão</button><button class="b" id="pInp" title="Clique no campo onde se digita">${IC.alvo}Marcar campo de mensagem</button><button class="b" id="pMsg" title="Clique na área da conversa">${IC.alvo}Marcar área das mensagens</button><button class="b" id="pEnv" title="Clique no botão de enviar">${IC.alvo}Marcar botão enviar</button><button class="b" id="pZera" title="Volta à detecção automática">Automático</button></div>
+   <div class="l" style="margin:6px 0"><button class="b" id="bConn" title="Confere se o robô encontra o chat">${IC.plugue}Testar conexão</button><button class="b" id="pInp" title="Clique no campo onde se digita">${IC.alvo}Marcar campo de mensagem</button><button class="b" id="pMsg" title="Clique na área da conversa">${IC.alvo}Marcar área das mensagens</button><button class="b" id="pEnv" title="Clique no botão de enviar">${IC.alvo}Marcar botão enviar</button><button class="b" id="pZera" title="Volta à detecção automática">Automático</button><button class="b" id="bDiag" title="Copia um relatório para enviar a quem desenvolve">${IC.copiar}Copiar diagnóstico</button></div>
    <div class="nota" id="calib"></div>
    <div class="nota" style="margin-top:8px">Frases da Tais, uma por linha.</div>
    <label>Normalizado<textarea id="fSim"></textarea></label>
@@ -951,9 +1064,9 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     pr.forEach(i => { const s = document.createElement('span'); s.textContent = modo === 'tsk' ? i.codigo : (i.codigo + (i.tsk ? ' (' + i.tsk + ')' : '')); s.title = 'Clique para copiar'; s.onclick = () => copiar(modo === 'tsk' ? i.codigo : (i.tsk || i.codigo)); ch.appendChild(s); });
     aplicarFiltro();
   }
-  async function copiar(t) {
-    try { await navigator.clipboard.writeText(t); log('Copiado: ' + t.split('\n').length + ' item(ns)'); }
-    catch (e) { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); log('Copiado.'); }
+  async function copiar(t, nome) {
+    try { await navigator.clipboard.writeText(t); log(nome ? 'Copiado: ' + nome + '.' : 'Copiado: ' + t.split('\n').length + ' item(ns)'); }
+    catch (e) { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); log(nome ? 'Copiado: ' + nome + '.' : 'Copiado.'); }
   }
   function atualizarBotoes() {
     $('#bGo').disabled = rodando; $('#bStop').disabled = !rodando; $('#bLimpa').disabled = rodando;
@@ -1126,6 +1239,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
   $('#pInp').addEventListener('click', () => marcar('selInput', 'o CAMPO onde se digita a mensagem'));
   $('#pMsg').addEventListener('click', () => marcar('selMsgs', 'a ÁREA onde aparecem as mensagens da conversa'));
   $('#pEnv').addEventListener('click', () => marcar('selEnviar', 'o BOTÃO de enviar'));
+  $('#bDiag').addEventListener('click', () => copiar(textoDiagnostico(), 'diagnóstico'));
   $('#pZera').addEventListener('click', () => { CFG.selInput = CFG.selMsgs = CFG.selEnviar = ''; salvarCfg(); preencherCfg(); log('Calibração automática restaurada.'); });
 
   // arrastar o painel
@@ -1154,7 +1268,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
   }
   window.__roboTais = {
     mostrar() { host.style.display = ''; $('#p').style.display = ''; $('#lanc').style.display = 'none'; },
-    _debug: { get itens() { return itens; }, CFG, classificar, extrair, gerarXlsx, lerXlsx, sleep, get timerWorker() { return tempo.worker(); } }
+    _debug: { get itens() { return itens; }, CFG, classificar, extrair, gerarXlsx, lerXlsx, sleep, disparar, botoes, escolherMaisRecente, get timerWorker() { return tempo.worker(); } }
   };
   host.dataset.timer = tempo.worker() ? 'worker' : 'padrao';
   preencherCfg(); atualizarBotoes(); renderResumo();
