@@ -91,7 +91,7 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
 
   <header class="hero">
     <div>
-      <div class="eyebrow">Validação automática · v1.8</div>
+      <div class="eyebrow">Validação automática · v1.9</div>
       <h1>Valide TSKs e teste NE-ID e END-ID <em>sem repetir nada</em></h1>
       <p class="lead">Suba a planilha, escolha o modo e acompanhe cada item em tempo real. O robô anexa o resultado no chamado quando a TSK está normalizada e entrega um Excel com tudo separado. Roda na sua aba da Tais, com o seu login. Não lê nem guarda senha.</p>
       <div class="sites"><span>web.telegram.org/k/#@tim_tais_bot</span><span>tim-access-portal-prd…codeengine.appdomain.cloud</span></div>
@@ -159,7 +159,7 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
       <li><span>No painel, escolha <b>Validar TSK</b>, <b>Testar NE-ID</b> ou <b>Testar END-ID</b>.</span></li>
       <li><span>Suba as planilhas: <b>Agendado</b> (nome com a data de hoje, como <code>Atividades-TRJ_FMMT_17_11_26</code>) e <b>Não agendado</b> (nome com “não agendada”). O robô junta as duas numa lista só. Se subir apenas uma, ele pergunta se pode seguir só com ela.</span></li>
       <li><span>Marque <b>Simulação</b> e rode uma vez para ver o painel funcionando sem usar a Tais.</span></li>
-      <li><span>Desmarque a simulação, deixe <b>Quantidade</b> em 3 e confira no chamado se o anexo entrou. Depois coloque 0 para rodar tudo.</span></li>
+      <li><span>Desmarque a simulação. Na primeira vez, coloque <b>Quantidade</b> em 3 e confira no chamado se o anexo entrou. Depois volte para 0 para rodar tudo.</span></li>
       <li><span>Enquanto roda, a caixa verde lista as TSKs prontas para encerrar. Ao final, baixe o Excel.</span></li>
     </ol>
     <div class="tw"><table>
@@ -200,7 +200,7 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
     <p class="note">Este robô ainda não foi testado na Tais real, apenas em chats de simulação. Rode primeiro com poucos itens e confirme os anexos.</p>
   </section>
 
-  <footer><span class="cred"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></svg>Desenvolvido por <b>Lucas e Marcio</b></span><span>Robô Tais v1.8</span></footer>
+  <footer><span class="cred"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></svg>Desenvolvido por <b>Lucas e Marcio</b></span><span>Robô Tais v1.9</span></footer>
 </main>
 
 <script type="text/plain" id="codigo">/* Robô Tais — roda DENTRO da aba da Tais (Telegram Web ou Portal TIM).
@@ -210,7 +210,7 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
   'use strict';
   if (window.__roboTais) { window.__roboTais.mostrar(); return; }
 
-  const VERSAO = '1.8';
+  const VERSAO = '1.9';
   const LS = 'robotais_v1_';
   // Temporizador que não atrasa quando a aba fica em segundo plano (usa um Worker; se não der, usa o do navegador)
   const tempo = (() => {
@@ -253,9 +253,10 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
     erro: ['não foi possível', 'erro', 'falha ao', 'não foi inserido', 'não consegui inserir']
   };
   const salvo = store.get('cfg', {});
+  if (!salvo.v || salvo.v < 2) { delete salvo.limite; salvo.v = 2; }
   const CFG = Object.assign({
     tmpl: { tsk: '{codigo} validar', ne: '{codigo} testar', end: '{codigo} testar' },
-    limite: 3, pausa: 2, espera: 90, estavel: 3, esperaInput: 20, simulacao: false, retomar: true, tema: 'dark',
+    limite: 0, pausa: 2, espera: 90, estavel: 3, esperaInput: 20, simulacao: false, retomar: true, tema: 'dark',
     selInput: '', selMsgs: '', selEnviar: ''
   }, salvo);
   CFG.tmpl = Object.assign({ tsk: '{codigo} validar', ne: '{codigo} testar', end: '{codigo} testar' }, salvo.tmpl || {});
@@ -1373,7 +1374,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 <script type="text/plain" id="manifest">{
   "manifest_version": 3,
   "name": "Robô Tais",
-  "version": "1.8",
+  "version": "1.9",
   "description": "Valida TSKs e testa NE-ID/END-ID na Tais (Telegram Web ou Portal TIM) a partir de uma planilha, com painel em tempo real.",
   "permissions": ["scripting"],
   "host_permissions": [

@@ -5,7 +5,7 @@
   'use strict';
   if (window.__roboTais) { window.__roboTais.mostrar(); return; }
 
-  const VERSAO = '1.8';
+  const VERSAO = '1.9';
   const LS = 'robotais_v1_';
   // Temporizador que não atrasa quando a aba fica em segundo plano (usa um Worker; se não der, usa o do navegador)
   const tempo = (() => {
@@ -48,9 +48,10 @@
     erro: ['não foi possível', 'erro', 'falha ao', 'não foi inserido', 'não consegui inserir']
   };
   const salvo = store.get('cfg', {});
+  if (!salvo.v || salvo.v < 2) { delete salvo.limite; salvo.v = 2; }
   const CFG = Object.assign({
     tmpl: { tsk: '{codigo} validar', ne: '{codigo} testar', end: '{codigo} testar' },
-    limite: 3, pausa: 2, espera: 90, estavel: 3, esperaInput: 20, simulacao: false, retomar: true, tema: 'dark',
+    limite: 0, pausa: 2, espera: 90, estavel: 3, esperaInput: 20, simulacao: false, retomar: true, tema: 'dark',
     selInput: '', selMsgs: '', selEnviar: ''
   }, salvo);
   CFG.tmpl = Object.assign({ tsk: '{codigo} validar', ne: '{codigo} testar', end: '{codigo} testar' }, salvo.tmpl || {});
