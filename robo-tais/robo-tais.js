@@ -5,7 +5,7 @@
   'use strict';
   if (window.__roboTais) { window.__roboTais.mostrar(); return; }
 
-  const VERSAO = '1.5';
+  const VERSAO = '1.6';
   const LS = 'robotais_v1_';
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -36,7 +36,6 @@
   }, salvo);
   CFG.tmpl = Object.assign({ tsk: '{codigo} validar', ne: '{codigo} testar', end: '{codigo} testar' }, salvo.tmpl || {});
   CFG.frases = Object.assign({}, FRASES_PADRAO, salvo.frases || {});
-  CFG.filtros = Object.assign({ ativo: true, status: ['Não iniciado', 'Iniciado'], excluir: ['PREDITIVA', 'SUPORTE ACESSO', 'MABE'], tipo: ['Planta Interna - Manutenção Corretiva'] }, salvo.filtros || {});
   const salvarCfg = () => store.set('cfg', CFG);
 
   /* ============ ESTADO ============ */
@@ -48,7 +47,12 @@
   let itens = [];                              // itens do teste
   let rodando = false, parar = false, faseTxt = '', itemAtual = null, inicioItem = 0;
   const NOMES_MODO = { tsk: 'Validar TSK', ne: 'Testar NE-ID', end: 'Testar END-ID' };
-  const STATUS_TXT = { pendente: '⏳ Pendente', testando: '🔄 Testando', normalizado: '🟢 Normalizado', nao_normalizado: '🔴 Não normalizado', nao_validavel: '⚪ Não validável', indefinido: '🟡 Indefinido' };
+  const STATUS_TXT = { pendente: 'Pendente', testando: 'Testando', normalizado: 'Normalizado', nao_normalizado: 'Não normalizado', nao_validavel: 'Não validável', indefinido: 'Indefinido' };
+  const STATUS_ICON = { pendente: 'relogio', testando: 'giro', normalizado: 'certo', nao_normalizado: 'erro', nao_validavel: 'menos', indefinido: 'duvida' };
+  const DICA_MODO = { tsk: 'Valida a TSK na Tais e anexa o resultado no chamado.', ne: 'Testa o NE-ID na Tais. Não anexa nada.', end: 'Testa o END-ID na Tais. Não anexa nada.' };
+  // regras fixas da lista
+  const FILTROS = { tipo: ['Planta Interna - Manutenção Corretiva'], status: ['Não iniciado', 'Iniciado'], excluir: ['PREDITIVA', 'SUPORTE ACESSO', 'MABE'] };
+  let contTsk = { ag: 0, na: 0, lista: 0 };    // TSKs válidas por origem
 
   /* ============ ACESSO À PÁGINA (inclui iframes do mesmo domínio) ============ */
   function docs() {
@@ -187,7 +191,7 @@
       const f = inp.closest('form'); if (f && f.requestSubmit) { try { f.requestSubmit(); } catch (e) { } }
       await esperar(900);
     }
-    if (valorDe(inp).trim() === msg.trim()) throw new Error('Não consegui enviar a mensagem (use 🎯 Marcar botão enviar).');
+    if (valorDe(inp).trim() === msg.trim()) throw new Error('Não consegui enviar. Use “Marcar botão enviar” nos Ajustes da Tais.');
   }
   class Parado extends Error { }
   async function esperar(ms) {
@@ -201,7 +205,7 @@
       if (e && !e.disabled && !e.readOnly) return e;
       await esperar(500);
     }
-    throw new Error('Campo de mensagem não encontrado (a página recarregou? use 🎯 Marcar campo).');
+    throw new Error('Não achei o campo de mensagem. Abra o chat da Tais ou use “Marcar campo” nos Ajustes da Tais.');
   }
 
   /* ============ CLASSIFICAÇÃO ============ */
@@ -230,14 +234,14 @@
   /* ============ TESTE DE UM ITEM ============ */
   async function testarReal(it) {
     const msg = CFG.tmpl[modo].replace('{codigo}', it.codigo);
-    faseTxt = 'aguardando campo de mensagem…';
+    faseTxt = 'Procurando o campo de mensagem';
     const inp = await aguardarInput();
     const antesL = linhasPagina();
     const antesB = new Set(botoesQue(() => true));
-    faseTxt = 'enviando “' + msg + '”…';
+    faseTxt = 'Enviando “' + msg + '”';
     await enviar(inp, msg);
     log('Enviado: ' + msg);
-    faseTxt = 'aguardando resposta da Tais…';
+    faseTxt = 'Aguardando a Tais';
     const t0 = Date.now();
     let ultimo = '', mudou = Date.now(), cls = null;
     let cadeiaDesde = 0, cadeiaOk = false, baseResp = null, escolhido = '';
@@ -249,17 +253,17 @@
       if (txt !== ultimo) { ultimo = txt; mudou = Date.now(); }
       // A Tais perguntou qual evento da cadeia validar: escolhe o evento desta TSK (vem da planilha)
       if (!cadeiaOk && tem(norm(txt), CFG.frases.cadeia)) {
-        if (!cadeiaDesde) { cadeiaDesde = Date.now(); faseTxt = 'cadeia de tickets: escolhendo o evento da planilha…'; }
-        if (!evn.length) return { status: 'indefinido', resposta: 'A Tais perguntou qual evento da cadeia validar, mas esta TSK não tem evento na planilha (coluna do evento).\n' + txt, evento: '', alarmes: '', anexado: '' };
+        if (!cadeiaDesde) { cadeiaDesde = Date.now(); faseTxt = 'Escolhendo o evento'; }
+        if (!evn.length) return { status: 'indefinido', resposta: 'Cadeia de tickets: a TSK não tem evento na planilha.\n' + txt, evento: '', alarmes: '', anexado: '' };
         const alvo = botoesQue(t => evn.some(e => t.replace(/\s/g, '').includes(e))).filter(e => !antesB.has(e));
         if (alvo.length) {
           escolhido = alvo[0].textContent.trim().replace(/\s+/g, ' ');
           baseResp = linhasPagina();
           clicar(alvo[0]); cadeiaOk = true; mudou = Date.now();
-          faseTxt = 'evento escolhido, aguardando a validação…';
-          log('Cadeia de tickets: escolhido “' + escolhido + '”');
+          faseTxt = 'Aguardando a validação';
+          log('Evento escolhido: ' + escolhido);
         } else if (Date.now() - cadeiaDesde > 12000) {
-          return { status: 'indefinido', resposta: 'Nenhuma opção da cadeia corresponde ao evento da planilha (' + (it.eventos || []).join(', ') + ').\n' + txt, evento: '', alarmes: '', anexado: '' };
+          return { status: 'indefinido', resposta: 'Cadeia de tickets: o evento ' + (it.eventos || []).join(', ') + ' não está nas opções.\n' + txt, evento: '', alarmes: '', anexado: '' };
         }
         continue;
       }
@@ -276,7 +280,7 @@
     const pergunta = tem(norm(resposta), CFG.frases.pergunta);
 
     if (cls === 'normalizado' && modo === 'tsk') {
-      faseTxt = 'anexando no chamado…';
+      faseTxt = 'Anexando no chamado';
       r.anexado = await anexar(antesB);
     } else if (cls === 'nao_normalizado' || (cls === 'normalizado' && modo !== 'tsk')) {
       if (pergunta) {                                    // limpa a pergunta de anexo sem anexar
@@ -292,7 +296,7 @@
       const novos = botoes('sim').filter(e => !antesB.has(e));
       if (novos.length) sim = novos[novos.length - 1]; else await esperar(500);
     }
-    if (!sim) { log('⚠ Botão “Sim” de anexar não apareceu.'); return 'FALHOU'; }
+    if (!sim) { log('Atenção: o botão Sim do anexo não apareceu.'); return 'FALHOU'; }
     const base = linhasPagina();
     clicar(sim);
     const t0 = Date.now(); let ult = '', mudou = Date.now();
@@ -307,7 +311,7 @@
     return 'VERIFICAR';
   }
   async function simular(it) {
-    faseTxt = '(simulação) aguardando resposta…';
+    faseTxt = 'Simulando a resposta';
     await esperar(400 + Math.random() * 900);
     const x = Math.random();
     if (x < 0.55) return { status: 'normalizado', resposta: 'SIMULAÇÃO: atende aos critérios de fechamento', evento: '', alarmes: '', anexado: modo === 'tsk' ? (Math.random() < 0.9 ? 'SIM' : 'VERIFICAR') : '' };
@@ -324,7 +328,7 @@
     if (!pend.length) { log('Nenhum item pendente. Use “Limpar” para recomeçar.'); return; }
     if (CFG.limite > 0) pend = pend.slice(0, CFG.limite);
     rodando = true; parar = false; store.set('rodando', true);
-    log('▶ Iniciando ' + pend.length + ' item(ns) — ' + NOMES_MODO[modo] + (CFG.simulacao ? ' [SIMULAÇÃO]' : ''));
+    log('Iniciando ' + pend.length + ' item(ns): ' + NOMES_MODO[modo] + (CFG.simulacao ? ' (simulação)' : ''));
     atualizarBotoes();
     for (const it of pend) {
       if (parar) break;
@@ -332,19 +336,19 @@
       try {
         const r = CFG.simulacao ? await simular(it) : await testarReal(it);
         Object.assign(it, r, { hora: agora() });
-        log(it.codigo + ' → ' + STATUS_TXT[it.status] + (it.anexado ? ' | anexo: ' + it.anexado : '') + (it.evento ? ' | ' + it.evento : ''));
+        log(it.codigo + ': ' + STATUS_TXT[it.status] + (it.anexado ? ' | anexo: ' + it.anexado : '') + (it.evento ? ' | ' + it.evento : ''));
       } catch (e) {
-        if (e instanceof Parado) { it.status = 'pendente'; log('■ Parado pelo usuário.'); atualizarLinha(it); break; }
+        if (e instanceof Parado) { it.status = 'pendente'; log('Parado.'); atualizarLinha(it); break; }
         it.status = 'indefinido'; it.resposta = 'ERRO: ' + e.message; it.hora = agora();
-        log('⚠ ' + it.codigo + ': ' + e.message);
+        log('Atenção: ' + it.codigo + ': ' + e.message);
         atualizarLinha(it); salvarSessao();
         if (/Campo de mensagem|enviar/.test(e.message)) { parar = true; break; }
       }
       itemAtual = null; atualizarLinha(it); salvarSessao(); renderResumo();
-      if (!parar && it !== pend[pend.length - 1]) { try { faseTxt = 'pausa antes do próximo item…'; await esperar(CFG.pausa * 1000); } catch (e) { break; } }
+      if (!parar && it !== pend[pend.length - 1]) { try { faseTxt = 'Próximo item em instantes'; await esperar(CFG.pausa * 1000); } catch (e) { break; } }
     }
     rodando = false; itemAtual = null; faseTxt = ''; store.set('rodando', false);
-    log(itens.some(i => i.status === 'pendente') ? '⏸ Fim do lote. Ainda há itens pendentes.' : '✅ Todos os itens foram testados. Baixe o Excel.');
+    log(itens.some(i => i.status === 'pendente') ? 'Fim do lote. Ainda há itens pendentes.' : 'Todos os itens foram testados. Baixe o Excel.');
     atualizarBotoes(); renderResumo();
   }
   function salvarSessao() {
@@ -357,7 +361,7 @@
     const dv = new DataView(buf), u8 = new Uint8Array(buf);
     let e = u8.length - 22;
     while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
-    if (e < 0) throw new Error('Este arquivo não parece ser .xlsx');
+    if (e < 0) throw new Error('Arquivo .xlsx inválido.');
     const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true);
     const arq = {};
     for (let i = 0; i < n; i++) {
@@ -397,7 +401,7 @@
     }
     let wbXml = wbPath && await z.ler(wbPath);
     if (!wbXml) for (const c of ['xl/workbook.xml', 'workbook.xml']) { wbXml = await z.ler(c); if (wbXml) { wbPath = c; break; } }
-    if (!wbXml) throw new Error('não achei a planilha dentro do arquivo .xlsx');
+    if (!wbXml) throw new Error('Arquivo .xlsx inválido.');
     const dir = wbPath.includes('/') ? wbPath.slice(0, wbPath.lastIndexOf('/') + 1) : '';
     const wb = parseXml(wbXml);
     const relXml = await z.ler(dir + '_rels/' + wbPath.slice(dir.length) + '.rels');
@@ -472,38 +476,36 @@
     return x.localeCompare(y, undefined, { numeric: true });
   };
   function construir() {
-    itens = [];
+    itens = []; contTsk = { ag: 0, na: 0, lista: 0 };
     if (!dados) return;
-    const cc = +$('#col').value, ct = +$('#colTsk').value, ce = +$('#colEv').value, cs = +$('#colSt').value, cr = +$('#colRg').value, cp = +$('#colTp').value, ci = +$('#colId').value;
-    const F = CFG.filtros;
-    const aceitos = new Set(F.status.map(norm)), excl = F.excluir.map(norm).filter(Boolean), tipos = new Set((F.tipo || []).map(norm));
+    const C = colsAuto(modo);
+    const cc = C.cod, ct = C.tsk, ce = C.ev, cs = C.st, cr = C.rg, cp = C.tp, ci = C.id;
+    const aceitos = new Set(FILTROS.status.map(norm)), excl = FILTROS.excluir.map(norm).filter(Boolean), tipos = new Set(FILTROS.tipo.map(norm));
     const tskCol = modo === 'tsk' ? cc : ct;
-    const ign = { tipo: 0, status: 0, repetida: 0, regra: 0 };
-    // 1) linhas válidas: tipo da atividade (coluna D) e estado (coluna E)
+    // 1) linhas válidas: tipo da atividade (D) e estado (E)
     const validas = [];
     dados.linhas.forEach((l, li) => {
-      if (F.ativo) {
-        if (cp >= 0 && tipos.size && !tipos.has(norm(l[cp]))) { ign.tipo++; return; }
-        if (cs >= 0 && aceitos.size && !aceitos.has(norm(l[cs]))) { ign.status++; return; }
-      }
+      if (cp >= 0 && !tipos.has(norm(l[cp]))) return;
+      if (cs >= 0 && !aceitos.has(norm(l[cs]))) return;
       validas.push(li);
     });
-    // 2) TSK repetida (coluna B): entre as linhas válidas, fica a de maior ID da atividade (coluna C) = mais recente
+    // 2) TSK repetida (B): fica a de maior ID da atividade (C), a mais recente
     const porTsk = new Map(), semTsk = [];
     validas.forEach(li => {
       const t = tskCol >= 0 ? limpo(dados.linhas[li][tskCol]) : '';
       if (!t) { semTsk.push(li); return; }
       const atual = porTsk.get(t);
       if (atual == null) { porTsk.set(t, li); return; }
-      ign.repetida++;
       if (ci >= 0 && cmpId(dados.linhas[li][ci], dados.linhas[atual][ci]) > 0) porTsk.set(t, li);
     });
     const escolhidas = [...porTsk.values(), ...semTsk].sort((a, b) => a - b);
-    // 3) regra usuário criador (coluna DJ) da linha escolhida e montagem dos itens
+    // 3) regra usuário criador (DJ) e montagem dos itens
     const mapa = new Map();
     escolhidas.forEach(li => {
-      const l = dados.linhas[li], c = limpo(l[cc]); if (!c) return;
-      if (F.ativo && cr >= 0 && excl.length) { const r = norm(l[cr]); if (excl.some(x => r.includes(x))) { ign.regra++; return; } }
+      const l = dados.linhas[li];
+      if (cr >= 0) { const r = norm(l[cr]); if (excl.some(x => r.includes(x))) return; }
+      if (tskCol >= 0 && limpo(l[tskCol])) contTsk[dados.orig[li]]++;
+      const c = limpo(l[cc]); if (!c) return;
       if (!mapa.has(c)) mapa.set(c, { tsks: new Set(), evs: new Set(), org: new Set(), ids: new Set() });
       const m = mapa.get(c);
       m.org.add(dados.orig[li]);
@@ -511,35 +513,17 @@
       if (ci >= 0) { const v = limpo(l[ci]); if (v) m.ids.add(v); }
       if (ce >= 0) String(l[ce] == null ? '' : l[ce]).split(/[;,\s]+/).map(limpo).filter(Boolean).forEach(e => m.evs.add(e));
     });
-    let n = 0; const cont = { ag: 0, na: 0, lista: 0 };
+    let n = 0;
     mapa.forEach((v, c) => {
-      v.org.forEach(k => { cont[k]++; });
       itens.push({ id: ++n, codigo: c, tsk: modo === 'tsk' ? c : [...v.tsks].join(', '), origem: ['ag', 'na', 'lista'].filter(k => v.org.has(k)).map(k => ORIG_TXT[k]).join(' + '), idAtividade: [...v.ids].join(', '), eventos: [...v.evs], eventoPlan: [...v.evs].join(', '), status: 'pendente', evento: '', alarmes: '', anexado: '', resposta: '', hora: '' });
     });
-    let info = itens.length + ' ' + (modo === 'tsk' ? 'TSKs' : 'códigos únicos') + ' para testar';
-    if (fontes.ag || fontes.na) info += ' (Agendado: ' + cont.ag + ' · Não agendado: ' + cont.na + ')';
-    info += '.';
-    if (F.ativo) info += ' Ignoradas: ' + ign.tipo + ' linhas por tipo da atividade, ' + ign.status + ' por estado';
-    info += (F.ativo ? '; ' : ' ') + ign.repetida + ' linhas repetidas da mesma TSK (fica a de maior ID da atividade)';
-    if (F.ativo) info += '; ' + ign.regra + ' por regra criadora';
-    info += '.';
-    const av = [];
-    if (F.ativo && cp < 0) av.push('coluna do tipo da atividade não definida (filtro de tipo desligado)');
-    if (F.ativo && cs < 0) av.push('coluna de estado não definida (filtro de estado desligado)');
-    if (F.ativo && cr < 0) av.push('coluna da regra criadora não definida (filtro de regra desligado)');
-    if (ci < 0) av.push('coluna do ID da atividade não definida (em TSK repetida fica a primeira linha)');
-    if (ce < 0) av.push('sem coluna de evento (não dá para escolher o evento da cadeia)');
-    if (av.length) info += ' ⚠ ' + av.join('; ') + '.';
-    if (!itens.length) info += ' ⚠ Nenhum item sobrou: confira as colunas e os filtros.';
-    $('#info').textContent = info;
-    const nc = i => i >= 0 ? letra(i) + ' · ' + (dados.cab[i] || '') : '—';
-    $('#infoCols').textContent = 'Colunas lidas: ' + (modo === 'tsk' ? 'TSK' : 'código') + ' = ' + nc(cc) + (ct >= 0 ? ' | TSK = ' + nc(ct) : '') + ' | ID da atividade = ' + nc(ci) + ' | tipo = ' + nc(cp) + ' | estado = ' + nc(cs) + ' | regra criadora = ' + nc(cr) + ' | evento = ' + nc(ce);
+    atualizarSlots();
     renderTabela(); renderResumo();
   }
-  function reconstruir() {
-    if (rodando) { log('Pare o robô antes de mudar colunas ou filtros.'); return; }
-    if (itens.some(i => i.status !== 'pendente') && !confirm('Mudar colunas ou filtros apaga os resultados atuais. Continuar?')) return;
-    construir();
+  // colunas que a planilha deveria ter e não tem
+  function colunasFaltando() {
+    const C = colsAuto('tsk');
+    return [[C.tp, 'Tipo da Atividade'], [C.st, 'Estado'], [C.id, 'ID da Atividade'], [C.rg, 'Regra usuário criador'], [C.ev, 'Evento']].filter(x => x[0] < 0).map(x => x[1]);
   }
 
   /* ============ EXCEL DE SAÍDA (.xlsx sem biblioteca) ============ */
@@ -582,7 +566,7 @@
   }
   function gerarXlsx() {
     const cab = ['Modo', 'Origem', 'Código', 'TSK', 'ID da atividade', 'Status', 'Evento (planilha)', 'Evento (Tais)', 'Alarmes', 'Anexado no chamado', 'Hora', 'Resposta da Tais'];
-    const lin = i => [NOMES_MODO[modo], i.origem || '', i.codigo, i.tsk, i.idAtividade || '', STATUS_TXT[i.status].replace(/^\S+\s/, ''), i.eventoPlan || '', i.evento, i.alarmes, i.anexado, i.hora, i.resposta];
+    const lin = i => [NOMES_MODO[modo], i.origem || '', i.codigo, i.tsk, i.idAtividade || '', STATUS_TXT[i.status], i.eventoPlan || '', i.evento, i.alarmes, i.anexado, i.hora, i.resposta];
     const sel = st => itens.filter(i => st.includes(i.status));
     const abas = [
       ['Normalizados', sel(['normalizado'])],
@@ -608,10 +592,40 @@
     const url = URL.createObjectURL(gerarXlsx());
     const a = document.createElement('a'); a.href = url; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-    log('⬇ Excel gerado: ' + nome);
+    log('Excel gerado: ' + nome);
   }
 
   /* ============ PAINEL ============ */
+  const svgI = d => '<svg class="i" viewBox="0 0 24 24" aria-hidden="true">' + d + '</svg>';
+  const IC = {
+    certo: svgI('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>'),
+    erro: svgI('<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>'),
+    menos: svgI('<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>'),
+    duvida: svgI('<circle cx="12" cy="12" r="9"/><path d="M9.7 9.5a2.4 2.4 0 1 1 3.4 2.2c-.7.4-1.1.9-1.1 1.6"/><circle cx="12" cy="16.6" r=".7" fill="currentColor" stroke="none"/>'),
+    relogio: svgI('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+    giro: svgI('<path d="M12 3a9 9 0 1 0 9 9"/>').replace('class="i"', 'class="i spin"'),
+    ok: svgI('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+    x: svgI('<path d="M6 6l12 12M18 6L6 18"/>'),
+    alerta: svgI('<path d="M12 4l9 16H3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".7" fill="currentColor" stroke="none"/>'),
+    play: svgI('<path d="M8 5.5l11 6.5-11 6.5z"/>'),
+    stop: svgI('<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>'),
+    baixar: svgI('<path d="M12 4v11M7.5 11l4.5 4.5 4.5-4.5M5 19.5h14"/>'),
+    enviar: svgI('<path d="M12 16V5M7.5 9L12 4.5 16.5 9M5 19.5h14"/>'),
+    limpar: svgI('<path d="M4.5 12a7.5 7.5 0 1 0 2.4-5.5M4.5 4.5v4h4"/>'),
+    frasco: svgI('<path d="M9.5 3.5h5M10.5 3.5v6L5.2 18.6A1.6 1.6 0 0 0 6.6 21h10.8a1.6 1.6 0 0 0 1.4-2.4L13.5 9.5v-6"/><path d="M8 14.5h8"/>'),
+    calendario: svgI('<rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>'),
+    escudo: svgI('<path d="M12 3l7 3v5.5c0 4.3-3 7.6-7 9.5-4-1.9-7-5.2-7-9.5V6z"/><path d="M8.8 12l2.4 2.4 4-4.6"/>'),
+    antena: svgI('<circle cx="12" cy="12" r="1.8"/><path d="M7.6 7.6a6.2 6.2 0 0 0 0 8.8M16.4 7.6a6.2 6.2 0 0 1 0 8.8M4.8 4.8a10.2 10.2 0 0 0 0 14.4M19.2 4.8a10.2 10.2 0 0 1 0 14.4"/>'),
+    predio: svgI('<rect x="5" y="3.5" width="14" height="17" rx="1.5"/><path d="M9 8h2M13 8h2M9 12h2M13 12h2M10 20.5v-4h4v4"/>'),
+    raio: svgI('<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>'),
+    alvo: svgI('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".8" fill="currentColor" stroke="none"/>'),
+    plugue: svgI('<path d="M9 3v5M15 3v5M6.5 8h11v3a5.5 5.5 0 0 1-11 0zM12 16.5V21"/>'),
+    copiar: svgI('<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>'),
+    tema: svgI('<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/>'),
+    largura: svgI('<path d="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4"/>'),
+    menos2: svgI('<path d="M6 12h12"/>')
+  };
+  const ROBO = (w, sw) => '<svg width="' + w + '" height="' + w + '" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8.5 5v10L12 22l-8.5-5V7z" fill="none" stroke="currentColor" stroke-width="' + sw + '"/><circle cx="9" cy="11" r="1.4" fill="currentColor"/><circle cx="15" cy="11" r="1.4" fill="currentColor"/><path d="M9 15h6" stroke="currentColor" stroke-width="' + sw + '" stroke-linecap="round"/></svg>';
   const host = document.createElement('div');
   host.id = '__roboTais';
   host.style.cssText = 'all:initial;position:fixed;top:12px;right:12px;z-index:2147483647;';
@@ -711,8 +725,31 @@ tr.testando{font-weight:600;animation:rowglow 1.2s ease-in-out infinite}tr.testa
 .det{display:none;white-space:pre-wrap;font:11px/1.4 var(--mono);color:var(--muted);margin-top:4px;background:var(--inp);border:1px solid var(--line);padding:6px;border-radius:8px}tr.open .det{display:block}
 .alm{font-size:11px;color:var(--bad)}
 .sub{font:10px var(--mono);color:var(--muted);white-space:normal}
-.ups{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.up{border:1px dashed var(--line);border-radius:12px;padding:9px;background:var(--inp);display:flex;flex-direction:column;gap:6px;transition:.2s;min-width:0}
+.i{width:1.15em;height:1.15em;flex:none;vertical-align:-.2em;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.spin{animation:giro 1s linear infinite}
+.ib .i{width:15px;height:15px}
+.modos button{display:flex;align-items:center;justify-content:center;gap:6px}
+.b{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.b.mini{padding:2px 8px;font-size:11px}
+.dica{font-size:11.5px;color:var(--muted);margin-top:8px}
+label.chk{flex-direction:row;gap:7px;align-items:center;color:var(--fg);font-size:12px;margin-top:6px}
+.upt{display:flex;align-items:center;gap:6px}.upt .i{color:var(--acc)}
+.upb{display:flex;align-items:center;justify-content:center;gap:6px;grid-column:2;grid-row:1 / span 2;padding:8px 14px}
+.upt,.uph{grid-column:1}
+.upi{grid-column:1 / -1;margin-top:4px;padding-top:7px;border-top:1px dashed var(--line)}
+.unm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.upi .ico{display:inline-flex;flex:none}.upi>span{display:flex;gap:6px;min-width:0;width:100%;align-items:center;flex-wrap:wrap}.upi .tt{display:flex;gap:6px;align-items:baseline;min-width:0;flex:1}
+.upi b{font-weight:700;white-space:nowrap;flex:none;color:var(--fg)}.uav{font-size:10.5px;margin-top:2px}
+.sti{display:inline-flex;margin-right:5px;vertical-align:-.2em}
+tr.normalizado .sti{color:var(--ok)}tr.nao_normalizado .sti{color:var(--bad)}tr.nao_validavel .sti{color:var(--gray)}tr.indefinido .sti{color:var(--warn)}tr.testando .sti{color:var(--acc)}tr.pendente .sti{color:var(--muted)}
+.an{display:inline-flex;align-items:center;gap:4px;font-weight:600}.an-ok{color:var(--ok)}.an-erro{color:var(--bad)}.an-ver{color:var(--warn)}
+.agora b{display:flex;align-items:center;gap:7px}.agora b .i{color:var(--acc)}
+.bt{display:flex;align-items:center;gap:7px}
+.prontos h4 .i{width:16px;height:16px}
+.f span{display:inline-flex;align-items:center;gap:6px}.f .i{color:var(--acc)}
+.lanc .i{width:28px;height:28px}
+.ups{display:grid;grid-template-columns:1fr;gap:8px}
+.up{border:1px dashed var(--line);border-radius:12px;padding:10px;background:var(--inp);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 12px;align-items:center;transition:.2s;min-width:0}
 .up:hover,.up.drag{border-color:var(--acc);box-shadow:0 0 0 3px var(--ring)}
 .up.ok{border:1px solid var(--ok);background:var(--t-ok)}.up.aviso{border:1px solid var(--warn);background:var(--t-warn)}
 .up.pisca{animation:pisca .9s ease 2}
@@ -736,6 +773,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
 .lanc{display:none;place-items:center;width:52px;height:52px;border:0;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--acc2));color:var(--go-fg);cursor:pointer;box-shadow:0 8px 26px var(--glow);transition:.18s;animation:pulseb 2.4s ease-in-out infinite}
 .lanc:hover{transform:scale(1.08) rotate(-4deg)}
 @keyframes pisca{50%{box-shadow:0 0 0 4px var(--glow);border-color:var(--acc)}}
+@keyframes giro{to{transform:rotate(360deg)}}
 @keyframes in{from{opacity:0;transform:translateY(-10px) scale(.98)}to{opacity:1;transform:none}}
 @keyframes pulse{50%{opacity:.35;transform:scale(.8)}}
 @keyframes pulseb{50%{box-shadow:0 8px 40px var(--glow),0 0 0 8px var(--ring)}}
@@ -744,69 +782,62 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
 @keyframes rowglow{50%{background:var(--t-acc)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
-<button class="lanc" id="lanc" title="Abrir Robô Tais"><svg width="28" height="28" viewBox="0 0 24 24"><path d="M12 2l8.5 5v10L12 22l-8.5-5V7z" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="11" r="1.5" fill="currentColor"/><circle cx="15" cy="11" r="1.5" fill="currentColor"/><path d="M9 15h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+<button class="lanc" id="lanc" title="Abrir Robô Tais">${ROBO(28, 1.7)}</button>
 <div class="p" id="p">
- <div class="h" id="h"><span class="logo"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M12 2l8.5 5v10L12 22l-8.5-5V7z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="11" r="1.4" fill="currentColor"/><circle cx="15" cy="11" r="1.4" fill="currentColor"/><path d="M9 15h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><div class="tit"><b>Robô Tais</b><small>VALIDAÇÃO AUTOMÁTICA · v${VERSAO}</small></div><span class="led" id="led" title="Estado do robô"></span><button class="ib" id="bTema" title="Tema claro / escuro">◐</button><button class="ib" id="bLargo" title="Aumentar / diminuir">⇔</button><button class="ib" id="bMin" title="Minimizar">–</button><button class="ib" id="bX" title="Esconder (o robô continua)">×</button></div>
+ <div class="h" id="h"><span class="logo">${ROBO(26, 1.6)}</span><div class="tit"><b>Robô Tais</b><small>VALIDAÇÃO AUTOMÁTICA · v${VERSAO}</small></div><span class="led" id="led" title="Estado do robô"></span><button class="ib" id="bTema" title="Tema claro ou escuro">${IC.tema}</button><button class="ib" id="bLargo" title="Aumentar ou diminuir o painel">${IC.largura}</button><button class="ib" id="bMin" title="Minimizar">${IC.menos2}</button><button class="ib" id="bX" title="Esconder o painel (o robô continua)">${IC.x}</button></div>
  <div class="c">
   <fieldset><legend>1. O que fazer</legend>
-   <div class="modos"><button data-m="tsk">✅ Validar TSK</button><button data-m="ne">📡 Testar NE-ID</button><button data-m="end">🏢 Testar END-ID</button></div>
+   <div class="modos"><button data-m="tsk">${IC.escudo}Validar TSK</button><button data-m="ne">${IC.antena}Testar NE-ID</button><button data-m="end">${IC.predio}Testar END-ID</button></div>
+   <div class="dica" id="dicaModo"></div>
   </fieldset>
   <fieldset><legend>2. Planilha</legend>
    <div class="ups">
     <div class="up" id="upAg">
-     <div class="upt">📅 Agendado</div>
-     <div class="uph">Arquivo com a <b>data de hoje</b> no nome<br><i>ex.: Atividades-TRJ_FMMT_17_11_26</i></div>
-     <label class="upb">Escolher arquivo<input type="file" id="arqAg" accept=".xlsx,.csv,.txt"></label>
-     <div class="upi"><span id="infoAg">Nenhum arquivo.</span><button class="x" id="rmAg" title="Remover" hidden>✕</button></div>
+     <div class="upt">${IC.calendario}Agendado</div>
+     <div class="uph">Nome com a data de hoje<br><i>ex.: Atividades-TRJ_FMMT_17_11_26</i></div>
+     <label class="upb">${IC.enviar}Escolher arquivo<input type="file" id="arqAg" accept=".xlsx,.csv,.txt"></label>
+     <div class="upi"><span id="infoAg">Nenhum arquivo.</span><button class="x" id="rmAg" title="Remover arquivo" hidden>${IC.x}</button></div>
     </div>
     <div class="up" id="upNa">
-     <div class="upt">🕓 Não agendado</div>
-     <div class="uph">Arquivo com <b>“não agendada”</b> no nome<br><i>ex.: Atividades-TRJ_FMMT_Não-agendada</i></div>
-     <label class="upb">Escolher arquivo<input type="file" id="arqNa" accept=".xlsx,.csv,.txt"></label>
-     <div class="upi"><span id="infoNa">Nenhum arquivo.</span><button class="x" id="rmNa" title="Remover" hidden>✕</button></div>
+     <div class="upt">${IC.relogio}Não agendado</div>
+     <div class="uph">Nome com “não agendada”<br><i>ex.: Atividades-TRJ_FMMT_Não-agendada</i></div>
+     <label class="upb">${IC.enviar}Escolher arquivo<input type="file" id="arqNa" accept=".xlsx,.csv,.txt"></label>
+     <div class="upi"><span id="infoNa">Nenhum arquivo.</span><button class="x" id="rmNa" title="Remover arquivo" hidden>${IC.x}</button></div>
     </div>
    </div>
-   <details style="margin-top:6px"><summary>ou cole a lista aqui</summary><textarea id="cola" placeholder="Cole aqui (uma por linha) as TSKs / NE-IDs / END-IDs copiadas do Excel"></textarea><button class="b" id="bCola" style="margin-top:4px">Usar lista colada</button></details>
-   <div class="nota" id="info" style="margin-top:6px">Nenhuma planilha carregada.</div>
-   <div class="nota" id="infoCols"></div>
-   <details style="margin-top:6px"><summary>Colunas e filtros</summary>
-    <div class="l" style="margin-top:6px"><label>Coluna dos códigos<select id="col"></select></label><label>Coluna da TSK (p/ NE/END)<select id="colTsk"></select></label></div>
-    <div class="l" style="margin-top:6px"><label>Coluna do ID da atividade (C)<select id="colId"></select></label><label>Coluna do tipo da atividade (D)<select id="colTp"></select></label><label>Coluna do estado (E)<select id="colSt"></select></label></div>
-    <div class="l" style="margin-top:6px"><label>Coluna do evento (GF)<select id="colEv"></select></label><label>Coluna da regra criadora (DJ)<select id="colRg"></select></label></div>
-    <label style="flex-direction:row;gap:6px;align-items:center;margin:8px 0 6px"><input type="checkbox" id="fAtivo"> Aplicar os filtros abaixo (tipo, estado e regra criadora)</label>
-    <div class="l"><label>Tipos de atividade aceitos (um por linha)<textarea id="fTipo"></textarea></label><label>Estados aceitos (um por linha)<textarea id="fStatus"></textarea></label><label>Ignorar se a regra criadora contiver<textarea id="fExcl"></textarea></label></div>
-    <div class="nota" style="margin-top:4px">Se a mesma TSK aparecer em várias linhas, o robô usa só as linhas válidas e, entre elas, a de maior ID da atividade (a mais recente).</div>
-   </details>
-   <button class="b" id="bRec" style="display:none;margin-top:4px"></button>
+   <details style="margin-top:8px"><summary>ou cole a lista aqui</summary><textarea id="cola" placeholder="Uma TSK, NE-ID ou END-ID por linha"></textarea><button class="b" id="bCola" style="margin-top:4px">Usar lista</button></details>
+   <button class="b" id="bRec" style="display:none;margin-top:6px"></button>
   </fieldset>
   <fieldset><legend>3. Executar</legend>
-   <div class="l"><label>Mensagem enviada (use {codigo})<input type="text" id="tmpl"></label><label>Quantos testar (0 = todos)<input type="number" id="lim" min="0"></label></div>
-   <div class="l" style="margin-top:6px"><label>Pausa entre itens (s)<input type="number" id="pausa" min="0"></label><label>Tempo máx. resposta (s)<input type="number" id="espera" min="10"></label></div>
-   <label style="flex-direction:row;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="sim"> 🧪 Modo simulação (não mexe na Tais)</label>
-   <label style="flex-direction:row;gap:6px;align-items:center"><input type="checkbox" id="ret"> Continuar sozinho se a página recarregar</label>
-   <div class="l" style="margin-top:8px"><button class="b go" id="bGo">▶ Iniciar</button><button class="b stop" id="bStop" disabled>■ Parar</button><button class="b" id="bXls">⬇ Excel</button><button class="b" id="bLimpa">↺ Limpar</button></div>
+   <div class="l"><label title="Texto enviado à Tais. {codigo} vira a TSK, o NE-ID ou o END-ID.">Mensagem enviada<input type="text" id="tmpl"></label><label title="Quantos itens testar agora. 0 testa todos.">Quantidade (0 = todos)<input type="number" id="lim" min="0"></label></div>
+   <div class="l" style="margin-top:6px"><label title="Espera entre um item e outro.">Pausa entre itens (s)<input type="number" id="pausa" min="0"></label><label title="Tempo máximo para a Tais responder.">Tempo limite por item (s)<input type="number" id="espera" min="10"></label></div>
+   <label class="chk" title="Roda com respostas de teste, sem usar a Tais."><input type="checkbox" id="sim">${IC.frasco}Simulação</label>
+   <label class="chk" title="Continua o teste se a página recarregar."><input type="checkbox" id="ret">Retomar se a página recarregar</label>
+   <div class="l" style="margin-top:8px"><button class="b go" id="bGo">${IC.play}Iniciar</button><button class="b stop" id="bStop" disabled>${IC.stop}Parar</button><button class="b" id="bXls">${IC.baixar}Excel</button><button class="b" id="bLimpa">${IC.limpar}Limpar</button></div>
   </fieldset>
   <div class="agora" id="agora">Parado.</div>
   <div class="pr"><div class="prog"><i id="progI"></i></div><span id="progT">0 / 0</span></div>
   <div class="cont" id="cont"></div>
-  <div class="prontos" id="prontos"><h4>✔ Prontos para encerrar: <span id="nPront">0</span> <button class="b" id="bCopia" style="padding:1px 6px;margin-left:6px">copiar lista</button></h4><div class="chips" id="chips"></div></div>
-  <div><div class="l" style="margin-bottom:4px"><label>Mostrar<select id="filtro"><option value="">Todos</option><option value="normalizado">🟢 Normalizados</option><option value="nao_normalizado">🔴 Não normalizados</option><option value="nao_validavel">⚪ Não validáveis</option><option value="indefinido">🟡 Indefinidos</option><option value="pendente">⏳ Pendentes</option></select></label></div>
+  <div class="prontos" id="prontos"><h4>${IC.certo}Prontos para encerrar: <span id="nPront">0</span> <button class="b mini" id="bCopia" title="Copia a lista de TSKs prontas">${IC.copiar}Copiar</button></h4><div class="chips" id="chips"></div></div>
+  <div><div class="l" style="margin-bottom:4px"><label>Mostrar<select id="filtro"><option value="">Todos</option><option value="normalizado">Normalizados</option><option value="nao_normalizado">Não normalizados</option><option value="nao_validavel">Não validáveis</option><option value="indefinido">Indefinidos</option><option value="pendente">Pendentes</option></select></label></div>
    <div class="tab"><table><thead><tr><th>#</th><th>Código</th><th id="thTsk">TSK</th><th>Status</th><th>Anexo</th></tr></thead><tbody id="tb"></tbody></table></div></div>
   <div class="log" id="log"></div>
-  <details><summary>Calibração e frases (se a Tais não for reconhecida)</summary>
-   <div class="l" style="margin:6px 0"><button class="b" id="bConn">🔌 Testar conexão</button><button class="b" id="pInp">🎯 Marcar campo de mensagem</button><button class="b" id="pMsg">🎯 Marcar área das mensagens</button><button class="b" id="pEnv">🎯 Marcar botão enviar</button><button class="b" id="pZera">Voltar ao automático</button></div>
+  <details><summary>Ajustes da Tais</summary>
+   <div class="nota" style="margin-top:6px">Use se o robô não achar o chat ou não entender uma resposta.</div>
+   <div class="l" style="margin:6px 0"><button class="b" id="bConn" title="Confere se o robô encontra o chat">${IC.plugue}Testar conexão</button><button class="b" id="pInp" title="Clique no campo onde se digita">${IC.alvo}Marcar campo de mensagem</button><button class="b" id="pMsg" title="Clique na área da conversa">${IC.alvo}Marcar área das mensagens</button><button class="b" id="pEnv" title="Clique no botão de enviar">${IC.alvo}Marcar botão enviar</button><button class="b" id="pZera" title="Volta à detecção automática">Automático</button></div>
    <div class="nota" id="calib"></div>
-   <label>🟢 Normalizado (uma frase por linha)<textarea id="fSim"></textarea></label>
-   <label>🔴 Não normalizado<textarea id="fNao"></textarea></label>
-   <label>⚪ Não validável<textarea id="fNv"></textarea></label>
-   <label>🟡 Indefinido: não dá para afirmar (nunca vira normalizado)<textarea id="fInd"></textarea></label>
-   <label>Pergunta da cadeia de tickets (escolhe o evento da planilha)<textarea id="fCad"></textarea></label>
-   <label>Pergunta “inserir resultado no chamado”<textarea id="fPer"></textarea></label>
-   <label>Confirmação de que anexou<textarea id="fConf"></textarea></label>
-   <button class="b" id="bFr" style="margin-top:4px">Salvar frases</button> <button class="b" id="bFrPad">Restaurar padrão</button>
+   <div class="nota" style="margin-top:8px">Frases da Tais, uma por linha.</div>
+   <label>Normalizado<textarea id="fSim"></textarea></label>
+   <label>Não normalizado<textarea id="fNao"></textarea></label>
+   <label>Não validável<textarea id="fNv"></textarea></label>
+   <label>Indefinido<textarea id="fInd"></textarea></label>
+   <label>Pergunta da cadeia de tickets<textarea id="fCad"></textarea></label>
+   <label>Pergunta para anexar o resultado<textarea id="fPer"></textarea></label>
+   <label>Confirmação de anexo<textarea id="fConf"></textarea></label>
+   <div class="l" style="margin-top:6px"><button class="b" id="bFr">Salvar frases</button><button class="b" id="bFrPad">Restaurar padrão</button></div>
   </details>
  </div>
- <div class="f"><span>⚡ Desenvolvido por <b>Lucas Infante</b></span><span>v${VERSAO}</span></div>
+ <div class="f"><span>${IC.raio}Desenvolvido por <b>Lucas Infante</b></span><span>v${VERSAO}</span></div>
 </div>`;
   function aplicarTema() { host.setAttribute('data-tema', CFG.tema === 'light' ? 'light' : 'dark'); }
   aplicarTema();
@@ -839,11 +870,11 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     const sub = [it.origem === ORIG_TXT.lista ? '' : it.origem, it.idAtividade ? 'ID ' + it.idAtividade : '', it.eventoPlan].filter(Boolean).join(' · ');
     if (sub) { const sb = document.createElement('div'); sb.className = 'sub'; sb.textContent = sub; td[1].appendChild(sb); }
     td[2].textContent = it.tsk; td[2].style.display = modo === 'tsk' ? 'none' : '';
-    td[3].textContent = ''; const st = document.createElement('div'); st.textContent = STATUS_TXT[it.status]; td[3].appendChild(st);
+    td[3].textContent = ''; const st = document.createElement('div'); const si = document.createElement('span'); si.className = 'sti'; si.innerHTML = IC[STATUS_ICON[it.status]]; st.append(si, STATUS_TXT[it.status]); td[3].appendChild(st);
     if (it.evento || it.alarmes) { const a = document.createElement('div'); a.className = 'alm'; a.textContent = [it.evento, it.alarmes].filter(Boolean).join(' • '); td[3].appendChild(a); }
     const d = document.createElement('div'); d.className = 'det'; d.textContent = it.resposta || ''; td[3].appendChild(d);
-    td[4].textContent = it.anexado || (it.status === 'normalizado' && modo === 'tsk' ? '' : '—');
-    if (it.anexado === 'SIM') td[4].textContent = '✔ SIM'; else if (it.anexado === 'FALHOU') td[4].textContent = '✖ FALHOU'; else if (it.anexado === 'VERIFICAR') td[4].textContent = '⚠ VERIFICAR';
+    const AN = { SIM: ['an-ok', IC.ok, 'SIM'], FALHOU: ['an-erro', IC.x, 'FALHOU'], VERIFICAR: ['an-ver', IC.alerta, 'VERIFICAR'] }[it.anexado];
+    if (AN) td[4].innerHTML = '<span class="an ' + AN[0] + '">' + AN[1] + AN[2] + '</span>'; else td[4].textContent = (it.status === 'normalizado' && modo === 'tsk') ? '' : '—';
     if (it.status === 'testando') tr.scrollIntoView({ block: 'nearest' });
   }
   function aplicarFiltro() {
@@ -874,11 +905,12 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
   function atualizarBotoes() {
     $('#bGo').disabled = rodando; $('#bStop').disabled = !rodando; $('#bLimpa').disabled = rodando;
     $$('.modos button').forEach(b => { b.classList.toggle('on', b.dataset.m === modo); b.disabled = rodando; });
+    $('#dicaModo').textContent = DICA_MODO[modo];
   }
   setInterval(() => {
     const a = $('#agora'); $('#p').classList.toggle('run', rodando);
-    if (rodando && itemAtual) { a.className = 'agora on'; a.innerHTML = ''; const b = document.createElement('b'); b.textContent = '🔄 Testando agora: ' + itemAtual.codigo; const d = document.createElement('div'); d.textContent = faseTxt + ' (' + Math.round((Date.now() - inicioItem) / 1000) + 's)  •  item ' + itemAtual.id + ' de ' + itens.length; a.append(b, d); }
-    else if (rodando) { a.className = 'agora on'; a.textContent = faseTxt || 'Preparando…'; }
+    if (rodando && itemAtual) { a.className = 'agora on'; a.innerHTML = ''; const b = document.createElement('b'); b.innerHTML = IC.giro; b.append('Testando agora: ' + itemAtual.codigo); const d = document.createElement('div'); d.textContent = faseTxt + ' · ' + Math.round((Date.now() - inicioItem) / 1000) + 's · item ' + itemAtual.id + ' de ' + itens.length; a.append(b, d); }
+    else if (rodando) { a.className = 'agora on'; a.textContent = faseTxt || 'Preparando'; }
     else { a.className = 'agora'; a.textContent = 'Parado.'; }
   }, 500);
 
@@ -888,8 +920,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     $('#fSim').value = CFG.frases.sim.join('\n'); $('#fNao').value = CFG.frases.nao.join('\n'); $('#fNv').value = CFG.frases.nv.join('\n');
     $('#fPer').value = CFG.frases.pergunta.join('\n'); $('#fConf').value = CFG.frases.conf.join('\n');
     $('#fInd').value = CFG.frases.indef.join('\n'); $('#fCad').value = CFG.frases.cadeia.join('\n');
-    $('#fAtivo').checked = CFG.filtros.ativo; $('#fStatus').value = CFG.filtros.status.join('\n'); $('#fExcl').value = CFG.filtros.excluir.join('\n'); $('#fTipo').value = (CFG.filtros.tipo || []).join('\n');
-    $('#calib').textContent = 'Campo: ' + (CFG.selInput || 'automático') + ' | Mensagens: ' + (CFG.selMsgs || 'automático') + ' | Enviar: ' + (CFG.selEnviar || 'tecla Enter');
+    $('#calib').textContent = 'Campo: ' + (CFG.selInput ? 'marcado' : 'automático') + ' · Mensagens: ' + (CFG.selMsgs ? 'marcadas' : 'automático') + ' · Envio: ' + (CFG.selEnviar ? 'botão marcado' : 'tecla Enter');
   }
   function lerCfg() {
     CFG.tmpl[modo] = $('#tmpl').value || '{codigo}'; CFG.limite = Math.max(0, +$('#lim').value || 0);
@@ -901,62 +932,64 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
 
   function trocarModo(m) {
     modo = m; store.set('modo', m); preencherCfg(); atualizarBotoes();
-    if (dados) { const c = colsAuto(m); $('#col').value = c.cod; $('#colTsk').value = c.tsk; construir(); } else { renderTabela(); renderResumo(); }
+    $('#dicaModo').textContent = DICA_MODO[m];
+    if (dados) construir(); else { renderTabela(); renderResumo(); }
   }
   $$('.modos button').forEach(b => b.addEventListener('click', () => trocarModo(b.dataset.m)));
 
-  function preencherSelects() {
-    const ops = dados.cab.map((c, i) => '<option value="' + i + '">' + xe(letra(i) + ' · ' + c) + '</option>').join('');
-    const nenhuma = '<option value="-1">(nenhuma)</option>';
-    $('#col').innerHTML = ops;
-    ['#colTsk', '#colEv', '#colSt', '#colRg', '#colTp', '#colId'].forEach(q => { $(q).innerHTML = nenhuma + ops; });
-    const c = colsAuto(modo);
-    $('#col').value = c.cod; $('#colTsk').value = c.tsk; $('#colEv').value = c.ev; $('#colSt').value = c.st; $('#colRg').value = c.rg; $('#colTp').value = c.tp; $('#colId').value = c.id;
-  }
   // junta as planilhas carregadas (Agendado + Não agendado) numa só lista
   function montarDados() {
     const usar = fontes.lista ? [['lista', fontes.lista]] : [['ag', fontes.ag], ['na', fontes.na]].filter(x => x[1]);
-    atualizarSlots();
-    if (!usar.length) { dados = null; itens = []; $('#info').textContent = 'Nenhuma planilha carregada.'; $('#infoCols').textContent = ''; renderTabela(); renderResumo(); return; }
+    if (!usar.length) { dados = null; itens = []; contTsk = { ag: 0, na: 0, lista: 0 }; atualizarSlots(); renderTabela(); renderResumo(); return; }
     const base = usar[0][1];
     dados = { cab: base.cab, linhas: [], orig: [] };
     usar.forEach(([k, f]) => {
-      if (f.cab.join('|') !== base.cab.join('|')) log('⚠ O layout de “' + f.nome + '” é diferente do primeiro arquivo; as colunas serão lidas pela mesma posição.');
+      if (f.cab.join('|') !== base.cab.join('|')) log('Atenção: “' + f.nome + '” tem colunas diferentes do primeiro arquivo.');
       f.linhas.forEach(l => { dados.linhas.push(l); dados.orig.push(k); });
     });
-    preencherSelects(); construir();
+    construir();
+    if (!fontes.lista) { const falta = colunasFaltando(); if (falta.length) log('Atenção: a planilha não tem a coluna ' + falta.join(', ') + '.'); }
   }
   const hojeTxt = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return p(d.getDate()) + '_' + p(d.getMonth() + 1) + '_' + String(d.getFullYear()).slice(2); };
   const ehNaoAgendada = nome => /\bn(ao|\s?o)\s+agendad/.test(norm(nome).replace(/[_\-.]+/g, ' '));
   function checarNome(slot, nome) {
     if (slot === 'ag') {
-      if (ehNaoAgendada(nome)) return { ok: false, msg: 'o nome parece o do arquivo NÃO agendado' };
+      if (ehNaoAgendada(nome)) return { ok: false, msg: 'Parece o arquivo não agendado.' };
       const m = nome.match(/(\d{1,2})[_\-.](\d{1,2})[_\-.](\d{2,4})/);
-      if (!m) return { ok: false, msg: 'o nome não tem data (esperado algo como ' + hojeTxt() + ')' };
+      if (!m) return { ok: false, msg: 'Sem a data no nome (hoje: ' + hojeTxt() + ').' };
       const d = new Date(), ano = +m[3] < 100 ? 2000 + +m[3] : +m[3];
-      if (+m[1] !== d.getDate() || +m[2] !== d.getMonth() + 1 || ano !== d.getFullYear()) return { ok: false, msg: 'a data do nome é ' + m[1] + '/' + m[2] + '/' + m[3] + ' e hoje é ' + hojeTxt().replace(/_/g, '/') };
+      if (+m[1] !== d.getDate() || +m[2] !== d.getMonth() + 1 || ano !== d.getFullYear()) return { ok: false, msg: 'Data do nome: ' + m[1] + '/' + m[2] + '/' + m[3] + '. Hoje: ' + hojeTxt().replace(/_/g, '/') + '.' };
       return { ok: true };
     }
-    return ehNaoAgendada(nome) ? { ok: true } : { ok: false, msg: 'o nome não tem “não agendada”' };
+    return ehNaoAgendada(nome) ? { ok: true } : { ok: false, msg: 'Sem “não agendada” no nome.' };
   }
   const SLOT = { ag: { el: '#upAg', info: '#infoAg', rm: '#rmAg', inp: '#arqAg', nome: 'Agendado' }, na: { el: '#upNa', info: '#infoNa', rm: '#rmNa', inp: '#arqNa', nome: 'Não agendado' } };
   function atualizarSlots() {
     ['ag', 'na'].forEach(k => {
-      const S = SLOT[k], f = fontes[k], box = $(S.el);
+      const S = SLOT[k], f = fontes[k], box = $(S.el), el = $(S.info);
       box.classList.toggle('ok', !!f && f.chk.ok); box.classList.toggle('aviso', !!f && !f.chk.ok);
       $(S.rm).hidden = !f;
-      $(S.info).textContent = f ? ((f.chk.ok ? '✔ ' : '⚠ ') + f.nome + ' · ' + f.linhas.length + ' linhas' + (f.chk.ok ? '' : ' — ' + f.chk.msg + '. Confira se é o arquivo certo.')) : 'Nenhum arquivo.';
+      el.textContent = '';
+      if (!f) { el.textContent = 'Nenhum arquivo.'; return; }
+      const ico = document.createElement('span'); ico.className = 'ico'; ico.innerHTML = f.chk.ok ? IC.ok : IC.alerta;
+      const t = document.createElement('span'); t.className = 'tt';
+      const nm = document.createElement('span'); nm.className = 'unm'; nm.textContent = f.nome; nm.title = f.nome;
+      const q = contTsk[k] || 0;
+      const b = document.createElement('b'); b.textContent = q + (q === 1 ? ' TSK válida' : ' TSKs válidas');
+      t.append(nm, b);
+      el.append(ico, t);
+      if (!f.chk.ok) { const m = document.createElement('div'); m.className = 'uav'; m.textContent = f.chk.msg; el.appendChild(m); }
     });
   }
   async function carregarArquivo(slot, f) {
     try {
       const abas = /\.xlsx$/i.test(f.name) ? await lerXlsx(await f.arrayBuffer()) : lerTexto(await f.text());
-      if (!abas.length) throw new Error('planilha vazia');
+      if (!abas.length) throw new Error('Planilha vazia.');
       const fonte = prepararFonte(abas); fonte.nome = f.name; fonte.chk = checarNome(slot, f.name);
       fontes[slot] = fonte; fontes.lista = null; seguirUm = '';
-      log('Planilha ' + SLOT[slot].nome + ' carregada: ' + f.name + ' (' + fonte.linhas.length + ' linhas)' + (fonte.chk.ok ? '' : ' ⚠ ' + fonte.chk.msg));
+      log('Planilha ' + SLOT[slot].nome + ': ' + f.name + ' (' + fonte.linhas.length + ' linhas)');
       montarDados();
-    } catch (err) { log('⚠ Não consegui ler “' + f.name + '”: ' + err.message + '. Use “cole a lista aqui”.'); }
+    } catch (err) { log('Atenção: não consegui ler “' + f.name + '”. ' + err.message); }
   }
   ['ag', 'na'].forEach(k => {
     const S = SLOT[k];
@@ -971,7 +1004,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     const t = $('#cola').value; if (!t.trim()) return;
     const fonte = prepararFonte(lerTexto(t)); fonte.nome = 'lista colada';
     fontes.lista = fonte; fontes.ag = fontes.na = null; seguirUm = '';
-    log('Lista colada carregada (' + fonte.linhas.length + ' linhas).'); montarDados();
+    log('Lista colada: ' + fonte.linhas.length + ' linhas.'); montarDados();
   });
 
   // balão de escolha dentro do painel
@@ -979,7 +1012,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     if ($('.modal')) return;
     const ov = document.createElement('div'); ov.className = 'modal';
     const card = document.createElement('div'); card.className = 'balao';
-    const t = document.createElement('div'); t.className = 'bt'; t.textContent = '🤖 ' + titulo;
+    const t = document.createElement('div'); t.className = 'bt'; t.innerHTML = ROBO(18, 1.8); t.append(titulo);
     const x = document.createElement('div'); x.className = 'bx'; x.textContent = texto;
     const bb = document.createElement('div'); bb.className = 'bb';
     botoes.concat([{ rotulo: 'Cancelar', cancelar: true }]).forEach(b => {
@@ -994,29 +1027,21 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     if (falta && seguirUm !== falta) {
       const tem = SLOT[falta === 'na' ? 'ag' : 'na'].nome, sem = SLOT[falta].nome;
       perguntar({
-        titulo: 'Só uma planilha anexada',
-        texto: 'Você anexou apenas a planilha “' + tem + '”. A planilha “' + sem + '” não foi anexada. Quer seguir só com a de ' + tem + '?',
+        titulo: 'Só uma planilha',
+        texto: 'Só a planilha “' + tem + '” foi anexada. Seguir só com ela?',
         botoes: [
           { rotulo: 'Seguir só com ' + tem, primario: true, fn: () => { seguirUm = falta; executar(); } },
-          { rotulo: 'Anexar a de ' + sem, fn: () => { const b = $(SLOT[falta].el); b.classList.add('pisca'); setTimeout(() => b.classList.remove('pisca'), 2200); $(SLOT[falta].inp).click(); } }
+          { rotulo: 'Anexar ' + sem, fn: () => { const b = $(SLOT[falta].el); b.classList.add('pisca'); setTimeout(() => b.classList.remove('pisca'), 2200); $(SLOT[falta].inp).click(); } }
         ]
       });
       return;
     }
     executar();
   }
-  ['#col', '#colTsk', '#colEv', '#colSt', '#colRg', '#colTp', '#colId'].forEach(q => $(q).addEventListener('change', reconstruir));
-  function lerFiltros() {
-    const l = id => $(id).value.split('\n').map(x => x.trim()).filter(Boolean);
-    CFG.filtros = { ativo: $('#fAtivo').checked, status: l('#fStatus'), excluir: l('#fExcl'), tipo: l('#fTipo') }; salvarCfg();
-    if (dados) reconstruir();
-  }
-  ['#fAtivo', '#fStatus', '#fExcl', '#fTipo'].forEach(q => $(q).addEventListener('change', lerFiltros));
-
   $('#bGo').addEventListener('click', () => { lerCfg(); iniciar(); });
-  $('#bStop').addEventListener('click', () => { parar = true; store.set('rodando', false); log('Parando… (termina o item atual)'); });
+  $('#bStop').addEventListener('click', () => { parar = true; store.set('rodando', false); log('Parando após o item atual.'); });
   $('#bXls').addEventListener('click', baixarExcel);
-  $('#bLimpa').addEventListener('click', () => { if (itens.length && !confirm('Apagar os resultados atuais e recomeçar?')) return; itens.forEach(i => Object.assign(i, { status: 'pendente', evento: '', alarmes: '', anexado: '', resposta: '', hora: '' })); store.del('sessao'); renderTabela(); renderResumo(); log('Resultados limpos.'); });
+  $('#bLimpa').addEventListener('click', () => { if (itens.length && !confirm('Limpar os resultados?')) return; itens.forEach(i => Object.assign(i, { status: 'pendente', evento: '', alarmes: '', anexado: '', resposta: '', hora: '' })); store.del('sessao'); renderTabela(); renderResumo(); log('Resultados limpos.'); });
   $('#bCopia').addEventListener('click', () => copiar(prontos().map(i => modo === 'tsk' ? i.codigo : (i.tsk || i.codigo)).join('\n')));
   $('#bX').addEventListener('click', () => { $('#p').style.display = 'none'; $('#lanc').style.display = 'block'; });
   $('#lanc').addEventListener('click', () => { $('#p').style.display = ''; $('#lanc').style.display = 'none'; });
@@ -1031,17 +1056,16 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
   $('#bFrPad').addEventListener('click', () => { CFG.frases = JSON.parse(JSON.stringify(FRASES_PADRAO)); salvarCfg(); preencherCfg(); log('Frases restauradas.'); });
   $('#bConn').addEventListener('click', () => {
     const i = acharInput();
-    log(i ? '✔ Campo de mensagem encontrado (' + i.tagName.toLowerCase() + (i.isContentEditable ? ', editável' : '') + ').' : '✖ Campo de mensagem NÃO encontrado. Abra o chat da Tais ou use 🎯 Marcar campo.');
-    log('Área de mensagens: ' + (CFG.selMsgs ? 'marcada' : (docs().some(d => d.querySelector('.bubbles')) ? 'Telegram (automática)' : 'página inteira')) + '. Quadros (iframes) acessíveis: ' + (docs().length - 1));
+    log(i ? 'Campo de mensagem encontrado.' : 'Campo de mensagem não encontrado. Abra o chat da Tais ou use “Marcar campo de mensagem”.');
     if (i) { const o = i.style.outline; i.style.outline = '3px solid #16a34a'; setTimeout(() => { i.style.outline = o; }, 2500); }
   });
   function marcar(chave, nome) {
-    log('🎯 Clique em: ' + nome + ' (ESC cancela)');
+    log('Clique em: ' + nome + ' (ESC cancela).');
     host.style.display = 'none'; let ant = null, antO = '';
     const ds = docs();
     const sobre = e => { if (ant) ant.style.outline = antO; ant = e.target; antO = ant.style.outline; ant.style.outline = '3px solid #f59e0b'; };
     const fim = () => { ds.forEach(d => { d.removeEventListener('mouseover', sobre, true); d.removeEventListener('click', clique, true); d.removeEventListener('keydown', tecla, true); }); if (ant) ant.style.outline = antO; host.style.display = ''; };
-    const clique = e => { e.preventDefault(); e.stopPropagation(); const alvo = e.target; fim(); CFG[chave] = cssPath(alvo); salvarCfg(); preencherCfg(); log('✔ Marcado: ' + CFG[chave]); };
+    const clique = e => { e.preventDefault(); e.stopPropagation(); const alvo = e.target; fim(); CFG[chave] = cssPath(alvo); salvarCfg(); preencherCfg(); log('Marcado.'); };
     const tecla = e => { if (e.key === 'Escape') { fim(); log('Cancelado.'); } };
     ds.forEach(d => { d.addEventListener('mouseover', sobre, true); d.addEventListener('click', clique, true); d.addEventListener('keydown', tecla, true); });
   }
@@ -1064,15 +1088,14 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     if (!s || !s.itens || !s.itens.length) return false;
     modo = s.modo; store.set('modo', modo); preencherCfg(); atualizarBotoes();
     itens = s.itens.map(i => Object.assign({}, i, { status: i.status === 'testando' ? 'pendente' : i.status }));
-    $('#info').textContent = itens.length + ' itens restaurados da última sessão.';
     renderTabela(); renderResumo();
-    log('↻ Sessão anterior restaurada (' + itens.filter(i => i.status !== 'pendente').length + ' testados, ' + itens.filter(i => i.status === 'pendente').length + ' pendentes).');
+    log('Sessão anterior restaurada (' + itens.filter(i => i.status !== 'pendente').length + ' testados, ' + itens.filter(i => i.status === 'pendente').length + ' pendentes).');
     return true;
   }
   const sessaoAnt = store.get('sessao', null);
   if (sessaoAnt && sessaoAnt.itens && sessaoAnt.itens.length) {
     const b = $('#bRec'); b.style.display = '';
-    b.textContent = '↻ Recuperar último teste (' + sessaoAnt.itens.length + ' itens, ' + new Date(sessaoAnt.quando).toLocaleString('pt-BR') + ')';
+    b.innerHTML = IC.limpar; b.append('Retomar último teste (' + sessaoAnt.itens.length + ' itens)');
     b.addEventListener('click', () => restaurar());
   }
   window.__roboTais = {
@@ -1080,7 +1103,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     _debug: { get itens() { return itens; }, CFG, classificar, extrair, gerarXlsx, lerXlsx }
   };
   preencherCfg(); atualizarBotoes(); renderResumo();
-  log('Robô Tais v' + VERSAO + ' pronto. Páginas aceitas: Telegram Web e Portal TIM.');
+  log('Robô Tais pronto.');
   if (store.get('rodando', false) && CFG.retomar && restaurar(true)) {
     log('A página recarregou durante um teste. Retomando em 6 segundos… (clique em Parar para cancelar)');
     setTimeout(() => { if (!parar && store.get('rodando', false)) { executar(); } }, 6000);

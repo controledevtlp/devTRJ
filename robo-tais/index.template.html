@@ -28,6 +28,8 @@ main{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:26px}
 .logo{color:var(--accent);display:grid;filter:drop-shadow(0 0 8px var(--glow))}
 .brand span{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
 .toggle{font:500 13px var(--f-body);display:flex;align-items:center;gap:7px;border-radius:99px;padding:7px 13px;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--fg);transition:.18s}
+.ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.cred{display:inline-flex;align-items:center;gap:7px}.cred .ic{color:var(--accent)}
 .toggle:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 6px 20px var(--glow);transform:translateY(-1px)}
 .hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:34px;align-items:center}
 .eyebrow{font:500 12px var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
@@ -84,12 +86,12 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
 <main>
   <div class="top">
     <div class="brand"><span class="logo"><svg width="30" height="30" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8.5 5v10L12 22l-8.5-5V7z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="11" r="1.4" fill="currentColor"/><circle cx="15" cy="11" r="1.4" fill="currentColor"/><path d="M9 15h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span>Robô Tais</span></div>
-    <button class="toggle" id="tema" type="button" aria-label="Alternar tema claro e escuro">◐ <span id="temaTxt">Tema</span></button>
+    <button class="toggle" id="tema" type="button" aria-label="Alternar tema claro e escuro"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></svg><span id="temaTxt">Tema</span></button>
   </div>
 
   <header class="hero">
     <div>
-      <div class="eyebrow">Validação automática · v1.5</div>
+      <div class="eyebrow">Validação automática · v1.6</div>
       <h1>Valide TSKs e teste NE-ID e END-ID <em>sem repetir nada</em></h1>
       <p class="lead">Suba a planilha, escolha o modo e acompanhe cada item em tempo real. O robô anexa o resultado no chamado quando a TSK está normalizada e entrega um Excel com tudo separado. Roda na sua aba da Tais, com o seu login. Não lê nem guarda senha.</p>
       <div class="sites"><span>web.telegram.org/k/#@tim_tais_bot</span><span>tim-access-portal-prd…codeengine.appdomain.cloud</span></div>
@@ -156,8 +158,8 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
       <li><span>Abra a Tais e faça login como sempre.</span></li>
       <li><span>No painel, escolha <b>Validar TSK</b>, <b>Testar NE-ID</b> ou <b>Testar END-ID</b>.</span></li>
       <li><span>Suba as planilhas: <b>Agendado</b> (nome com a data de hoje, como <code>Atividades-TRJ_FMMT_17_11_26</code>) e <b>Não agendado</b> (nome com “não agendada”). O robô junta as duas numa lista só. Se subir apenas uma, ele pergunta se pode seguir só com ela.</span></li>
-      <li><span>Marque <b>Modo simulação</b> e rode uma vez para ver o painel funcionando sem mexer na Tais.</span></li>
-      <li><span>Desmarque a simulação, deixe <b>Quantos testar</b> em 3 e confira no chamado se o anexo entrou. Depois coloque 0 para rodar tudo.</span></li>
+      <li><span>Marque <b>Simulação</b> e rode uma vez para ver o painel funcionando sem usar a Tais.</span></li>
+      <li><span>Desmarque a simulação, deixe <b>Quantidade</b> em 3 e confira no chamado se o anexo entrou. Depois coloque 0 para rodar tudo.</span></li>
       <li><span>Enquanto roda, a caixa verde lista as TSKs prontas para encerrar. Ao final, baixe o Excel.</span></li>
     </ol>
     <div class="tw"><table>
@@ -182,7 +184,6 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
       <li>Quando a Tais pergunta qual evento da cadeia validar, o robô escolhe o evento da coluna GF da linha escolhida da TSK. Sem evento na planilha, ou sem opção igual na pergunta, a TSK vai para Indefinidos e o robô não clica em nada.</li>
       <li>Resposta “Não encontrei regras de validação… não é possível afirmar” vai para Indefinidos, nunca para Normalizados.</li>
     </ul>
-    <p class="note">Esses filtros e as colunas podem ser mudados no painel, em “Colunas e filtros”.</p>
   </section>
 
   <section>
@@ -190,15 +191,15 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
     <h2>Se algo não bater</h2>
     <ol>
       <li><span>Painel não aparece: atualize a aba com <code>F5</code>, confirme em <code>chrome://extensions</code> ou <code>edge://extensions</code> que o Robô Tais está ligado e clique no ícone dele na barra. Se o painel foi fechado no X, procure o botão redondo no canto direito superior.</span></li>
-      <li><span>A mensagem enviada vem como <code>{codigo} validar</code> e <code>{codigo} testar</code>. Se você digita de outro jeito, troque o campo “Mensagem enviada”.</span></li>
-      <li><span>Em <b>Calibração e frases</b>, use <b>Testar conexão</b>. Se o campo de mensagem não for achado, clique em <b>Marcar campo de mensagem</b> e depois no campo da Tais.</span></li>
+      <li><span>A mensagem enviada vem como <code>{codigo} validar</code> e <code>{codigo} testar</code>. Se você digita de outro jeito, troque o campo “Mensagem enviada” no painel.</span></li>
+      <li><span>Em <b>Ajustes da Tais</b>, use <b>Testar conexão</b>. Se o campo de mensagem não for achado, clique em <b>Marcar campo de mensagem</b> e depois no campo da Tais.</span></li>
       <li><span>Resposta amarela: copie o texto dela na tabela (clique na linha) e ajuste as frases de normalizado, não normalizado ou sem regra.</span></li>
       <li><span>Anexo “VERIFICAR” significa que o robô clicou em Sim, mas não viu a frase de confirmação. Confira o chamado.</span></li>
     </ol>
     <p class="note">Este robô ainda não foi testado na Tais real, apenas em chats de simulação. Rode primeiro com poucos itens e confirme os anexos.</p>
   </section>
 
-  <footer><span>⚡ Desenvolvido por <b>Lucas Infante</b></span><span>Robô Tais v1.5</span></footer>
+  <footer><span class="cred"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></svg>Desenvolvido por <b>Lucas Infante</b></span><span>Robô Tais v1.6</span></footer>
 </main>
 
 <script type="text/plain" id="codigo">/*__CODIGO__*/</script>
