@@ -53,6 +53,8 @@ h2{font-family:var(--f-display);font-weight:600;font-size:23px;margin:0 0 6px;te
 p{margin:0}
 ol{margin:14px 0 0;padding:0;list-style:none;counter-reset:passo;display:flex;flex-direction:column;gap:10px}
 ol li{counter-increment:passo;display:grid;grid-template-columns:26px minmax(0,1fr);gap:11px;align-items:start}
+ul{margin:14px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:9px}
+ul li::marker{color:var(--accent)}
 ol li::before{content:counter(passo);font:500 12px var(--f-mono);display:grid;place-items:center;width:26px;height:26px;border-radius:8px;border:1px solid var(--accent);color:var(--accent);background:var(--code-bg)}
 ol[start="3"]{counter-reset:passo 2}
 code{font-family:var(--f-mono);font-size:12.5px;background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px;overflow-wrap:anywhere}
@@ -87,7 +89,7 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
 
   <header class="hero">
     <div>
-      <div class="eyebrow">Validação automática · v1.3</div>
+      <div class="eyebrow">Validação automática · v1.4</div>
       <h1>Valide TSKs e teste NE-ID e END-ID <em>sem repetir nada</em></h1>
       <p class="lead">Suba a planilha, escolha o modo e acompanhe cada item em tempo real. O robô anexa o resultado no chamado quando a TSK está normalizada e entrega um Excel com tudo separado. Roda na sua aba da Tais, com o seu login. Não lê nem guarda senha.</p>
       <div class="sites"><span>web.telegram.org/k/#@tim_tais_bot</span><span>tim-access-portal-prd…codeengine.appdomain.cloud</span></div>
@@ -153,7 +155,7 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
     <ol>
       <li><span>Abra a Tais e faça login como sempre.</span></li>
       <li><span>No painel, escolha <b>Validar TSK</b>, <b>Testar NE-ID</b> ou <b>Testar END-ID</b>.</span></li>
-      <li><span>Suba a planilha .xlsx. O robô acha as colunas <code>Número</code>, <code>NE ID</code> e <code>END ID</code>. Também dá para colar uma lista.</span></li>
+      <li><span>Suba as planilhas: <b>Agendado</b> (nome com a data de hoje, como <code>Atividades-TRJ_FMMT_17_11_26</code>) e <b>Não agendado</b> (nome com “não agendada”). O robô junta as duas numa lista só. Se subir apenas uma, ele pergunta se pode seguir só com ela.</span></li>
       <li><span>Marque <b>Modo simulação</b> e rode uma vez para ver o painel funcionando sem mexer na Tais.</span></li>
       <li><span>Desmarque a simulação, deixe <b>Quantos testar</b> em 3 e confira no chamado se o anexo entrou. Depois coloque 0 para rodar tudo.</span></li>
       <li><span>Enquanto roda, a caixa verde lista as TSKs prontas para encerrar. Ao final, baixe o Excel.</span></li>
@@ -164,9 +166,22 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
         <tr><td><span class="dot" style="color:var(--ok)"></span>Verde</td><td>Normalizado</td><td>Em Validar TSK, responde Sim e confere a confirmação de anexo</td></tr>
         <tr><td><span class="dot" style="color:var(--bad)"></span>Vermelho</td><td>Não normalizado</td><td>Guarda evento e alarmes; não anexa</td></tr>
         <tr><td><span class="dot" style="color:var(--gray)"></span>Cinza</td><td>Sem regra de validação</td><td>Deixa de lado e segue</td></tr>
-        <tr><td><span class="dot" style="color:var(--warn)"></span>Amarelo</td><td>Resposta não reconhecida</td><td>Guarda o texto para você conferir</td></tr>
+        <tr><td><span class="dot" style="color:var(--warn)"></span>Amarelo</td><td>Indefinido: resposta não reconhecida ou “não é possível afirmar”</td><td>Nunca vira normalizado. Guarda o texto para você conferir</td></tr>
       </tbody></table></div>
     <p class="good">O Excel final tem as abas Normalizados, Não normalizados, Não validáveis, Indefinidos e Todos, com a coluna “Anexado no chamado”.</p>
+  </section>
+
+  <section>
+    <span class="tag">Regras da lista</span>
+    <h2>O que entra no teste</h2>
+    <ul>
+      <li>Só entram TSKs com <b>Estado</b> (coluna E) igual a “Não iniciado” ou “Iniciado”.</li>
+      <li>Ficam de fora as TSKs cuja <b>regra usuário criador</b> (coluna DJ) contém <code>PREDITIVA</code>, <code>SUPORTE ACESSO</code> ou <code>MABE</code>.</li>
+      <li>A TSK vem da coluna B. Se a mesma TSK aparecer em mais de uma linha, ela é testada uma vez só.</li>
+      <li>Quando a Tais pergunta qual evento da cadeia validar, o robô escolhe o evento da coluna GF da própria TSK. Sem evento na planilha, ou sem opção igual na pergunta, a TSK vai para Indefinidos e o robô não clica em nada.</li>
+      <li>Resposta “Não encontrei regras de validação… não é possível afirmar” vai para Indefinidos, nunca para Normalizados.</li>
+    </ul>
+    <p class="note">Esses filtros e as colunas podem ser mudados no painel, em “Colunas e filtros”.</p>
   </section>
 
   <section>
@@ -182,7 +197,7 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
     <p class="note">Este robô ainda não foi testado na Tais real, apenas em chats de simulação. Rode primeiro com poucos itens e confirme os anexos.</p>
   </section>
 
-  <footer><span>⚡ Desenvolvido por <b>Lucas Infante</b></span><span>Robô Tais v1.3</span></footer>
+  <footer><span>⚡ Desenvolvido por <b>Lucas Infante</b></span><span>Robô Tais v1.4</span></footer>
 </main>
 
 <script type="text/plain" id="codigo">/*__CODIGO__*/</script>

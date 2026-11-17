@@ -5,7 +5,7 @@
   'use strict';
   if (window.__roboTais) { window.__roboTais.mostrar(); return; }
 
-  const VERSAO = '1.3';
+  const VERSAO = '1.4';
   const LS = 'robotais_v1_';
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -20,6 +20,8 @@
   /* ============ CONFIGURAÇÃO (editável no painel) ============ */
   const FRASES_PADRAO = {
     nv: ['nenhuma regra de validação', 'não foi possível validar', 'sem possibilidade de validar'],
+    indef: ['não encontrei regras', 'não é possível afirmar', 'não foi possível afirmar', 'se ele atende aos critérios'],
+    cadeia: ['cadeia de tickets', 'apenas de um evento'],
     nao: ['não atende', 'não normalizad', 'não está normalizad'],
     sim: ['atende aos critérios', 'está normalizad', 'sem alarme', 'nenhum alarme ativo'],
     pergunta: ['gostaria de inserir'],
@@ -34,11 +36,15 @@
   }, salvo);
   CFG.tmpl = Object.assign({ tsk: '{codigo} validar', ne: '{codigo} testar', end: '{codigo} testar' }, salvo.tmpl || {});
   CFG.frases = Object.assign({}, FRASES_PADRAO, salvo.frases || {});
+  CFG.filtros = Object.assign({ ativo: true, status: ['Não iniciado', 'Iniciado'], excluir: ['PREDITIVA', 'SUPORTE ACESSO', 'MABE'] }, salvo.filtros || {});
   const salvarCfg = () => store.set('cfg', CFG);
 
   /* ============ ESTADO ============ */
   let modo = store.get('modo', 'tsk');        // tsk | ne | end
-  let dados = null;                            // {abas:[{nome,linhas}], aba, cab, linhas}
+  let dados = null;                            // lista unificada: {cab, linhas, orig}
+  const fontes = { ag: null, na: null, lista: null };   // planilhas carregadas: Agendado, Não agendado, lista colada
+  const ORIG_TXT = { ag: 'Agendado', na: 'Não agendado', lista: 'Lista colada' };
+  let seguirUm = '';                           // qual planilha faltante o usuário aceitou dispensar
   let itens = [];                              // itens do teste
   let rodando = false, parar = false, faseTxt = '', itemAtual = null, inicioItem = 0;
   const NOMES_MODO = { tsk: 'Validar TSK', ne: 'Testar NE-ID', end: 'Testar END-ID' };
@@ -114,19 +120,22 @@
     atual.forEach(l => { const c = cont.get(l) || 0; if (c > 0) cont.set(l, c - 1); else out.push(l); });
     return out;
   }
-  // botões "Sim"/"Não" visíveis (folhas de texto), sempre em ordem do documento
-  function botoes(rotulo) {
+  // botões/folhas de texto visíveis cujo texto (já sem acento e minúsculo) satisfaz fn; sempre em ordem do documento
+  function botoesQue(fn) {
     const alvo = new Set(), lista = [];
-    docs().forEach(d => d.querySelectorAll('button,[role=button],a,input[type=button],input[type=submit],span,div,p,li,label').forEach(el => {
+    docs().forEach(d => d.querySelectorAll('button,[role=button],a,input[type=button],input[type=submit],.reply-markup-button,span,div,p,li,label').forEach(el => {
+      if (el.childElementCount > 3) return;
       const t = el.tagName === 'INPUT' ? el.value : el.textContent;
-      if (soLetras(t) !== rotulo) return;
-      if (el.querySelectorAll('*').length > 3) return;
+      if (!t || t.length > 200 || !fn(norm(t))) return;
+      if (el.querySelectorAll('*').length > 6) return;
+      if ([...el.children].some(c => c.textContent && fn(norm(c.textContent)))) return;   // só o elemento mais interno (não o bloco que agrupa vários botões)
       if (!visivel(el)) return;
       const alt = el.closest('button,[role=button],a,input,.reply-markup-button') || el;
       if (!alvo.has(alt)) { alvo.add(alt); lista.push(alt); }
     }));
     return lista;
   }
+  const botoes = rotulo => botoesQue(t => t.replace(/[^a-z]/g, '') === rotulo);
   function clicar(el) {
     try { el.scrollIntoView({ block: 'center' }); } catch (e) { }
     const w = el.ownerDocument.defaultView;
@@ -199,6 +208,7 @@
   const tem = (t, arr) => arr.some(p => p && t.includes(norm(p)));
   function classificar(texto) {
     const t = norm(texto);
+    if (tem(t, CFG.frases.indef)) return 'indefinido';   // “não encontrei regras / não é possível afirmar”: nunca vira normalizado
     if (tem(t, CFG.frases.nv)) return 'nao_validavel';
     if (tem(t, CFG.frases.nao)) return 'nao_normalizado';
     if (tem(t, CFG.frases.sim)) return 'normalizado';
@@ -211,7 +221,7 @@
     const al = [];
     linhas.forEach(l => {
       const n = norm(l);
-      if (n.includes('criterio') || n.includes('gostaria')) return;
+      if (/criterio|gostaria|regras de validacao|feedback|duvidas|nao foi possivel|nao e possivel/.test(n)) return;
       if (/alarm|falha|retificador|energia|bateria|sn-[a-z0-9]+/i.test(l) && !al.includes(l)) al.push(l);
     });
     return { evento: ev, alarmes: al.join(' | ').slice(0, 600) };
@@ -223,25 +233,45 @@
     faseTxt = 'aguardando campo de mensagem…';
     const inp = await aguardarInput();
     const antesL = linhasPagina();
-    const antesB = new Set(botoes('sim').concat(botoes('nao')));
+    const antesB = new Set(botoesQue(() => true));
     faseTxt = 'enviando “' + msg + '”…';
     await enviar(inp, msg);
     log('Enviado: ' + msg);
     faseTxt = 'aguardando resposta da Tais…';
     const t0 = Date.now();
     let ultimo = '', mudou = Date.now(), cls = null;
+    let cadeiaDesde = 0, cadeiaOk = false, baseResp = null, escolhido = '';
+    const evn = (it.eventos || []).map(e => norm(e).replace(/\s/g, '')).filter(Boolean);
     while (Date.now() - t0 < CFG.espera * 1000) {
       await esperar(500);
       const nl = novasLinhas(antesL, linhasPagina());
       const txt = nl.join('\n');
       if (txt !== ultimo) { ultimo = txt; mudou = Date.now(); }
+      // A Tais perguntou qual evento da cadeia validar: escolhe o evento desta TSK (vem da planilha)
+      if (!cadeiaOk && tem(norm(txt), CFG.frases.cadeia)) {
+        if (!cadeiaDesde) { cadeiaDesde = Date.now(); faseTxt = 'cadeia de tickets: escolhendo o evento da planilha…'; }
+        if (!evn.length) return { status: 'indefinido', resposta: 'A Tais perguntou qual evento da cadeia validar, mas esta TSK não tem evento na planilha (coluna do evento).\n' + txt, evento: '', alarmes: '', anexado: '' };
+        const alvo = botoesQue(t => evn.some(e => t.replace(/\s/g, '').includes(e))).filter(e => !antesB.has(e));
+        if (alvo.length) {
+          escolhido = alvo[0].textContent.trim().replace(/\s+/g, ' ');
+          baseResp = linhasPagina();
+          clicar(alvo[0]); cadeiaOk = true; mudou = Date.now();
+          faseTxt = 'evento escolhido, aguardando a validação…';
+          log('Cadeia de tickets: escolhido “' + escolhido + '”');
+        } else if (Date.now() - cadeiaDesde > 12000) {
+          return { status: 'indefinido', resposta: 'Nenhuma opção da cadeia corresponde ao evento da planilha (' + (it.eventos || []).join(', ') + ').\n' + txt, evento: '', alarmes: '', anexado: '' };
+        }
+        continue;
+      }
       cls = classificar(txt);
       if (cls && Date.now() - mudou >= CFG.estavel * 1000) break;
     }
     const nl = novasLinhas(antesL, linhasPagina());
-    const resposta = nl.join('\n');
-    if (!cls) return { status: 'indefinido', resposta: resposta || '(sem resposta no tempo limite)', evento: '', alarmes: '', anexado: '' };
-    const ex = extrair(nl);
+    const linhasResp = baseResp ? novasLinhas(baseResp, linhasPagina()) : nl;
+    const resposta = (escolhido ? '[Cadeia: escolhido “' + escolhido + '”]\n' : '') + linhasResp.join('\n');
+    const ex = extrair(linhasResp);
+    if (!cls) return { status: 'indefinido', resposta: resposta || '(sem resposta no tempo limite)', evento: ex.evento, alarmes: '', anexado: '' };
+    if (cls === 'indefinido') return { status: 'indefinido', resposta, evento: ex.evento, alarmes: '', anexado: '' };
     const r = { status: cls, resposta, evento: ex.evento, alarmes: ex.alarmes, anexado: '' };
     const pergunta = tem(norm(resposta), CFG.frases.pergunta);
 
@@ -349,18 +379,39 @@
     };
   }
   const colIdx = ref => { let n = 0; for (const ch of String(ref).replace(/[0-9]/g, '')) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; };
+  // junta um caminho relativo a uma pasta e resolve ./ e ../
+  function juntar(dir, alvo) {
+    if (alvo.startsWith('/')) return alvo.slice(1);
+    const out = [];
+    (dir + alvo).split('/').forEach(p => { if (p === '..') out.pop(); else if (p && p !== '.') out.push(p); });
+    return out.join('/');
+  }
   async function lerXlsx(buf) {
     const z = await lerZip(buf);
-    const wb = parseXml(await z.ler('xl/workbook.xml'));
-    const rels = parseXml(await z.ler('xl/_rels/workbook.xml.rels'));
-    const alvo = {};
-    [...rels.getElementsByTagName('Relationship')].forEach(r => { let t = r.getAttribute('Target'); t = t.startsWith('/') ? t.slice(1) : 'xl/' + t; alvo[r.getAttribute('Id')] = t; });
+    // acha o workbook pelos relacionamentos do pacote (funciona com ou sem a pasta xl/)
+    let wbPath = null;
+    const raiz = await z.ler('_rels/.rels');
+    if (raiz) {
+      const r = [...parseXml(raiz).getElementsByTagName('Relationship')].find(x => /officeDocument$/.test(x.getAttribute('Type') || ''));
+      if (r) wbPath = juntar('', r.getAttribute('Target'));
+    }
+    let wbXml = wbPath && await z.ler(wbPath);
+    if (!wbXml) for (const c of ['xl/workbook.xml', 'workbook.xml']) { wbXml = await z.ler(c); if (wbXml) { wbPath = c; break; } }
+    if (!wbXml) throw new Error('não achei a planilha dentro do arquivo .xlsx');
+    const dir = wbPath.includes('/') ? wbPath.slice(0, wbPath.lastIndexOf('/') + 1) : '';
+    const wb = parseXml(wbXml);
+    const relXml = await z.ler(dir + '_rels/' + wbPath.slice(dir.length) + '.rels');
+    const alvo = {}; let ssPath = null;
+    if (relXml) [...parseXml(relXml).getElementsByTagName('Relationship')].forEach(r => {
+      const t = juntar(dir, r.getAttribute('Target')); alvo[r.getAttribute('Id')] = t;
+      if (/sharedStrings$/.test(r.getAttribute('Type') || '')) ssPath = t;
+    });
     let comp = [];
-    const ss = await z.ler('xl/sharedStrings.xml');
+    const ss = await z.ler(ssPath || (dir + 'sharedStrings.xml'));
     if (ss) comp = [...parseXml(ss).getElementsByTagName('si')].map(si => [...si.getElementsByTagName('t')].filter(t => !t.parentElement || t.parentElement.tagName !== 'rPh').map(t => t.textContent).join(''));
     const abas = [];
-    for (const s of [...wb.getElementsByTagName('sheet')]) {
-      const xml = await z.ler(alvo[s.getAttribute('r:id')]);
+    for (const sh of [...wb.getElementsByTagName('sheet')]) {
+      const xml = await z.ler(alvo[sh.getAttribute('r:id')]);
       if (!xml) continue;
       const linhas = [];
       [...parseXml(xml).getElementsByTagName('row')].forEach(row => {
@@ -375,7 +426,7 @@
         for (let i = 0; i < arr.length; i++) if (arr[i] == null) arr[i] = '';
         linhas.push(arr);
       });
-      abas.push({ nome: s.getAttribute('name'), linhas });
+      abas.push({ nome: sh.getAttribute('name'), linhas });
     }
     return abas;
   }
@@ -384,37 +435,76 @@
     const sep = ['\t', ';', ','].find(s => ls.some(l => l.includes(s))) || '\t';
     return [{ nome: 'Lista', linhas: ls.map(l => l.split(sep).map(c => c.replace(/^"|"$/g, '').trim())) }];
   }
-  function definirAba(i) {
-    const a = dados.abas[i]; dados.aba = i;
+  // escolhe a aba com mais linhas e acha o cabeçalho (primeira linha com 2+ células preenchidas)
+  function prepararFonte(abas) {
+    const a = abas.slice().sort((x, y) => y.linhas.length - x.linhas.length)[0];
     let h = 0;
     for (let k = 0; k < Math.min(10, a.linhas.length); k++) if (a.linhas[k].filter(c => String(c).trim()).length >= 2) { h = k; break; }
-    const soUma = a.linhas.every(l => l.length <= 1);
-    dados.cab = soUma ? ['Código'] : a.linhas[h].map((c, j) => String(c).trim() || ('Coluna ' + (j + 1)));
-    dados.linhas = soUma ? a.linhas : a.linhas.slice(h + 1);
+    if (a.linhas.every(l => l.length <= 1)) return { cab: ['Código'], linhas: a.linhas };
+    const cabL = a.linhas[h], resto = a.linhas.slice(h + 1);
+    const n = Math.max(cabL.length, ...resto.slice(0, 200).map(l => l.length));
+    return { cab: Array.from({ length: n }, (_, j) => String(cabL[j] == null ? '' : cabL[j]).trim() || ('Coluna ' + (j + 1))), linhas: resto };
   }
   const ACHAR = {
     tsk: h => /^(numero|tsk|chamado|ticket|n)$/.test(norm(h)) || /^(numero|tsk)\b/.test(norm(h)),
     ne: h => /^ne ?-?_?id$/.test(norm(h)) || /^neid/.test(norm(h)),
     end: h => /^end ?-?_?id$/.test(norm(h)) || /^endid/.test(norm(h))
   };
-  function colAuto(m) { const i = dados.cab.findIndex(ACHAR[m]); return i >= 0 ? i : 0; }
-
+  // Colunas padrão: TSK = coluna B, status = E, regra criadora = DJ, evento = GF (se a planilha não tiver, procura pelo nome do cabeçalho)
+  function colsAuto(m) {
+    const porNome = re => dados.cab.findIndex(h => re.test(norm(h)));
+    const porLetra = (L, re) => { const i = colIdx(L); return i < dados.cab.length ? i : porNome(re); };
+    const iT = dados.cab.findIndex(ACHAR.tsk);
+    const tsk = iT >= 0 ? iT : (dados.cab.length > 1 ? 1 : 0);
+    const iC = m === 'tsk' ? tsk : dados.cab.findIndex(ACHAR[m]);
+    return { cod: iC >= 0 ? iC : 0, tsk: m === 'tsk' ? -1 : tsk, ev: porLetra('GF', /evento/), st: porLetra('E', /^status/), rg: porLetra('DJ', /regra/) };
+  }
   const limpo = v => { v = String(v == null ? '' : v).trim(); return (!v || /^(-|n\/?a|nan|null|none|#n\/?a)$/i.test(v)) ? '' : v; };
   function construir() {
     itens = [];
     if (!dados) return;
-    const cc = +$('#col').value;
-    const ct = +$('#colTsk').value;
+    const cc = +$('#col').value, ct = +$('#colTsk').value, ce = +$('#colEv').value, cs = +$('#colSt').value, cr = +$('#colRg').value;
+    const F = CFG.filtros;
+    const aceitos = new Set(F.status.map(norm)), excl = F.excluir.map(norm).filter(Boolean);
+    const ign = { status: 0, regra: 0 };
     const mapa = new Map();
-    dados.linhas.forEach(l => {
+    dados.linhas.forEach((l, li) => {
       const c = limpo(l[cc]); if (!c) return;
-      if (!mapa.has(c)) { mapa.set(c, { tsks: new Set() }); }
-      if (modo !== 'tsk' && ct >= 0) { const t = limpo(l[ct]); if (t) mapa.get(c).tsks.add(t); }
+      if (F.ativo) {
+        if (cs >= 0 && aceitos.size && !aceitos.has(norm(l[cs]))) { ign.status++; return; }
+        if (cr >= 0 && excl.length) { const r = norm(l[cr]); if (excl.some(x => r.includes(x))) { ign.regra++; return; } }
+      }
+      if (!mapa.has(c)) mapa.set(c, { tsks: new Set(), evs: new Set(), org: new Set() });
+      const m = mapa.get(c);
+      m.org.add(dados.orig[li]);
+      if (modo !== 'tsk' && ct >= 0) { const t = limpo(l[ct]); if (t) m.tsks.add(t); }
+      if (ce >= 0) String(l[ce] == null ? '' : l[ce]).split(/[;,\s]+/).map(limpo).filter(Boolean).forEach(e => m.evs.add(e));
     });
-    let n = 0;
-    mapa.forEach((v, c) => itens.push({ id: ++n, codigo: c, tsk: modo === 'tsk' ? c : [...v.tsks].join(', '), status: 'pendente', evento: '', alarmes: '', anexado: '', resposta: '', hora: '' }));
-    $('#info').textContent = itens.length + ' ' + (modo === 'tsk' ? 'TSKs' : 'códigos únicos') + ' carregados.';
+    let n = 0; const cont = { ag: 0, na: 0, ambos: 0, lista: 0 };
+    mapa.forEach((v, c) => {
+      const ord = ['ag', 'na', 'lista'].filter(k => v.org.has(k));
+      if (ord.length > 1) cont.ambos++; else cont[ord[0]]++;
+      itens.push({ id: ++n, codigo: c, tsk: modo === 'tsk' ? c : [...v.tsks].join(', '), origem: ord.map(k => ORIG_TXT[k]).join(' + '), eventos: [...v.evs], eventoPlan: [...v.evs].join(', '), status: 'pendente', evento: '', alarmes: '', anexado: '', resposta: '', hora: '' });
+    });
+    let info = itens.length + ' ' + (modo === 'tsk' ? 'TSKs' : 'códigos únicos') + ' para testar';
+    if (fontes.ag || fontes.na) info += ' (Agendado: ' + (cont.ag + cont.ambos) + ' · Não agendado: ' + (cont.na + cont.ambos) + (cont.ambos ? ' · repetidas nas duas: ' + cont.ambos : '') + ')';
+    info += '.';
+    if (F.ativo) info += ' Linhas ignoradas: ' + ign.status + ' por estado, ' + ign.regra + ' por regra criadora.';
+    const av = [];
+    if (F.ativo && cs < 0) av.push('coluna de estado não definida (filtro de estado desligado)');
+    if (F.ativo && cr < 0) av.push('coluna da regra criadora não definida (filtro de regra desligado)');
+    if (ce < 0) av.push('sem coluna de evento (não dá para escolher o evento da cadeia)');
+    if (av.length) info += ' ⚠ ' + av.join('; ') + '.';
+    if (!itens.length) info += ' ⚠ Nenhum item sobrou: confira as colunas e os filtros.';
+    $('#info').textContent = info;
+    const nc = i => i >= 0 ? letra(i) + ' · ' + (dados.cab[i] || '') : '—';
+    $('#infoCols').textContent = 'Colunas lidas: ' + (modo === 'tsk' ? 'TSK' : 'código') + ' = ' + nc(cc) + (ct >= 0 ? ' | TSK = ' + nc(ct) : '') + ' | evento = ' + nc(ce) + ' | estado = ' + nc(cs) + ' | regra criadora = ' + nc(cr);
     renderTabela(); renderResumo();
+  }
+  function reconstruir() {
+    if (rodando) { log('Pare o robô antes de mudar colunas ou filtros.'); return; }
+    if (itens.some(i => i.status !== 'pendente') && !confirm('Mudar colunas ou filtros apaga os resultados atuais. Continuar?')) return;
+    construir();
   }
 
   /* ============ EXCEL DE SAÍDA (.xlsx sem biblioteca) ============ */
@@ -446,18 +536,18 @@
   const letra = i => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
   const ESTILO_STATUS = { normalizado: 2, nao_normalizado: 3, nao_validavel: 4, indefinido: 5 };
   function xmlAba(cab, linhas, estilos) {
-    const larg = [10, 22, 22, 20, 18, 50, 16, 10, 80];
+    const larg = [14, 16, 22, 22, 20, 24, 24, 50, 16, 10, 80];
     let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>';
     cab.forEach((_, i) => x += '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + (larg[i] || 18) + '" customWidth="1"/>');
     x += '</cols><sheetData>';
     const cel = (r, c, v, s) => '<c r="' + letra(c) + r + '" t="inlineStr"' + (s ? ' s="' + s + '"' : '') + '><is><t xml:space="preserve">' + xe(v) + '</t></is></c>';
     x += '<row r="1">' + cab.map((v, c) => cel(1, c, v, 1)).join('') + '</row>';
-    linhas.forEach((l, i) => { x += '<row r="' + (i + 2) + '">' + l.map((v, c) => cel(i + 2, c, v, estilos && estilos[i] && c === 3 ? estilos[i] : 0)).join('') + '</row>'; });
+    linhas.forEach((l, i) => { x += '<row r="' + (i + 2) + '">' + l.map((v, c) => cel(i + 2, c, v, estilos && estilos[i] && c === 4 ? estilos[i] : 0)).join('') + '</row>'; });
     return x + '</sheetData></worksheet>';
   }
   function gerarXlsx() {
-    const cab = ['Modo', 'Código', 'TSK', 'Status', 'Evento', 'Alarmes', 'Anexado no chamado', 'Hora', 'Resposta da Tais'];
-    const lin = i => [NOMES_MODO[modo], i.codigo, i.tsk, STATUS_TXT[i.status].replace(/^\S+\s/, ''), i.evento, i.alarmes, i.anexado, i.hora, i.resposta];
+    const cab = ['Modo', 'Origem', 'Código', 'TSK', 'Status', 'Evento (planilha)', 'Evento (Tais)', 'Alarmes', 'Anexado no chamado', 'Hora', 'Resposta da Tais'];
+    const lin = i => [NOMES_MODO[modo], i.origem || '', i.codigo, i.tsk, STATUS_TXT[i.status].replace(/^\S+\s/, ''), i.eventoPlan || '', i.evento, i.alarmes, i.anexado, i.hora, i.resposta];
     const sel = st => itens.filter(i => st.includes(i.status));
     const abas = [
       ['Normalizados', sel(['normalizado'])],
@@ -471,7 +561,7 @@
     const wb = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + abas.map((a, i) => '<sheet name="' + xe(a[0]) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join('') + '</sheets></workbook>';
     const wbr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + abas.map((_, i) => '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') + '<Relationship Id="rId' + (abas.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>';
     const fill = c => '<fill><patternFill patternType="solid"><fgColor rgb="' + c + '"/><bgColor indexed="64"/></patternFill></fill>';
-    const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="7"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' + fill('FFC6EFCE') + fill('FFFFC7CE') + fill('FFE7E6E6') + fill('FFFFEB9C') + '</fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="49" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="49" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="49" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="49" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="49" fontId="0" fillId="5" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>';
+    const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' + fill('FFC6EFCE') + fill('FFFFC7CE') + fill('FFE7E6E6') + fill('FFFFEB9C') + '</fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="49" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="49" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="49" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="49" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="49" fontId="0" fillId="5" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>';
     const arqs = [{ nome: '[Content_Types].xml', conteudo: ct }, { nome: '_rels/.rels', conteudo: rels }, { nome: 'xl/workbook.xml', conteudo: wb }, { nome: 'xl/_rels/workbook.xml.rels', conteudo: wbr }, { nome: 'xl/styles.xml', conteudo: styles }];
     abas.forEach((a, i) => arqs.push({ nome: 'xl/worksheets/sheet' + (i + 1) + '.xml', conteudo: xmlAba(cab, a[1].map(lin), a[0] === 'Todos' ? a[1].map(x => ESTILO_STATUS[x.status] || 0) : null) }));
     return zipar(arqs);
@@ -502,7 +592,7 @@
  --ok:#34d399;--bad:#fb7185;--gray:#94a3b8;--warn:#fbbf24;
  --t-ok:rgba(52,211,153,.13);--t-bad:rgba(251,113,133,.13);--t-gray:rgba(148,163,184,.12);--t-warn:rgba(251,191,36,.13);--t-acc:rgba(34,211,238,.14);
  --hbg:linear-gradient(135deg,rgba(34,211,238,.16),rgba(59,130,246,.12));--th:#0d162b;--hov:rgba(255,255,255,.05);
- --go-fg:#031420;--shadow:0 28px 70px rgba(0,0,0,.65),0 0 0 1px rgba(34,211,238,.14),0 0 40px rgba(34,211,238,.08);
+ --go-fg:#031420;--solid:#0d1424;--shadow:0 28px 70px rgba(0,0,0,.65),0 0 0 1px rgba(34,211,238,.14),0 0 40px rgba(34,211,238,.08);
  --mono:ui-monospace,"Cascadia Code","SF Mono",Consolas,monospace}
 :host([data-tema="light"]){
  --bg:rgba(250,252,255,.94);--card:#f2f6fc;--inp:#ffffff;--line:#d3dcec;--grid:rgba(37,99,235,.06);
@@ -510,7 +600,7 @@
  --ok:#047857;--bad:#be123c;--gray:#516078;--warn:#a16207;
  --t-ok:rgba(16,185,129,.14);--t-bad:rgba(244,63,94,.12);--t-gray:rgba(100,116,139,.12);--t-warn:rgba(234,179,8,.17);--t-acc:rgba(8,145,178,.13);
  --hbg:linear-gradient(135deg,#e0f4fb,#e4eaff);--th:#e6edf8;--hov:rgba(15,40,90,.05);
- --go-fg:#ffffff;--shadow:0 22px 55px rgba(20,40,90,.28),0 0 0 1px rgba(37,99,235,.12);}
+ --go-fg:#ffffff;--solid:#ffffff;--shadow:0 22px 55px rgba(20,40,90,.28),0 0 0 1px rgba(37,99,235,.12);}
 *{box-sizing:border-box;font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif}
 .p{position:relative;width:470px;max-height:92vh;display:flex;flex-direction:column;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);font-size:13px;overflow:hidden;-webkit-backdrop-filter:blur(18px) saturate(1.3);backdrop-filter:blur(18px) saturate(1.3);animation:in .38s cubic-bezier(.2,.8,.2,1)}
 .p::before{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:22px 22px;-webkit-mask-image:linear-gradient(180deg,#000,transparent 60%);mask-image:linear-gradient(180deg,#000,transparent 60%)}
@@ -584,6 +674,24 @@ tr.normalizado td:first-child{box-shadow:inset 3px 0 0 var(--ok)}tr.nao_normaliz
 tr.testando{font-weight:600;animation:rowglow 1.2s ease-in-out infinite}tr.testando td:first-child{box-shadow:inset 3px 0 0 var(--acc)}
 .det{display:none;white-space:pre-wrap;font:11px/1.4 var(--mono);color:var(--muted);margin-top:4px;background:var(--inp);border:1px solid var(--line);padding:6px;border-radius:8px}tr.open .det{display:block}
 .alm{font-size:11px;color:var(--bad)}
+.sub{font:10px var(--mono);color:var(--muted);white-space:normal}
+.ups{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.up{border:1px dashed var(--line);border-radius:12px;padding:9px;background:var(--inp);display:flex;flex-direction:column;gap:6px;transition:.2s;min-width:0}
+.up:hover,.up.drag{border-color:var(--acc);box-shadow:0 0 0 3px var(--ring)}
+.up.ok{border:1px solid var(--ok);background:var(--t-ok)}.up.aviso{border:1px solid var(--warn);background:var(--t-warn)}
+.up.pisca{animation:pisca .9s ease 2}
+.upt{font-weight:700;font-size:13px}
+.uph{font-size:10.5px;color:var(--muted);line-height:1.4}.uph i{font:10px var(--mono);font-style:normal;word-break:break-all;color:var(--fg);opacity:.8}
+.upb{display:block;text-align:center;border:1px solid var(--line);border-radius:9px;padding:6px;cursor:pointer;font-weight:600;font-size:12px;background:var(--card);color:var(--fg);transition:.15s}
+.upb:hover{border-color:var(--acc);color:var(--acc);box-shadow:0 5px 16px var(--glow)}.upb input{display:none}
+.upi{display:flex;align-items:flex-start;gap:6px;font-size:11px;color:var(--muted);word-break:break-word}
+.up.ok .upi{color:var(--ok)}.up.aviso .upi{color:var(--warn)}
+.upi .x{margin-left:auto;border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px}.upi .x:hover{color:var(--bad)}
+.modal{position:absolute;inset:0;z-index:6;display:grid;place-items:center;padding:16px;background:rgba(2,6,16,.55);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);animation:in .2s}
+.balao{position:relative;max-width:370px;background:var(--solid);color:var(--fg);border:1px solid var(--acc);border-radius:18px;padding:16px 16px 14px;box-shadow:0 18px 50px rgba(0,0,0,.5),0 0 30px var(--glow)}
+.balao::after{content:"";position:absolute;left:34px;bottom:-9px;width:16px;height:16px;background:var(--solid);border-right:1px solid var(--acc);border-bottom:1px solid var(--acc);transform:rotate(45deg)}
+.bt{font-weight:800;color:var(--acc);letter-spacing:.03em;margin-bottom:6px}.bx{font-size:13px;line-height:1.5;color:var(--fg)}
+.bb{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.bb .go{flex:none;font-size:12px}
 .log{height:118px;overflow:auto;background:#060a14;color:#86efc7;font:11px/1.5 var(--mono);padding:8px 10px;border-radius:12px;border:1px solid var(--line);white-space:pre-wrap;box-shadow:inset 0 0 24px rgba(34,211,238,.06);scrollbar-width:thin;scrollbar-color:#25314d transparent}
 .nota{font-size:11px;color:var(--muted)}
 details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;transition:.15s}details>summary:hover{filter:brightness(1.2)}
@@ -591,6 +699,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
 .f b{color:var(--acc);letter-spacing:.05em;text-shadow:0 0 12px var(--glow)}.f span:last-child{font-family:var(--mono)}
 .lanc{display:none;place-items:center;width:52px;height:52px;border:0;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--acc2));color:var(--go-fg);cursor:pointer;box-shadow:0 8px 26px var(--glow);transition:.18s;animation:pulseb 2.4s ease-in-out infinite}
 .lanc:hover{transform:scale(1.08) rotate(-4deg)}
+@keyframes pisca{50%{box-shadow:0 0 0 4px var(--glow);border-color:var(--acc)}}
 @keyframes in{from{opacity:0;transform:translateY(-10px) scale(.98)}to{opacity:1;transform:none}}
 @keyframes pulse{50%{opacity:.35;transform:scale(.8)}}
 @keyframes pulseb{50%{box-shadow:0 8px 40px var(--glow),0 0 0 8px var(--ring)}}
@@ -607,10 +716,29 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
    <div class="modos"><button data-m="tsk">✅ Validar TSK</button><button data-m="ne">📡 Testar NE-ID</button><button data-m="end">🏢 Testar END-ID</button></div>
   </fieldset>
   <fieldset><legend>2. Planilha</legend>
-   <label>Arquivo .xlsx / .csv<input type="file" id="arq" accept=".xlsx,.csv,.txt"></label>
-   <details style="margin-top:4px"><summary>ou cole a lista aqui</summary><textarea id="cola" placeholder="Cole aqui (uma por linha) as TSKs / NE-IDs / END-IDs copiadas do Excel"></textarea><button class="b" id="bCola" style="margin-top:4px">Usar lista colada</button></details>
-   <div class="l" style="margin-top:6px"><label>Aba<select id="aba"></select></label><label>Coluna dos códigos<select id="col"></select></label><label>Coluna da TSK (p/ NE/END)<select id="colTsk"></select></label></div>
-   <div class="nota" id="info">Nenhuma planilha carregada.</div>
+   <div class="ups">
+    <div class="up" id="upAg">
+     <div class="upt">📅 Agendado</div>
+     <div class="uph">Arquivo com a <b>data de hoje</b> no nome<br><i>ex.: Atividades-TRJ_FMMT_17_11_26</i></div>
+     <label class="upb">Escolher arquivo<input type="file" id="arqAg" accept=".xlsx,.csv,.txt"></label>
+     <div class="upi"><span id="infoAg">Nenhum arquivo.</span><button class="x" id="rmAg" title="Remover" hidden>✕</button></div>
+    </div>
+    <div class="up" id="upNa">
+     <div class="upt">🕓 Não agendado</div>
+     <div class="uph">Arquivo com <b>“não agendada”</b> no nome<br><i>ex.: Atividades-TRJ_FMMT_Não-agendada</i></div>
+     <label class="upb">Escolher arquivo<input type="file" id="arqNa" accept=".xlsx,.csv,.txt"></label>
+     <div class="upi"><span id="infoNa">Nenhum arquivo.</span><button class="x" id="rmNa" title="Remover" hidden>✕</button></div>
+    </div>
+   </div>
+   <details style="margin-top:6px"><summary>ou cole a lista aqui</summary><textarea id="cola" placeholder="Cole aqui (uma por linha) as TSKs / NE-IDs / END-IDs copiadas do Excel"></textarea><button class="b" id="bCola" style="margin-top:4px">Usar lista colada</button></details>
+   <div class="nota" id="info" style="margin-top:6px">Nenhuma planilha carregada.</div>
+   <div class="nota" id="infoCols"></div>
+   <details style="margin-top:6px"><summary>Colunas e filtros</summary>
+    <div class="l" style="margin-top:6px"><label>Coluna dos códigos<select id="col"></select></label><label>Coluna da TSK (p/ NE/END)<select id="colTsk"></select></label></div>
+    <div class="l" style="margin-top:6px"><label>Coluna do evento (GF)<select id="colEv"></select></label><label>Coluna do estado (E)<select id="colSt"></select></label><label>Coluna da regra criadora (DJ)<select id="colRg"></select></label></div>
+    <label style="flex-direction:row;gap:6px;align-items:center;margin:8px 0 6px"><input type="checkbox" id="fAtivo"> Considerar só TSKs com estes estados e sem estas regras criadoras</label>
+    <div class="l"><label>Estados aceitos (um por linha)<textarea id="fStatus"></textarea></label><label>Ignorar se a regra criadora contiver<textarea id="fExcl"></textarea></label></div>
+   </details>
    <button class="b" id="bRec" style="display:none;margin-top:4px"></button>
   </fieldset>
   <fieldset><legend>3. Executar</legend>
@@ -633,6 +761,8 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
    <label>🟢 Normalizado (uma frase por linha)<textarea id="fSim"></textarea></label>
    <label>🔴 Não normalizado<textarea id="fNao"></textarea></label>
    <label>⚪ Não validável<textarea id="fNv"></textarea></label>
+   <label>🟡 Indefinido: não dá para afirmar (nunca vira normalizado)<textarea id="fInd"></textarea></label>
+   <label>Pergunta da cadeia de tickets (escolhe o evento da planilha)<textarea id="fCad"></textarea></label>
    <label>Pergunta “inserir resultado no chamado”<textarea id="fPer"></textarea></label>
    <label>Confirmação de que anexou<textarea id="fConf"></textarea></label>
    <button class="b" id="bFr" style="margin-top:4px">Salvar frases</button> <button class="b" id="bFrPad">Restaurar padrão</button>
@@ -668,6 +798,8 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     tr.className = (it.status) + (tr.classList.contains('open') ? ' open' : '');
     const td = tr.children;
     td[0].textContent = it.id; td[1].textContent = it.codigo;
+    const sub = [it.origem === ORIG_TXT.lista ? '' : it.origem, it.eventoPlan].filter(Boolean).join(' · ');
+    if (sub) { const sb = document.createElement('div'); sb.className = 'sub'; sb.textContent = sub; td[1].appendChild(sb); }
     td[2].textContent = it.tsk; td[2].style.display = modo === 'tsk' ? 'none' : '';
     td[3].textContent = ''; const st = document.createElement('div'); st.textContent = STATUS_TXT[it.status]; td[3].appendChild(st);
     if (it.evento || it.alarmes) { const a = document.createElement('div'); a.className = 'alm'; a.textContent = [it.evento, it.alarmes].filter(Boolean).join(' • '); td[3].appendChild(a); }
@@ -717,6 +849,8 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     $('#sim').checked = CFG.simulacao; $('#ret').checked = CFG.retomar;
     $('#fSim').value = CFG.frases.sim.join('\n'); $('#fNao').value = CFG.frases.nao.join('\n'); $('#fNv').value = CFG.frases.nv.join('\n');
     $('#fPer').value = CFG.frases.pergunta.join('\n'); $('#fConf').value = CFG.frases.conf.join('\n');
+    $('#fInd').value = CFG.frases.indef.join('\n'); $('#fCad').value = CFG.frases.cadeia.join('\n');
+    $('#fAtivo').checked = CFG.filtros.ativo; $('#fStatus').value = CFG.filtros.status.join('\n'); $('#fExcl').value = CFG.filtros.excluir.join('\n');
     $('#calib').textContent = 'Campo: ' + (CFG.selInput || 'automático') + ' | Mensagens: ' + (CFG.selMsgs || 'automático') + ' | Enviar: ' + (CFG.selEnviar || 'tecla Enter');
   }
   function lerCfg() {
@@ -729,35 +863,119 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
 
   function trocarModo(m) {
     modo = m; store.set('modo', m); preencherCfg(); atualizarBotoes();
-    if (dados) { $('#col').value = colAuto(m); selecionarColTsk(); construir(); } else { renderTabela(); renderResumo(); }
+    if (dados) { const c = colsAuto(m); $('#col').value = c.cod; $('#colTsk').value = c.tsk; construir(); } else { renderTabela(); renderResumo(); }
   }
   $$('.modos button').forEach(b => b.addEventListener('click', () => trocarModo(b.dataset.m)));
 
   function preencherSelects() {
-    $('#aba').innerHTML = dados.abas.map((a, i) => '<option value="' + i + '">' + xe(a.nome) + ' (' + a.linhas.length + ')</option>').join('');
-    $('#aba').value = dados.aba;
-    const ops = dados.cab.map((c, i) => '<option value="' + i + '">' + xe(c) + '</option>').join('');
-    $('#col').innerHTML = ops; $('#colTsk').innerHTML = '<option value="-1">(nenhuma)</option>' + ops;
-    $('#col').value = colAuto(modo); selecionarColTsk();
+    const ops = dados.cab.map((c, i) => '<option value="' + i + '">' + xe(letra(i) + ' · ' + c) + '</option>').join('');
+    const nenhuma = '<option value="-1">(nenhuma)</option>';
+    $('#col').innerHTML = ops;
+    ['#colTsk', '#colEv', '#colSt', '#colRg'].forEach(q => { $(q).innerHTML = nenhuma + ops; });
+    const c = colsAuto(modo);
+    $('#col').value = c.cod; $('#colTsk').value = c.tsk; $('#colEv').value = c.ev; $('#colSt').value = c.st; $('#colRg').value = c.rg;
   }
-  function selecionarColTsk() { $('#colTsk').value = modo === 'tsk' ? -1 : (dados.cab.findIndex(ACHAR.tsk) >= 0 ? dados.cab.findIndex(ACHAR.tsk) : -1); }
-  function carregarDados(abas, nome) {
-    dados = { abas }; definirAba(0); preencherSelects(); construir();
-    log('Planilha carregada: ' + nome + ' — ' + itens.length + ' itens.');
+  // junta as planilhas carregadas (Agendado + Não agendado) numa só lista
+  function montarDados() {
+    const usar = fontes.lista ? [['lista', fontes.lista]] : [['ag', fontes.ag], ['na', fontes.na]].filter(x => x[1]);
+    atualizarSlots();
+    if (!usar.length) { dados = null; itens = []; $('#info').textContent = 'Nenhuma planilha carregada.'; $('#infoCols').textContent = ''; renderTabela(); renderResumo(); return; }
+    const base = usar[0][1];
+    dados = { cab: base.cab, linhas: [], orig: [] };
+    usar.forEach(([k, f]) => {
+      if (f.cab.join('|') !== base.cab.join('|')) log('⚠ O layout de “' + f.nome + '” é diferente do primeiro arquivo; as colunas serão lidas pela mesma posição.');
+      f.linhas.forEach(l => { dados.linhas.push(l); dados.orig.push(k); });
+    });
+    preencherSelects(); construir();
   }
-  $('#arq').addEventListener('change', async e => {
-    const f = e.target.files[0]; if (!f) return;
+  const hojeTxt = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return p(d.getDate()) + '_' + p(d.getMonth() + 1) + '_' + String(d.getFullYear()).slice(2); };
+  const ehNaoAgendada = nome => /\bn(ao|\s?o)\s+agendad/.test(norm(nome).replace(/[_\-.]+/g, ' '));
+  function checarNome(slot, nome) {
+    if (slot === 'ag') {
+      if (ehNaoAgendada(nome)) return { ok: false, msg: 'o nome parece o do arquivo NÃO agendado' };
+      const m = nome.match(/(\d{1,2})[_\-.](\d{1,2})[_\-.](\d{2,4})/);
+      if (!m) return { ok: false, msg: 'o nome não tem data (esperado algo como ' + hojeTxt() + ')' };
+      const d = new Date(), ano = +m[3] < 100 ? 2000 + +m[3] : +m[3];
+      if (+m[1] !== d.getDate() || +m[2] !== d.getMonth() + 1 || ano !== d.getFullYear()) return { ok: false, msg: 'a data do nome é ' + m[1] + '/' + m[2] + '/' + m[3] + ' e hoje é ' + hojeTxt().replace(/_/g, '/') };
+      return { ok: true };
+    }
+    return ehNaoAgendada(nome) ? { ok: true } : { ok: false, msg: 'o nome não tem “não agendada”' };
+  }
+  const SLOT = { ag: { el: '#upAg', info: '#infoAg', rm: '#rmAg', inp: '#arqAg', nome: 'Agendado' }, na: { el: '#upNa', info: '#infoNa', rm: '#rmNa', inp: '#arqNa', nome: 'Não agendado' } };
+  function atualizarSlots() {
+    ['ag', 'na'].forEach(k => {
+      const S = SLOT[k], f = fontes[k], box = $(S.el);
+      box.classList.toggle('ok', !!f && f.chk.ok); box.classList.toggle('aviso', !!f && !f.chk.ok);
+      $(S.rm).hidden = !f;
+      $(S.info).textContent = f ? ((f.chk.ok ? '✔ ' : '⚠ ') + f.nome + ' · ' + f.linhas.length + ' linhas' + (f.chk.ok ? '' : ' — ' + f.chk.msg + '. Confira se é o arquivo certo.')) : 'Nenhum arquivo.';
+    });
+  }
+  async function carregarArquivo(slot, f) {
     try {
       const abas = /\.xlsx$/i.test(f.name) ? await lerXlsx(await f.arrayBuffer()) : lerTexto(await f.text());
       if (!abas.length) throw new Error('planilha vazia');
-      carregarDados(abas, f.name);
-    } catch (err) { log('⚠ Não consegui ler o arquivo: ' + err.message + '. Use “cole a lista aqui”.'); }
+      const fonte = prepararFonte(abas); fonte.nome = f.name; fonte.chk = checarNome(slot, f.name);
+      fontes[slot] = fonte; fontes.lista = null; seguirUm = '';
+      log('Planilha ' + SLOT[slot].nome + ' carregada: ' + f.name + ' (' + fonte.linhas.length + ' linhas)' + (fonte.chk.ok ? '' : ' ⚠ ' + fonte.chk.msg));
+      montarDados();
+    } catch (err) { log('⚠ Não consegui ler “' + f.name + '”: ' + err.message + '. Use “cole a lista aqui”.'); }
+  }
+  ['ag', 'na'].forEach(k => {
+    const S = SLOT[k];
+    $(S.inp).addEventListener('change', e => { const f = e.target.files[0]; if (f) carregarArquivo(k, f); e.target.value = ''; });
+    $(S.rm).addEventListener('click', () => { if (rodando) return; fontes[k] = null; seguirUm = ''; montarDados(); log('Planilha ' + S.nome + ' removida.'); });
+    const box = $(S.el);
+    box.addEventListener('dragover', e => { e.preventDefault(); box.classList.add('drag'); });
+    box.addEventListener('dragleave', () => box.classList.remove('drag'));
+    box.addEventListener('drop', e => { e.preventDefault(); box.classList.remove('drag'); const f = e.dataTransfer.files[0]; if (f) carregarArquivo(k, f); });
   });
-  $('#bCola').addEventListener('click', () => { const t = $('#cola').value; if (!t.trim()) return; carregarDados(lerTexto(t), 'lista colada'); });
-  $('#aba').addEventListener('change', () => { definirAba(+$('#aba').value); preencherSelects(); construir(); });
-  $('#col').addEventListener('change', construir); $('#colTsk').addEventListener('change', construir);
+  $('#bCola').addEventListener('click', () => {
+    const t = $('#cola').value; if (!t.trim()) return;
+    const fonte = prepararFonte(lerTexto(t)); fonte.nome = 'lista colada';
+    fontes.lista = fonte; fontes.ag = fontes.na = null; seguirUm = '';
+    log('Lista colada carregada (' + fonte.linhas.length + ' linhas).'); montarDados();
+  });
 
-  $('#bGo').addEventListener('click', () => { lerCfg(); executar(); });
+  // balão de escolha dentro do painel
+  function perguntar({ titulo, texto, botoes }) {
+    if ($('.modal')) return;
+    const ov = document.createElement('div'); ov.className = 'modal';
+    const card = document.createElement('div'); card.className = 'balao';
+    const t = document.createElement('div'); t.className = 'bt'; t.textContent = '🤖 ' + titulo;
+    const x = document.createElement('div'); x.className = 'bx'; x.textContent = texto;
+    const bb = document.createElement('div'); bb.className = 'bb';
+    botoes.concat([{ rotulo: 'Cancelar', cancelar: true }]).forEach(b => {
+      const el = document.createElement('button'); el.className = 'b' + (b.primario ? ' go' : '');
+      el.textContent = b.rotulo; el.onclick = () => { ov.remove(); if (b.fn) b.fn(); };
+      bb.appendChild(el);
+    });
+    card.append(t, x, bb); ov.appendChild(card); $('#p').appendChild(ov);
+  }
+  function iniciar() {
+    const falta = fontes.lista ? '' : (fontes.ag && !fontes.na ? 'na' : (!fontes.ag && fontes.na ? 'ag' : ''));
+    if (falta && seguirUm !== falta) {
+      const tem = SLOT[falta === 'na' ? 'ag' : 'na'].nome, sem = SLOT[falta].nome;
+      perguntar({
+        titulo: 'Só uma planilha anexada',
+        texto: 'Você anexou apenas a planilha “' + tem + '”. A planilha “' + sem + '” não foi anexada. Quer seguir só com a de ' + tem + '?',
+        botoes: [
+          { rotulo: 'Seguir só com ' + tem, primario: true, fn: () => { seguirUm = falta; executar(); } },
+          { rotulo: 'Anexar a de ' + sem, fn: () => { const b = $(SLOT[falta].el); b.classList.add('pisca'); setTimeout(() => b.classList.remove('pisca'), 2200); $(SLOT[falta].inp).click(); } }
+        ]
+      });
+      return;
+    }
+    executar();
+  }
+  ['#col', '#colTsk', '#colEv', '#colSt', '#colRg'].forEach(q => $(q).addEventListener('change', reconstruir));
+  function lerFiltros() {
+    const l = id => $(id).value.split('\n').map(x => x.trim()).filter(Boolean);
+    CFG.filtros = { ativo: $('#fAtivo').checked, status: l('#fStatus'), excluir: l('#fExcl') }; salvarCfg();
+    if (dados) reconstruir();
+  }
+  ['#fAtivo', '#fStatus', '#fExcl'].forEach(q => $(q).addEventListener('change', lerFiltros));
+
+  $('#bGo').addEventListener('click', () => { lerCfg(); iniciar(); });
   $('#bStop').addEventListener('click', () => { parar = true; store.set('rodando', false); log('Parando… (termina o item atual)'); });
   $('#bXls').addEventListener('click', baixarExcel);
   $('#bLimpa').addEventListener('click', () => { if (itens.length && !confirm('Apagar os resultados atuais e recomeçar?')) return; itens.forEach(i => Object.assign(i, { status: 'pendente', evento: '', alarmes: '', anexado: '', resposta: '', hora: '' })); store.del('sessao'); renderTabela(); renderResumo(); log('Resultados limpos.'); });
@@ -770,7 +988,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
 
   $('#bFr').addEventListener('click', () => {
     const l = id => $(id).value.split('\n').map(s => s.trim()).filter(Boolean);
-    CFG.frases = { sim: l('#fSim'), nao: l('#fNao'), nv: l('#fNv'), pergunta: l('#fPer'), conf: l('#fConf'), erro: CFG.frases.erro }; salvarCfg(); log('Frases salvas.');
+    CFG.frases = { sim: l('#fSim'), nao: l('#fNao'), nv: l('#fNv'), indef: l('#fInd'), cadeia: l('#fCad'), pergunta: l('#fPer'), conf: l('#fConf'), erro: CFG.frases.erro }; salvarCfg(); log('Frases salvas.');
   });
   $('#bFrPad').addEventListener('click', () => { CFG.frases = JSON.parse(JSON.stringify(FRASES_PADRAO)); salvarCfg(); preencherCfg(); log('Frases restauradas.'); });
   $('#bConn').addEventListener('click', () => {
