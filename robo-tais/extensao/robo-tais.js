@@ -5,7 +5,7 @@
   'use strict';
   if (window.__roboTais) { window.__roboTais.mostrar(); return; }
 
-  const VERSAO = '1.4';
+  const VERSAO = '1.5';
   const LS = 'robotais_v1_';
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -36,7 +36,7 @@
   }, salvo);
   CFG.tmpl = Object.assign({ tsk: '{codigo} validar', ne: '{codigo} testar', end: '{codigo} testar' }, salvo.tmpl || {});
   CFG.frases = Object.assign({}, FRASES_PADRAO, salvo.frases || {});
-  CFG.filtros = Object.assign({ ativo: true, status: ['Não iniciado', 'Iniciado'], excluir: ['PREDITIVA', 'SUPORTE ACESSO', 'MABE'] }, salvo.filtros || {});
+  CFG.filtros = Object.assign({ ativo: true, status: ['Não iniciado', 'Iniciado'], excluir: ['PREDITIVA', 'SUPORTE ACESSO', 'MABE'], tipo: ['Planta Interna - Manutenção Corretiva'] }, salvo.filtros || {});
   const salvarCfg = () => store.set('cfg', CFG);
 
   /* ============ ESTADO ============ */
@@ -450,55 +450,90 @@
     ne: h => /^ne ?-?_?id$/.test(norm(h)) || /^neid/.test(norm(h)),
     end: h => /^end ?-?_?id$/.test(norm(h)) || /^endid/.test(norm(h))
   };
-  // Colunas padrão: TSK = coluna B, status = E, regra criadora = DJ, evento = GF (se a planilha não tiver, procura pelo nome do cabeçalho)
+  // Colunas padrão: TSK = B, ID da atividade = C, tipo da atividade = D, estado = E, regra criadora = DJ, evento = GF.
+  // Procura primeiro pelo nome do cabeçalho; se não achar, usa a letra da coluna.
   function colsAuto(m) {
     const porNome = re => dados.cab.findIndex(h => re.test(norm(h)));
-    const porLetra = (L, re) => { const i = colIdx(L); return i < dados.cab.length ? i : porNome(re); };
+    const achar = (re, L) => { const i = porNome(re); if (i >= 0) return i; const j = colIdx(L); return j < dados.cab.length ? j : -1; };
     const iT = dados.cab.findIndex(ACHAR.tsk);
     const tsk = iT >= 0 ? iT : (dados.cab.length > 1 ? 1 : 0);
     const iC = m === 'tsk' ? tsk : dados.cab.findIndex(ACHAR[m]);
-    return { cod: iC >= 0 ? iC : 0, tsk: m === 'tsk' ? -1 : tsk, ev: porLetra('GF', /evento/), st: porLetra('E', /^status/), rg: porLetra('DJ', /regra/) };
+    return {
+      cod: iC >= 0 ? iC : 0, tsk: m === 'tsk' ? -1 : tsk,
+      ev: achar(/^evento$/, 'GF'), st: achar(/^(estado|status)$/, 'E'), rg: achar(/^regra( usuario)? criador/, 'DJ'),
+      tp: achar(/^tipo da atividade$/, 'D'), id: achar(/^id da atividade$/, 'C')
+    };
   }
   const limpo = v => { v = String(v == null ? '' : v).trim(); return (!v || /^(-|n\/?a|nan|null|none|#n\/?a)$/i.test(v)) ? '' : v; };
+  // compara dois IDs de atividade: >0 se a for maior (mais recente) que b
+  const cmpId = (a, b) => {
+    const x = String(a == null ? '' : a).trim(), y = String(b == null ? '' : b).trim();
+    if (/^\d+$/.test(x) && /^\d+$/.test(y)) { const d = BigInt(x) - BigInt(y); return d > 0n ? 1 : (d < 0n ? -1 : 0); }
+    return x.localeCompare(y, undefined, { numeric: true });
+  };
   function construir() {
     itens = [];
     if (!dados) return;
-    const cc = +$('#col').value, ct = +$('#colTsk').value, ce = +$('#colEv').value, cs = +$('#colSt').value, cr = +$('#colRg').value;
+    const cc = +$('#col').value, ct = +$('#colTsk').value, ce = +$('#colEv').value, cs = +$('#colSt').value, cr = +$('#colRg').value, cp = +$('#colTp').value, ci = +$('#colId').value;
     const F = CFG.filtros;
-    const aceitos = new Set(F.status.map(norm)), excl = F.excluir.map(norm).filter(Boolean);
-    const ign = { status: 0, regra: 0 };
-    const mapa = new Map();
+    const aceitos = new Set(F.status.map(norm)), excl = F.excluir.map(norm).filter(Boolean), tipos = new Set((F.tipo || []).map(norm));
+    const tskCol = modo === 'tsk' ? cc : ct;
+    const ign = { tipo: 0, status: 0, repetida: 0, regra: 0 };
+    // 1) linhas válidas: tipo da atividade (coluna D) e estado (coluna E)
+    const validas = [];
     dados.linhas.forEach((l, li) => {
-      const c = limpo(l[cc]); if (!c) return;
       if (F.ativo) {
+        if (cp >= 0 && tipos.size && !tipos.has(norm(l[cp]))) { ign.tipo++; return; }
         if (cs >= 0 && aceitos.size && !aceitos.has(norm(l[cs]))) { ign.status++; return; }
-        if (cr >= 0 && excl.length) { const r = norm(l[cr]); if (excl.some(x => r.includes(x))) { ign.regra++; return; } }
       }
-      if (!mapa.has(c)) mapa.set(c, { tsks: new Set(), evs: new Set(), org: new Set() });
+      validas.push(li);
+    });
+    // 2) TSK repetida (coluna B): entre as linhas válidas, fica a de maior ID da atividade (coluna C) = mais recente
+    const porTsk = new Map(), semTsk = [];
+    validas.forEach(li => {
+      const t = tskCol >= 0 ? limpo(dados.linhas[li][tskCol]) : '';
+      if (!t) { semTsk.push(li); return; }
+      const atual = porTsk.get(t);
+      if (atual == null) { porTsk.set(t, li); return; }
+      ign.repetida++;
+      if (ci >= 0 && cmpId(dados.linhas[li][ci], dados.linhas[atual][ci]) > 0) porTsk.set(t, li);
+    });
+    const escolhidas = [...porTsk.values(), ...semTsk].sort((a, b) => a - b);
+    // 3) regra usuário criador (coluna DJ) da linha escolhida e montagem dos itens
+    const mapa = new Map();
+    escolhidas.forEach(li => {
+      const l = dados.linhas[li], c = limpo(l[cc]); if (!c) return;
+      if (F.ativo && cr >= 0 && excl.length) { const r = norm(l[cr]); if (excl.some(x => r.includes(x))) { ign.regra++; return; } }
+      if (!mapa.has(c)) mapa.set(c, { tsks: new Set(), evs: new Set(), org: new Set(), ids: new Set() });
       const m = mapa.get(c);
       m.org.add(dados.orig[li]);
       if (modo !== 'tsk' && ct >= 0) { const t = limpo(l[ct]); if (t) m.tsks.add(t); }
+      if (ci >= 0) { const v = limpo(l[ci]); if (v) m.ids.add(v); }
       if (ce >= 0) String(l[ce] == null ? '' : l[ce]).split(/[;,\s]+/).map(limpo).filter(Boolean).forEach(e => m.evs.add(e));
     });
-    let n = 0; const cont = { ag: 0, na: 0, ambos: 0, lista: 0 };
+    let n = 0; const cont = { ag: 0, na: 0, lista: 0 };
     mapa.forEach((v, c) => {
-      const ord = ['ag', 'na', 'lista'].filter(k => v.org.has(k));
-      if (ord.length > 1) cont.ambos++; else cont[ord[0]]++;
-      itens.push({ id: ++n, codigo: c, tsk: modo === 'tsk' ? c : [...v.tsks].join(', '), origem: ord.map(k => ORIG_TXT[k]).join(' + '), eventos: [...v.evs], eventoPlan: [...v.evs].join(', '), status: 'pendente', evento: '', alarmes: '', anexado: '', resposta: '', hora: '' });
+      v.org.forEach(k => { cont[k]++; });
+      itens.push({ id: ++n, codigo: c, tsk: modo === 'tsk' ? c : [...v.tsks].join(', '), origem: ['ag', 'na', 'lista'].filter(k => v.org.has(k)).map(k => ORIG_TXT[k]).join(' + '), idAtividade: [...v.ids].join(', '), eventos: [...v.evs], eventoPlan: [...v.evs].join(', '), status: 'pendente', evento: '', alarmes: '', anexado: '', resposta: '', hora: '' });
     });
     let info = itens.length + ' ' + (modo === 'tsk' ? 'TSKs' : 'códigos únicos') + ' para testar';
-    if (fontes.ag || fontes.na) info += ' (Agendado: ' + (cont.ag + cont.ambos) + ' · Não agendado: ' + (cont.na + cont.ambos) + (cont.ambos ? ' · repetidas nas duas: ' + cont.ambos : '') + ')';
+    if (fontes.ag || fontes.na) info += ' (Agendado: ' + cont.ag + ' · Não agendado: ' + cont.na + ')';
     info += '.';
-    if (F.ativo) info += ' Linhas ignoradas: ' + ign.status + ' por estado, ' + ign.regra + ' por regra criadora.';
+    if (F.ativo) info += ' Ignoradas: ' + ign.tipo + ' linhas por tipo da atividade, ' + ign.status + ' por estado';
+    info += (F.ativo ? '; ' : ' ') + ign.repetida + ' linhas repetidas da mesma TSK (fica a de maior ID da atividade)';
+    if (F.ativo) info += '; ' + ign.regra + ' por regra criadora';
+    info += '.';
     const av = [];
+    if (F.ativo && cp < 0) av.push('coluna do tipo da atividade não definida (filtro de tipo desligado)');
     if (F.ativo && cs < 0) av.push('coluna de estado não definida (filtro de estado desligado)');
     if (F.ativo && cr < 0) av.push('coluna da regra criadora não definida (filtro de regra desligado)');
+    if (ci < 0) av.push('coluna do ID da atividade não definida (em TSK repetida fica a primeira linha)');
     if (ce < 0) av.push('sem coluna de evento (não dá para escolher o evento da cadeia)');
     if (av.length) info += ' ⚠ ' + av.join('; ') + '.';
     if (!itens.length) info += ' ⚠ Nenhum item sobrou: confira as colunas e os filtros.';
     $('#info').textContent = info;
     const nc = i => i >= 0 ? letra(i) + ' · ' + (dados.cab[i] || '') : '—';
-    $('#infoCols').textContent = 'Colunas lidas: ' + (modo === 'tsk' ? 'TSK' : 'código') + ' = ' + nc(cc) + (ct >= 0 ? ' | TSK = ' + nc(ct) : '') + ' | evento = ' + nc(ce) + ' | estado = ' + nc(cs) + ' | regra criadora = ' + nc(cr);
+    $('#infoCols').textContent = 'Colunas lidas: ' + (modo === 'tsk' ? 'TSK' : 'código') + ' = ' + nc(cc) + (ct >= 0 ? ' | TSK = ' + nc(ct) : '') + ' | ID da atividade = ' + nc(ci) + ' | tipo = ' + nc(cp) + ' | estado = ' + nc(cs) + ' | regra criadora = ' + nc(cr) + ' | evento = ' + nc(ce);
     renderTabela(); renderResumo();
   }
   function reconstruir() {
@@ -536,18 +571,18 @@
   const letra = i => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
   const ESTILO_STATUS = { normalizado: 2, nao_normalizado: 3, nao_validavel: 4, indefinido: 5 };
   function xmlAba(cab, linhas, estilos) {
-    const larg = [14, 16, 22, 22, 20, 24, 24, 50, 16, 10, 80];
+    const larg = [14, 16, 22, 22, 16, 20, 24, 24, 50, 16, 10, 80];
     let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>';
     cab.forEach((_, i) => x += '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + (larg[i] || 18) + '" customWidth="1"/>');
     x += '</cols><sheetData>';
     const cel = (r, c, v, s) => '<c r="' + letra(c) + r + '" t="inlineStr"' + (s ? ' s="' + s + '"' : '') + '><is><t xml:space="preserve">' + xe(v) + '</t></is></c>';
     x += '<row r="1">' + cab.map((v, c) => cel(1, c, v, 1)).join('') + '</row>';
-    linhas.forEach((l, i) => { x += '<row r="' + (i + 2) + '">' + l.map((v, c) => cel(i + 2, c, v, estilos && estilos[i] && c === 4 ? estilos[i] : 0)).join('') + '</row>'; });
+    linhas.forEach((l, i) => { x += '<row r="' + (i + 2) + '">' + l.map((v, c) => cel(i + 2, c, v, estilos && estilos[i] && c === 5 ? estilos[i] : 0)).join('') + '</row>'; });
     return x + '</sheetData></worksheet>';
   }
   function gerarXlsx() {
-    const cab = ['Modo', 'Origem', 'Código', 'TSK', 'Status', 'Evento (planilha)', 'Evento (Tais)', 'Alarmes', 'Anexado no chamado', 'Hora', 'Resposta da Tais'];
-    const lin = i => [NOMES_MODO[modo], i.origem || '', i.codigo, i.tsk, STATUS_TXT[i.status].replace(/^\S+\s/, ''), i.eventoPlan || '', i.evento, i.alarmes, i.anexado, i.hora, i.resposta];
+    const cab = ['Modo', 'Origem', 'Código', 'TSK', 'ID da atividade', 'Status', 'Evento (planilha)', 'Evento (Tais)', 'Alarmes', 'Anexado no chamado', 'Hora', 'Resposta da Tais'];
+    const lin = i => [NOMES_MODO[modo], i.origem || '', i.codigo, i.tsk, i.idAtividade || '', STATUS_TXT[i.status].replace(/^\S+\s/, ''), i.eventoPlan || '', i.evento, i.alarmes, i.anexado, i.hora, i.resposta];
     const sel = st => itens.filter(i => st.includes(i.status));
     const abas = [
       ['Normalizados', sel(['normalizado'])],
@@ -735,9 +770,11 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
    <div class="nota" id="infoCols"></div>
    <details style="margin-top:6px"><summary>Colunas e filtros</summary>
     <div class="l" style="margin-top:6px"><label>Coluna dos códigos<select id="col"></select></label><label>Coluna da TSK (p/ NE/END)<select id="colTsk"></select></label></div>
-    <div class="l" style="margin-top:6px"><label>Coluna do evento (GF)<select id="colEv"></select></label><label>Coluna do estado (E)<select id="colSt"></select></label><label>Coluna da regra criadora (DJ)<select id="colRg"></select></label></div>
-    <label style="flex-direction:row;gap:6px;align-items:center;margin:8px 0 6px"><input type="checkbox" id="fAtivo"> Considerar só TSKs com estes estados e sem estas regras criadoras</label>
-    <div class="l"><label>Estados aceitos (um por linha)<textarea id="fStatus"></textarea></label><label>Ignorar se a regra criadora contiver<textarea id="fExcl"></textarea></label></div>
+    <div class="l" style="margin-top:6px"><label>Coluna do ID da atividade (C)<select id="colId"></select></label><label>Coluna do tipo da atividade (D)<select id="colTp"></select></label><label>Coluna do estado (E)<select id="colSt"></select></label></div>
+    <div class="l" style="margin-top:6px"><label>Coluna do evento (GF)<select id="colEv"></select></label><label>Coluna da regra criadora (DJ)<select id="colRg"></select></label></div>
+    <label style="flex-direction:row;gap:6px;align-items:center;margin:8px 0 6px"><input type="checkbox" id="fAtivo"> Aplicar os filtros abaixo (tipo, estado e regra criadora)</label>
+    <div class="l"><label>Tipos de atividade aceitos (um por linha)<textarea id="fTipo"></textarea></label><label>Estados aceitos (um por linha)<textarea id="fStatus"></textarea></label><label>Ignorar se a regra criadora contiver<textarea id="fExcl"></textarea></label></div>
+    <div class="nota" style="margin-top:4px">Se a mesma TSK aparecer em várias linhas, o robô usa só as linhas válidas e, entre elas, a de maior ID da atividade (a mais recente).</div>
    </details>
    <button class="b" id="bRec" style="display:none;margin-top:4px"></button>
   </fieldset>
@@ -798,7 +835,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     tr.className = (it.status) + (tr.classList.contains('open') ? ' open' : '');
     const td = tr.children;
     td[0].textContent = it.id; td[1].textContent = it.codigo;
-    const sub = [it.origem === ORIG_TXT.lista ? '' : it.origem, it.eventoPlan].filter(Boolean).join(' · ');
+    const sub = [it.origem === ORIG_TXT.lista ? '' : it.origem, it.idAtividade ? 'ID ' + it.idAtividade : '', it.eventoPlan].filter(Boolean).join(' · ');
     if (sub) { const sb = document.createElement('div'); sb.className = 'sub'; sb.textContent = sub; td[1].appendChild(sb); }
     td[2].textContent = it.tsk; td[2].style.display = modo === 'tsk' ? 'none' : '';
     td[3].textContent = ''; const st = document.createElement('div'); st.textContent = STATUS_TXT[it.status]; td[3].appendChild(st);
@@ -850,7 +887,7 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     $('#fSim').value = CFG.frases.sim.join('\n'); $('#fNao').value = CFG.frases.nao.join('\n'); $('#fNv').value = CFG.frases.nv.join('\n');
     $('#fPer').value = CFG.frases.pergunta.join('\n'); $('#fConf').value = CFG.frases.conf.join('\n');
     $('#fInd').value = CFG.frases.indef.join('\n'); $('#fCad').value = CFG.frases.cadeia.join('\n');
-    $('#fAtivo').checked = CFG.filtros.ativo; $('#fStatus').value = CFG.filtros.status.join('\n'); $('#fExcl').value = CFG.filtros.excluir.join('\n');
+    $('#fAtivo').checked = CFG.filtros.ativo; $('#fStatus').value = CFG.filtros.status.join('\n'); $('#fExcl').value = CFG.filtros.excluir.join('\n'); $('#fTipo').value = (CFG.filtros.tipo || []).join('\n');
     $('#calib').textContent = 'Campo: ' + (CFG.selInput || 'automático') + ' | Mensagens: ' + (CFG.selMsgs || 'automático') + ' | Enviar: ' + (CFG.selEnviar || 'tecla Enter');
   }
   function lerCfg() {
@@ -871,9 +908,9 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     const ops = dados.cab.map((c, i) => '<option value="' + i + '">' + xe(letra(i) + ' · ' + c) + '</option>').join('');
     const nenhuma = '<option value="-1">(nenhuma)</option>';
     $('#col').innerHTML = ops;
-    ['#colTsk', '#colEv', '#colSt', '#colRg'].forEach(q => { $(q).innerHTML = nenhuma + ops; });
+    ['#colTsk', '#colEv', '#colSt', '#colRg', '#colTp', '#colId'].forEach(q => { $(q).innerHTML = nenhuma + ops; });
     const c = colsAuto(modo);
-    $('#col').value = c.cod; $('#colTsk').value = c.tsk; $('#colEv').value = c.ev; $('#colSt').value = c.st; $('#colRg').value = c.rg;
+    $('#col').value = c.cod; $('#colTsk').value = c.tsk; $('#colEv').value = c.ev; $('#colSt').value = c.st; $('#colRg').value = c.rg; $('#colTp').value = c.tp; $('#colId').value = c.id;
   }
   // junta as planilhas carregadas (Agendado + Não agendado) numa só lista
   function montarDados() {
@@ -967,13 +1004,13 @@ details>summary{cursor:pointer;font-weight:700;color:var(--acc);font-size:12px;t
     }
     executar();
   }
-  ['#col', '#colTsk', '#colEv', '#colSt', '#colRg'].forEach(q => $(q).addEventListener('change', reconstruir));
+  ['#col', '#colTsk', '#colEv', '#colSt', '#colRg', '#colTp', '#colId'].forEach(q => $(q).addEventListener('change', reconstruir));
   function lerFiltros() {
     const l = id => $(id).value.split('\n').map(x => x.trim()).filter(Boolean);
-    CFG.filtros = { ativo: $('#fAtivo').checked, status: l('#fStatus'), excluir: l('#fExcl') }; salvarCfg();
+    CFG.filtros = { ativo: $('#fAtivo').checked, status: l('#fStatus'), excluir: l('#fExcl'), tipo: l('#fTipo') }; salvarCfg();
     if (dados) reconstruir();
   }
-  ['#fAtivo', '#fStatus', '#fExcl'].forEach(q => $(q).addEventListener('change', lerFiltros));
+  ['#fAtivo', '#fStatus', '#fExcl', '#fTipo'].forEach(q => $(q).addEventListener('change', lerFiltros));
 
   $('#bGo').addEventListener('click', () => { lerCfg(); iniciar(); });
   $('#bStop').addEventListener('click', () => { parar = true; store.set('rodando', false); log('Parando… (termina o item atual)'); });

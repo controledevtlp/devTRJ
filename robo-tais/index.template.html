@@ -89,7 +89,7 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
 
   <header class="hero">
     <div>
-      <div class="eyebrow">Validação automática · v1.4</div>
+      <div class="eyebrow">Validação automática · v1.5</div>
       <h1>Valide TSKs e teste NE-ID e END-ID <em>sem repetir nada</em></h1>
       <p class="lead">Suba a planilha, escolha o modo e acompanhe cada item em tempo real. O robô anexa o resultado no chamado quando a TSK está normalizada e entrega um Excel com tudo separado. Roda na sua aba da Tais, com o seu login. Não lê nem guarda senha.</p>
       <div class="sites"><span>web.telegram.org/k/#@tim_tais_bot</span><span>tim-access-portal-prd…codeengine.appdomain.cloud</span></div>
@@ -175,10 +175,11 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
     <span class="tag">Regras da lista</span>
     <h2>O que entra no teste</h2>
     <ul>
-      <li>Só entram TSKs com <b>Estado</b> (coluna E) igual a “Não iniciado” ou “Iniciado”.</li>
-      <li>Ficam de fora as TSKs cuja <b>regra usuário criador</b> (coluna DJ) contém <code>PREDITIVA</code>, <code>SUPORTE ACESSO</code> ou <code>MABE</code>.</li>
-      <li>A TSK vem da coluna B. Se a mesma TSK aparecer em mais de uma linha, ela é testada uma vez só.</li>
-      <li>Quando a Tais pergunta qual evento da cadeia validar, o robô escolhe o evento da coluna GF da própria TSK. Sem evento na planilha, ou sem opção igual na pergunta, a TSK vai para Indefinidos e o robô não clica em nada.</li>
+      <li>Só valem as linhas com <b>Tipo da Atividade</b> (coluna D) igual a “Planta Interna - Manutenção Corretiva”.</li>
+      <li>Dessas, só entram as com <b>Estado</b> (coluna E) “Não iniciado” ou “Iniciado”.</li>
+      <li>A TSK vem da coluna B. Se ela aparecer em mais de uma linha válida, o robô usa a de <b>maior ID da atividade</b> (coluna C), que é a mais recente. A comparação é numérica, então 100 vale mais que 99.</li>
+      <li>Ficam de fora as TSKs cuja <b>regra usuário criador</b> (coluna DJ), na linha escolhida, contém <code>PREDITIVA</code>, <code>SUPORTE ACESSO</code> ou <code>MABE</code>.</li>
+      <li>Quando a Tais pergunta qual evento da cadeia validar, o robô escolhe o evento da coluna GF da linha escolhida da TSK. Sem evento na planilha, ou sem opção igual na pergunta, a TSK vai para Indefinidos e o robô não clica em nada.</li>
       <li>Resposta “Não encontrei regras de validação… não é possível afirmar” vai para Indefinidos, nunca para Normalizados.</li>
     </ul>
     <p class="note">Esses filtros e as colunas podem ser mudados no painel, em “Colunas e filtros”.</p>
@@ -197,7 +198,7 @@ footer span:last-child{font-family:var(--f-mono);font-size:12px}
     <p class="note">Este robô ainda não foi testado na Tais real, apenas em chats de simulação. Rode primeiro com poucos itens e confirme os anexos.</p>
   </section>
 
-  <footer><span>⚡ Desenvolvido por <b>Lucas Infante</b></span><span>Robô Tais v1.4</span></footer>
+  <footer><span>⚡ Desenvolvido por <b>Lucas Infante</b></span><span>Robô Tais v1.5</span></footer>
 </main>
 
 <script type="text/plain" id="codigo">/*__CODIGO__*/</script>
